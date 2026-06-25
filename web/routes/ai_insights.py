@@ -310,6 +310,240 @@ def _save_cached_insights(tg_id: int, text: str) -> None:
         logger.error("_save_cached_insights error: %s", exc)
 
 
+_RU_MONTHS_SHORT = [
+    "", "янв", "фев", "мар", "апр", "мая", "июн",
+    "июл", "авг", "сен", "окт", "ноя", "дек",
+]
+
+
+def _fmt_money(v: float) -> str:
+    """Format a float as '48 500 ₽' (space-separated thousands, no decimals)."""
+    return f"{int(v):,}".replace(",", "\u00a0") + "\u00a0₽"
+
+
+def _format_week_label(ws_str: str, we_str: str, value: float) -> str:
+    """Return e.g. 'Нед. 18–24 мая: 48 500 ₽' for a sparkline bar tooltip."""
+    try:
+        ws_d = _dt.date.fromisoformat(ws_str)
+        we_d = _dt.date.fromisoformat(we_str)
+        d1, m1 = ws_d.day, _RU_MONTHS_SHORT[ws_d.month]
+        d2, m2 = we_d.day, _RU_MONTHS_SHORT[we_d.month]
+        if ws_d.month == we_d.month:
+            period = f"{d1}–{d2}\u00a0{m2}"
+        else:
+            period = f"{d1}\u00a0{m1}\u00a0–\u00a0{d2}\u00a0{m2}"
+        return f"Нед.\u00a0{period}: {_fmt_money(value)}"
+    except Exception:
+        return _fmt_money(value)
+
+
+def _make_sparkline_svg(values: list[float], labels: list[str] | None = None) -> str:
+    """Generate a tiny inline SVG bar sparkline (6 bars, oldest→newest left→right).
+
+    If *labels* is provided (same length as *values*), each bar gets an SVG
+    <title> child so browsers show a native tooltip on hover.
+    """
+    n = len(values)
+    if n == 0:
+        return ""
+    bar_w, gap, h = 6, 2, 20
+    w = n * bar_w + (n - 1) * gap
+    max_val = max(values) if max(values) > 0 else 1
+    bars = []
+    for i, v in enumerate(values):
+        bar_h = max(2, round(v / max_val * h))
+        x = i * (bar_w + gap)
+        y = h - bar_h
+        color = "#6366f1" if i == n - 1 else "#94a3b8"
+        title = ""
+        if labels and i < len(labels):
+            escaped = labels[i].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+            title = f"<title>{escaped}</title>"
+        bars.append(
+            f'<rect x="{x}" y="{y}" width="{bar_w}" height="{bar_h}" '
+            f'fill="{color}" rx="1">{title}</rect>'
+        )
+    return (
+        f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
+        f'xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle">'
+        f'{"".join(bars)}</svg>'
+    )
+
+
+def _sparkline_labels_for_today(today, values: list[float]) -> list[str]:
+    """Generate tooltip labels for sparkline bars using only today's date + cached values.
+
+    Produces the same (ws, we) date ranges as _compute_shop_sparkline_values without
+    touching the DB, so cached entries can have their SVGs upgraded in-place.
+    """
+    labels: list[str] = []
+    for weeks_back in range(len(values), 0, -1):
+        ws = (today - _dt.timedelta(days=today.weekday() + 7 * weeks_back)).isoformat()
+        we = (today - _dt.timedelta(days=today.weekday() + 7 * (weeks_back - 1) + 1)).isoformat()
+        v = values[len(values) - weeks_back] if weeks_back <= len(values) else 0.0
+        labels.append(_format_week_label(ws, we, v))
+    return labels
+
+
+def _compute_shop_sparkline_values(conn, shop_name: str, today) -> tuple[list[float], list[str]]:
+    """Return (values, labels) for 6 weeks oldest→newest for a single shop.
+
+    *labels* are formatted as 'Нед. 18–24 мая: 48 500 ₽' for tooltip display.
+    """
+    values: list[float] = []
+    labels: list[str] = []
+    for weeks_back in range(6, 0, -1):
+        ws = (today - _dt.timedelta(days=today.weekday() + 7 * weeks_back)).isoformat()
+        we = (today - _dt.timedelta(days=today.weekday() + 7 * (weeks_back - 1) + 1)).isoformat()
+        row = conn.execute(
+            "SELECT SUM(quantity_sold * sale_price) FROM sales "
+            "WHERE shop_name=? AND sale_date>=? AND sale_date<=?",
+            (shop_name, ws, we),
+        ).fetchone()
+        v = float(row[0] or 0) if row else 0.0
+        values.append(v)
+        labels.append(_format_week_label(ws, we, v))
+    return values, labels
+
+
+def _compute_shop_weekly_breakdown(org_db: str) -> list[dict]:
+    """Compute per-shop weekly revenue breakdown on demand (used when not cached)."""
+    import datetime as _dt2
+    try:
+        from database import Database
+        db = Database(org_db)
+        today = _dt2.date.today()
+        week_start = (today - _dt2.timedelta(days=today.weekday() + 7)).isoformat()
+        week_end   = (today - _dt2.timedelta(days=today.weekday() + 1)).isoformat()
+        prev_start = (today - _dt2.timedelta(days=today.weekday() + 14)).isoformat()
+        prev_end   = (today - _dt2.timedelta(days=today.weekday() + 8)).isoformat()
+
+        shops_raw = db.get_all_shops(include_system=False)
+        shop_names = []
+        for sr in (shops_raw or []):
+            sn = sr[0] if isinstance(sr, (list, tuple)) else sr
+            if sn and str(sn).strip():
+                shop_names.append(str(sn).strip())
+        if len(shop_names) < 2:
+            return []
+
+        conn = db.get_connection()
+        try:
+            breakdown = []
+            for shop_name in shop_names:
+                sw = conn.execute(
+                    "SELECT SUM(quantity_sold * sale_price) FROM sales WHERE shop_name=? AND sale_date>=? AND sale_date<=?",
+                    (shop_name, week_start, week_end),
+                ).fetchone()
+                sp = conn.execute(
+                    "SELECT SUM(quantity_sold * sale_price) FROM sales WHERE shop_name=? AND sale_date>=? AND sale_date<=?",
+                    (shop_name, prev_start, prev_end),
+                ).fetchone()
+                sparkline_vals, sparkline_labels = _compute_shop_sparkline_values(conn, shop_name, today)
+                breakdown.append({
+                    "name": shop_name,
+                    "week_revenue": float(sw[0] or 0) if sw else 0.0,
+                    "prev_revenue": float(sp[0] or 0) if sp else 0.0,
+                    "sparkline_vals": sparkline_vals,
+                    "sparkline_svg": _make_sparkline_svg(sparkline_vals, sparkline_labels),
+                })
+        finally:
+            conn.close()
+        breakdown.sort(key=lambda x: x["week_revenue"], reverse=True)
+        return breakdown
+    except Exception as exc:
+        logger.error("_compute_shop_weekly_breakdown error for %s: %s", org_db, exc)
+        return []
+
+
+def _enrich_digest_shop_breakdown(digest: dict) -> dict:
+    """Attach shop_breakdown list (with delta_pct + sparkline_svg) to a digest dict.
+
+    Tries cached shop_breakdown_json first; falls back to on-demand computation.
+    Adds delta_pct and sparkline_svg for each shop entry.
+    """
+    import json as _json
+    raw: list[dict] = []
+    cached_json = digest.get("shop_breakdown_json")
+    if cached_json:
+        try:
+            raw = _json.loads(cached_json)
+        except Exception:
+            raw = []
+    if not raw:
+        raw = _compute_shop_weekly_breakdown(digest["org_db"])
+        if raw:
+            try:
+                import json as _json2
+                _json2_str = _json2.dumps(raw, ensure_ascii=False)
+                _conn = sqlite3.connect(_SHOP_BOT_DB)
+                try:
+                    _conn.execute(
+                        "UPDATE ai_weekly_digest_cache SET shop_breakdown_json=? WHERE org_db=?",
+                        (_json2_str, digest["org_db"]),
+                    )
+                    _conn.commit()
+                finally:
+                    _conn.close()
+            except Exception as _e:
+                logger.debug("shop_breakdown backfill write failed: %s", _e)
+
+    today = _dt.date.today()
+    for entry in raw:
+        prev = entry.get("prev_revenue", 0)
+        cur = entry.get("week_revenue", 0)
+        if prev > 0:
+            entry["delta_pct"] = round((cur - prev) / prev * 100, 1)
+        else:
+            entry["delta_pct"] = None
+        if entry.get("sparkline_svg") and "<title>" not in entry["sparkline_svg"]:
+            vals = entry.get("sparkline_vals") or []
+            if vals:
+                try:
+                    lbls = _sparkline_labels_for_today(today, vals)
+                    entry["sparkline_svg"] = _make_sparkline_svg(vals, lbls)
+                except Exception:
+                    pass
+
+    needs_sparkline = [e for e in raw if not e.get("sparkline_svg")]
+    if needs_sparkline:
+        enriched_ok = False
+        try:
+            from database import Database
+            db = Database(digest["org_db"])
+            conn = db.get_connection()
+            try:
+                for entry in needs_sparkline:
+                    vals, lbls = _compute_shop_sparkline_values(conn, entry["name"], today)
+                    entry["sparkline_vals"] = vals
+                    entry["sparkline_svg"] = _make_sparkline_svg(vals, lbls)
+                enriched_ok = True
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.error("sparkline enrich error for %s: %s", digest.get("org_db"), exc)
+            for entry in needs_sparkline:
+                entry.setdefault("sparkline_svg", "")
+        if enriched_ok:
+            try:
+                import json as _json_sp
+                _sp_str = _json_sp.dumps(raw, ensure_ascii=False)
+                _sp_conn = sqlite3.connect(_SHOP_BOT_DB)
+                try:
+                    _sp_conn.execute(
+                        "UPDATE ai_weekly_digest_cache SET shop_breakdown_json=? WHERE org_db=?",
+                        (_sp_str, digest["org_db"]),
+                    )
+                    _sp_conn.commit()
+                finally:
+                    _sp_conn.close()
+            except Exception as _sp_e:
+                logger.debug("sparkline persist-back failed: %s", _sp_e)
+
+    digest["shop_breakdown"] = raw if len(raw) >= 2 else []
+    return digest
+
+
 def _get_digests_for_orgs(org_dbs: list[str]) -> list[dict]:
     """Return cached weekly digests for the given list of org_db paths, newest first."""
     if not org_dbs:
@@ -320,17 +554,27 @@ def _get_digests_for_orgs(org_dbs: list[str]) -> list[dict]:
         try:
             placeholders = ",".join("?" * len(org_dbs))
             rows = conn.execute(
-                f"SELECT org_db, digest_text, generated_at FROM ai_weekly_digest_cache WHERE org_db IN ({placeholders}) ORDER BY generated_at DESC",
+                f"SELECT org_db, digest_text, generated_at, shop_breakdown_json, shops_included_json FROM ai_weekly_digest_cache WHERE org_db IN ({placeholders}) ORDER BY generated_at DESC",
                 org_dbs,
             ).fetchall()
         finally:
             conn.close()
+        import json as _json_web
         for row in rows:
-            results.append({
+            d = {
                 "org_db": row[0],
                 "digest_text": row[1],
                 "generated_at": row[2],
-            })
+                "shop_breakdown_json": row[3],
+                "shops_included_json": row[4] if len(row) > 4 else None,
+            }
+            # Parse shops_included snapshot
+            try:
+                d["shops_included"] = _json_web.loads(d["shops_included_json"]) if d["shops_included_json"] else []
+            except Exception:
+                d["shops_included"] = []
+            _enrich_digest_shop_breakdown(d)
+            results.append(d)
     except Exception as exc:
         logger.error("_get_digests_for_orgs error: %s", exc)
     return results
@@ -517,7 +761,34 @@ def ai_insights_page(request: Request, saved: str = ""):
             org_dbs.append(session_org_db)
         if org_dbs:
             raw = _get_digests_for_orgs(org_dbs)
-            # Annotate with org name and per-unit metrics
+
+            # Pre-warm unit_summaries with any digest orgs not yet computed.
+            # This ensures _digest_metrics() always hits the fast lookup path
+            # and never falls back to per-digest DB queries (critical for owners
+            # with many shops where each fallback is 4+ SQLite reads).
+            _cached_org_dbs = {u["org_db"] for u in unit_summaries}
+            _digest_org_dbs = {d["org_db"] for d in raw}
+            for _obd in _digest_org_dbs - _cached_org_dbs:
+                if mode == "intra_org":
+                    _shops = _get_shops_for_org(_obd)
+                    for _shop_name in _shops:
+                        _s = _get_shop_summary(_obd, _shop_name)
+                        _s["name"] = _shop_name
+                        _s["org_db"] = _obd
+                        _rp = _s.get("revenue_prev", 0)
+                        _rc = _s.get("revenue_month", 0)
+                        _s["delta_pct"] = round((_rc - _rp) / _rp * 100, 1) if _rp > 0 else None
+                        unit_summaries.append(_s)
+                else:
+                    _s = _get_org_summary(_obd)
+                    _s["name"] = next((o["name"] for o in user_orgs if o["org_db"] == _obd), "")
+                    _s["org_db"] = _obd
+                    _rp = _s.get("revenue_prev", 0)
+                    _rc = _s.get("revenue_month", 0)
+                    _s["delta_pct"] = round((_rc - _rp) / _rp * 100, 1) if _rp > 0 else None
+                    unit_summaries.append(_s)
+
+            # Annotate with org name and per-unit metrics (now always from cache)
             db_to_name = {o["org_db"]: o["name"] for o in user_orgs}
             for d in raw:
                 d["org_name"] = db_to_name.get(d["org_db"], "")
@@ -535,17 +806,24 @@ def ai_insights_page(request: Request, saved: str = ""):
 
     # AI alert settings (admin only)
     ai_alert_settings: dict | None = None
+    digest_all_shops: list[str] = []
     if is_admin and has_alerts_ext:
         try:
             from database import Database as _Db
             _db = _Db(user.get("org_db", ""))
             ai_alert_settings = _db.get_ai_alert_settings()
+            _shops_raw = _db.get_all_shops(include_system=False) or []
+            for _sr in _shops_raw:
+                _sn = _sr[0] if isinstance(_sr, (list, tuple)) else _sr
+                if _sn and str(_sn).strip():
+                    digest_all_shops.append(str(_sn).strip())
         except Exception:
             ai_alert_settings = {
                 "enabled": True, "threshold_pct": 35, "alert_hour_msk": 10,
                 "metrics": ["revenue"], "digest_context": ["products", "sellers", "plans"],
                 "digest_enabled": True, "digest_day_of_week": 0, "digest_hour_msk": 9,
                 "digest_push_enabled": True, "alert_push_enabled": True,
+                "digest_shop_filter": [],
             }
 
     # Warn if email alerts are on but no admin has a verified email
@@ -571,10 +849,12 @@ def ai_insights_page(request: Request, saved: str = ""):
         "weekly_digests": weekly_digests,
         "alert_history": alert_history,
         "ai_alert_settings": ai_alert_settings,
+        "digest_all_shops": digest_all_shops,
         "is_admin": is_admin,
         "csrf_token": get_csrf_token(request),
         "saved": saved == "1",
         "email_missing_warning": email_missing_warning,
+        "today_label": _dt.date.today().strftime("%d.%m.%Y"),
     })
 
 
@@ -608,6 +888,30 @@ def get_weekly_digest(request: Request):
 
     # Compute unit summaries once for metrics annotation
     mode, unit_summaries = _compute_unit_summaries_for_orgs(user_orgs)
+
+    # Pre-warm: compute summaries for digest orgs not already in unit_summaries,
+    # so _digest_metrics() never falls back to per-digest DB queries.
+    _cached_org_dbs = {u["org_db"] for u in unit_summaries}
+    _digest_org_dbs = {d["org_db"] for d in raw}
+    for _obd in _digest_org_dbs - _cached_org_dbs:
+        if mode == "intra_org":
+            _shops = _get_shops_for_org(_obd)
+            for _shop_name in _shops:
+                _s = _get_shop_summary(_obd, _shop_name)
+                _s["name"] = _shop_name
+                _s["org_db"] = _obd
+                _rp = _s.get("revenue_prev", 0)
+                _rc = _s.get("revenue_month", 0)
+                _s["delta_pct"] = round((_rc - _rp) / _rp * 100, 1) if _rp > 0 else None
+                unit_summaries.append(_s)
+        else:
+            _s = _get_org_summary(_obd)
+            _s["name"] = next((o["name"] for o in user_orgs if o["org_db"] == _obd), "")
+            _s["org_db"] = _obd
+            _rp = _s.get("revenue_prev", 0)
+            _rc = _s.get("revenue_month", 0)
+            _s["delta_pct"] = round((_rc - _rp) / _rp * 100, 1) if _rp > 0 else None
+            unit_summaries.append(_s)
 
     for d in raw:
         d["org_name"] = db_to_name.get(d["org_db"], "")

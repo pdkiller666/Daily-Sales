@@ -134,6 +134,8 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         # AI weekly digest prefs (owners with ai_network_insights)
         "has_network_insights": False,
         "digest_prefs": {"weekday": 0, "hour_msk": 12},
+        "digest_shops": [],
+        "digest_shop_filter": [],
         # tasks_pro — для показа авто-задача переключателя
         "tasks_pro": False,
     }
@@ -256,6 +258,15 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
                     from database import Database as _SBDb
                     _sb = _SBDb("data/shop_bot.db")
                     ctx["digest_prefs"] = _sb.get_network_digest_prefs(telegram_id)
+                    if org_db:
+                        try:
+                            _org_db = get_web_db(telegram_id, org_db)
+                            ctx["digest_shops"] = [s[0] if isinstance(s, (list, tuple)) else s for s in (_org_db.get_all_shops() or [])]
+                            _ais = _org_db.get_ai_alert_settings()
+                            ctx["digest_shop_filter"] = _ais.get("digest_shop_filter") or []
+                        except Exception:
+                            ctx["digest_shops"] = []
+                            ctx["digest_shop_filter"] = []
             except Exception:
                 ctx["has_network_insights"] = False
 
@@ -881,6 +892,10 @@ async def settings_ai_alerts(
     if not digest_context:
         digest_context = ["products", "sellers", "plans"]
 
+    form_data = await request.form()
+    digest_shop_filter_raw = form_data.getlist("digest_shop_filter")
+    digest_shop_filter = [s.strip() for s in digest_shop_filter_raw if s.strip()] or None
+
     try:
         db = get_web_db(int(user["sub"]), user.get("org_db"))
         db.save_ai_alert_settings(
@@ -896,6 +911,7 @@ async def settings_ai_alerts(
             alert_push_enabled=bool(alert_push_enabled),
             alert_email_enabled=bool(alert_email_enabled),
             digest_email_enabled=bool(digest_email_enabled),
+            digest_shop_filter=digest_shop_filter,
         )
     except Exception:
         pass
@@ -906,9 +922,6 @@ async def settings_ai_alerts(
 @router.post("/settings/ai-digest")
 async def settings_ai_digest(
     request: Request,
-    csrf_token: str = Form(default=""),
-    digest_weekday: int = Form(default=0),
-    digest_hour_msk: int = Form(default=12),
 ):
     from web.auth import get_session_user, verify_csrf_token
     user = get_session_user(request)
@@ -916,11 +929,16 @@ async def settings_ai_digest(
         return RedirectResponse(url="/login", status_code=302)
     if user.get("role") not in ("owner", "super_admin"):
         return RedirectResponse(url="/settings", status_code=303)
+
+    form_data = await request.form()
+    csrf_token = form_data.get("csrf_token", "")
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(url="/settings?error=csrf", status_code=303)
 
-    digest_weekday = max(0, min(6, digest_weekday))
-    digest_hour_msk = max(0, min(23, digest_hour_msk))
+    digest_weekday = max(0, min(6, int(form_data.get("digest_weekday", 0))))
+    digest_hour_msk = max(0, min(23, int(form_data.get("digest_hour_msk", 12))))
+    digest_shop_filter_raw = form_data.getlist("digest_shop_filter")
+    digest_shop_filter = [s.strip() for s in digest_shop_filter_raw if s.strip()] or None
 
     try:
         from database import Database as _SBDb
@@ -928,6 +946,30 @@ async def settings_ai_digest(
         _sb.save_network_digest_prefs(int(user["sub"]), digest_weekday, digest_hour_msk)
     except Exception:
         pass
+
+    if digest_shop_filter is not None or not digest_shop_filter_raw:
+        org_db = user.get("org_db")
+        if org_db:
+            try:
+                _org_db = get_web_db(int(user["sub"]), org_db)
+                _cur = _org_db.get_ai_alert_settings()
+                _org_db.save_ai_alert_settings(
+                    enabled=_cur.get("enabled", True),
+                    threshold_pct=_cur.get("threshold_pct", 35),
+                    alert_hour_msk=_cur.get("alert_hour_msk", 10),
+                    metrics=_cur.get("metrics", ["revenue"]),
+                    digest_context=_cur.get("digest_context"),
+                    digest_enabled=_cur.get("digest_enabled", True),
+                    digest_day_of_week=_cur.get("digest_day_of_week", 0),
+                    digest_hour_msk=_cur.get("digest_hour_msk", 9),
+                    digest_push_enabled=_cur.get("digest_push_enabled", True),
+                    alert_push_enabled=_cur.get("alert_push_enabled", True),
+                    alert_email_enabled=_cur.get("alert_email_enabled", False),
+                    digest_email_enabled=_cur.get("digest_email_enabled", False),
+                    digest_shop_filter=digest_shop_filter,
+                )
+            except Exception:
+                pass
 
     return RedirectResponse(url="/settings?saved=1#ai-digest", status_code=303)
 

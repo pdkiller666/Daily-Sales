@@ -1,6 +1,31 @@
-CURRENT_VERSION = "1.182.0"
+CURRENT_VERSION = "1.183.0"
 
 ENTRIES = [
+    {
+        "version": "1.183.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Мини-спарклайн (6 недель) в таблице по точкам дайджеста — тренд выручки виден сразу, без перехода на детали",
+            "Update application with new features and improve reporting accuracy",
+            "Add \"данные на [date]\" freshness label to digest metrics tables",
+            "Add plan details to improve AI understanding of store performance",
+            "Cache per-digest metrics to eliminate redundant DB reads on /ai-insights page",
+            "Git commit prior to merge",
+            "Show per-shop weekly revenue trend in the AI insights web panel",
+            "Let owners choose which shops appear in the weekly AI digest",
+            "Backfill shop_breakdown_json cache when computed on-demand",
+            "Add APScheduler job to backfill shop_breakdown_json for all orgs",
+            "Add a visual trend indicator to the shop revenue breakdown",
+            "Show which shops are included when viewing a past digest",
+            "Cache sparkline values back to DB after first enrichment in weekly digest",
+            "Re-run breakdown backfill automatically when a new digest is generated",
+            "Let owners configure the shop filter from the Telegram bot",
+            "Add tooltip showing exact weekly revenue when hovering sparkline bars",
+            "log summary after each backfill_shop_breakdown run",
+            "Fix stuck 'deleted' red badge appearing on tasks and other pages",
+            "Show shop name checkboxes in AI digest settings (not just a count)",
+        ],
+    },
     {
         "version": "1.182.0",
         "date": "25 июня 2026",

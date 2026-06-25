@@ -1591,6 +1591,8 @@ class Database:
             cursor.execute("ALTER TABLE ai_alert_settings ADD COLUMN alert_email_enabled INTEGER DEFAULT 0")
         if 'digest_email_enabled' not in _ais_cols:
             cursor.execute("ALTER TABLE ai_alert_settings ADD COLUMN digest_email_enabled INTEGER DEFAULT 0")
+        if 'digest_shop_filter' not in _ais_cols:
+            cursor.execute("ALTER TABLE ai_alert_settings ADD COLUMN digest_shop_filter TEXT DEFAULT NULL")
 
         # ── Гибкая оргструктура (Вариант A+B) ───────────────────────────────
         # Подразделения с иерархией (регион → город → магазин → отдел → команда)
@@ -1876,6 +1878,16 @@ class Database:
                     generated_at TEXT NOT NULL
                 )
             ''')
+            # Migration: per-shop weekly breakdown stored alongside digest
+            try:
+                cursor.execute('ALTER TABLE ai_weekly_digest_cache ADD COLUMN shop_breakdown_json TEXT DEFAULT NULL')
+            except Exception:
+                pass  # column already exists
+            # Migration: snapshot of which shops were included at generation time
+            try:
+                cursor.execute('ALTER TABLE ai_weekly_digest_cache ADD COLUMN shops_included_json TEXT DEFAULT NULL')
+            except Exception:
+                pass  # column already exists
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_user ON billing_module_subs(user_telegram_id, is_active, end_date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_key  ON billing_module_subs(item_key, is_active)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_ext_mod    ON billing_extensions(module_key)')
@@ -15662,6 +15674,24 @@ class Database:
             logger.error("get_admin_audit: %s", exc)
             return []
 
+    def get_latest_audit_by_action(self, action: str) -> dict | None:
+        """Вернуть последнюю запись аудит-лога с заданным action, или None."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT id, actor_tg_id, actor_name, action, target, details, ip, created_at "
+                "FROM admin_audit_log WHERE action=? ORDER BY id DESC LIMIT 1",
+                (action,)
+            ).fetchone()
+            if row is None:
+                return None
+            return dict(zip(
+                ('id', 'actor_tg_id', 'actor_name', 'action', 'target',
+                 'details', 'ip', 'created_at'), row))
+        except Exception as exc:
+            logger.error("get_latest_audit_by_action: %s", exc)
+            return None
+
     def link_web_credential_to_telegram(self, email: str, telegram_id: int) -> str:
         """Link an email credential to a real Telegram account.
         Returns: 'ok' | 'already_linked' | 'not_found' | 'error'
@@ -15839,17 +15869,19 @@ class Database:
             "alert_push_enabled": True,
             "alert_email_enabled": False,
             "digest_email_enabled": False,
+            "digest_shop_filter": [],
         }
         try:
             conn = self.get_connection()
             row = conn.execute(
                 "SELECT enabled, threshold_pct, alert_hour_msk, metrics, digest_context,"
                 " digest_enabled, digest_day_of_week, digest_hour_msk, digest_push_enabled,"
-                " alert_push_enabled, alert_email_enabled, digest_email_enabled"
+                " alert_push_enabled, alert_email_enabled, digest_email_enabled, digest_shop_filter"
                 " FROM ai_alert_settings WHERE id = 1"
             ).fetchone()
             conn.close()
             if row:
+                _dsf = row[12]
                 return {
                     "enabled": bool(row[0]),
                     "threshold_pct": int(row[1] or 35),
@@ -15863,6 +15895,7 @@ class Database:
                     "alert_push_enabled": bool(row[9] if row[9] is not None else 1),
                     "alert_email_enabled": bool(row[10] if row[10] is not None else 0),
                     "digest_email_enabled": bool(row[11] if row[11] is not None else 0),
+                    "digest_shop_filter": _json.loads(_dsf) if _dsf else [],
                 }
             return defaults
         except Exception as exc:
@@ -15883,18 +15916,20 @@ class Database:
         alert_push_enabled: bool = True,
         alert_email_enabled: bool = False,
         digest_email_enabled: bool = False,
+        digest_shop_filter: list | None = None,
     ) -> bool:
         import json as _json
         if digest_context is None:
             digest_context = ["products", "sellers", "plans"]
+        _dsf_val = _json.dumps(digest_shop_filter) if digest_shop_filter else None
         try:
             conn = self.get_connection()
             conn.execute(
                 """INSERT INTO ai_alert_settings
                        (id, enabled, threshold_pct, alert_hour_msk, metrics, digest_context, updated_at,
                         digest_enabled, digest_day_of_week, digest_hour_msk, digest_push_enabled,
-                        alert_push_enabled, alert_email_enabled, digest_email_enabled)
-                   VALUES (1, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?)
+                        alert_push_enabled, alert_email_enabled, digest_email_enabled, digest_shop_filter)
+                   VALUES (1, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                        enabled              = excluded.enabled,
                        threshold_pct        = excluded.threshold_pct,
@@ -15908,11 +15943,12 @@ class Database:
                        digest_push_enabled  = excluded.digest_push_enabled,
                        alert_push_enabled   = excluded.alert_push_enabled,
                        alert_email_enabled  = excluded.alert_email_enabled,
-                       digest_email_enabled = excluded.digest_email_enabled""",
+                       digest_email_enabled = excluded.digest_email_enabled,
+                       digest_shop_filter   = excluded.digest_shop_filter""",
                 (int(enabled), int(threshold_pct), int(alert_hour_msk), _json.dumps(metrics),
                  _json.dumps(digest_context), int(digest_enabled), int(digest_day_of_week), int(digest_hour_msk),
                  int(digest_push_enabled), int(alert_push_enabled),
-                 int(alert_email_enabled), int(digest_email_enabled)),
+                 int(alert_email_enabled), int(digest_email_enabled), _dsf_val),
             )
             conn.commit()
             return True

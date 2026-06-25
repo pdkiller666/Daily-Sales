@@ -83,6 +83,13 @@ async def admin_hub(request: Request):
         last_backup = backups[0]["created"].strftime("%d.%m.%Y %H:%M") if backups else "—"
     except Exception:
         last_backup = "—"
+    try:
+        _backfill_entry = db.get_latest_audit_by_action("backfill_shop_breakdown")
+        last_backfill = _backfill_entry["created_at"][:16] if _backfill_entry else "—"
+        last_backfill_details = _backfill_entry["details"] if _backfill_entry else ""
+    except Exception:
+        last_backfill = "—"
+        last_backfill_details = ""
     return request.app.state.templates.TemplateResponse(
         request,
         "admin/hub.html",
@@ -92,6 +99,8 @@ async def admin_hub(request: Request):
             "active_subs_count": active_subs,
             "pending_count": pending,
             "last_backup": last_backup,
+            "last_backfill": last_backfill,
+            "last_backfill_details": last_backfill_details,
         }),
     )
 

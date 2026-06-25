@@ -144,6 +144,7 @@
         <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center text-2xl shadow-lg shadow-rose-500/30 mb-3">📋</div>
         <p class="font-bold text-slate-800 dark:text-slate-100 group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors">Аудит-лог</p>
         <p class="text-xs text-slate-400 mt-0.5">Действия супер-админа: биллинг, доступы</p>
+        <p class="text-[11px] text-slate-400 mt-1">Backfill: {{ last_backfill }}{% if last_backfill_details %} <span title="{{ last_backfill_details }}" class="cursor-help">({{ last_backfill_details }})</span>{% endif %}</p>
     </a>
 
 </div>

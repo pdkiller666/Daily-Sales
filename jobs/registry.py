@@ -1541,6 +1541,10 @@ def register_inline_jobs(
                             _sn = _sr[0] if isinstance(_sr, (list, tuple)) else _sr
                             if _sn and str(_sn).strip():
                                 _shop_names.append(str(_sn).strip())
+                        # Respect owner's shop filter (empty list = all shops)
+                        _digest_shop_filter = _digest_cfg.get("digest_shop_filter") or []
+                        if _digest_shop_filter:
+                            _shop_names = [s for s in _shop_names if s in _digest_shop_filter]
                         if len(_shop_names) >= 2:
                             _shop_conn = db.get_connection()
                             try:
@@ -1718,17 +1722,45 @@ def register_inline_jobs(
                     # Сохраняем дайджест в shop_bot.db для отображения в веб-кабинете
                     try:
                         import sqlite3 as _sq3
+                        import json as _json_sb
                         _sdb = _sq3.connect("data/shop_bot.db")
+                        _sb_json = _json_sb.dumps(_shop_breakdown, ensure_ascii=False) if _shop_breakdown and len(_shop_breakdown) >= 2 else None
+                        _si_json = _json_sb.dumps(_shop_names, ensure_ascii=False) if _shop_names else None
                         _sdb.execute(
-                            """INSERT INTO ai_weekly_digest_cache (org_db, digest_text, generated_at)
-                               VALUES (?, ?, datetime('now'))
+                            """INSERT INTO ai_weekly_digest_cache (org_db, digest_text, generated_at, shop_breakdown_json, shops_included_json)
+                               VALUES (?, ?, datetime('now'), ?, ?)
                                ON CONFLICT(org_db) DO UPDATE SET
-                                 digest_text  = excluded.digest_text,
-                                 generated_at = excluded.generated_at""",
-                            (db_path, ai_text or msg),
+                                 digest_text          = excluded.digest_text,
+                                 generated_at         = excluded.generated_at,
+                                 shop_breakdown_json  = excluded.shop_breakdown_json,
+                                 shops_included_json  = excluded.shops_included_json""",
+                            (db_path, ai_text or msg, _sb_json, _si_json),
                         )
                         _sdb.commit()
                         _sdb.close()
+                        # Immediately compute full breakdown (with sparklines) so the web
+                        # cabinet never serves a sparkline-less cache row.  The Friday
+                        # backfill job remains as a safety-net for any orgs missed here.
+                        try:
+                            from web.routes.ai_insights import _compute_shop_weekly_breakdown as _csb
+                            _full_bd = _csb(db_path)
+                            if _full_bd:
+                                _full_json = _json_sb.dumps(_full_bd, ensure_ascii=False)
+                                _upd2 = _sq3.connect("data/shop_bot.db")
+                                try:
+                                    _upd2.execute(
+                                        "UPDATE ai_weekly_digest_cache SET shop_breakdown_json=? WHERE org_db=?",
+                                        (_full_json, db_path),
+                                    )
+                                    _upd2.commit()
+                                finally:
+                                    _upd2.close()
+                                logging.debug(
+                                    "ai_weekly_digest: inline breakdown filled %s (%d shops)",
+                                    db_path, len(_full_bd),
+                                )
+                        except Exception as _bd_err:
+                            logging.debug("ai_weekly_digest: inline breakdown: %s", _bd_err)
                     except Exception as _save_err:
                         logging.warning(f"ai_weekly_digest cache save: {_save_err}")
 
@@ -2114,6 +2146,85 @@ def register_inline_jobs(
         ai_seller_coach,
         CronTrigger(minute=20),
         id='ai_seller_coach',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    # ─── Shop breakdown backfill — каждую пятницу в 06:00 UTC ──────────────────
+    async def backfill_shop_breakdown():
+        """Заполняет shop_breakdown_json для всех org, где он ещё не вычислен."""
+        import sqlite3 as _sq3, json as _json, os as _os
+        _SBOT = "data/shop_bot.db"
+        _orgs_filled = 0
+        _orgs_skipped = 0
+        _orgs_error = 0
+        _total = 0
+        try:
+            try:
+                conn = _sq3.connect(_SBOT)
+                try:
+                    rows = conn.execute(
+                        "SELECT org_db FROM ai_weekly_digest_cache WHERE shop_breakdown_json IS NULL"
+                    ).fetchall()
+                finally:
+                    conn.close()
+            except Exception as _e:
+                logging.error("backfill_shop_breakdown: cannot read cache: %s", _e)
+                rows = []
+
+            _total = len(rows)
+            if rows:
+                from web.routes.ai_insights import _compute_shop_weekly_breakdown
+                for (org_db,) in rows:
+                    try:
+                        if not org_db or not _os.path.exists(org_db):
+                            _orgs_skipped += 1
+                            continue
+                        breakdown = _compute_shop_weekly_breakdown(org_db)
+                        if not breakdown:
+                            _orgs_skipped += 1
+                            continue
+                        breakdown_json = _json.dumps(breakdown, ensure_ascii=False)
+                        upd_conn = _sq3.connect(_SBOT)
+                        try:
+                            upd_conn.execute(
+                                "UPDATE ai_weekly_digest_cache SET shop_breakdown_json=? WHERE org_db=? AND shop_breakdown_json IS NULL",
+                                (breakdown_json, org_db),
+                            )
+                            upd_conn.commit()
+                        finally:
+                            upd_conn.close()
+                        logging.info("backfill_shop_breakdown: filled %s (%d shops)", org_db, len(breakdown))
+                        _orgs_filled += 1
+                    except Exception as _org_err:
+                        logging.warning("backfill_shop_breakdown: org_db=%s error: %s", org_db, _org_err)
+                        _orgs_error += 1
+        finally:
+            logging.info(
+                "backfill_shop_breakdown: done — filled=%d skipped=%d error=%d / total=%d",
+                _orgs_filled, _orgs_skipped, _orgs_error, _total,
+            )
+            try:
+                _details = (
+                    f"filled={_orgs_filled} skipped={_orgs_skipped} "
+                    f"error={_orgs_error} total={_total}"
+                )
+                Database(_SBOT).add_admin_audit(
+                    actor_tg_id=None,
+                    actor_name="scheduler",
+                    action="backfill_shop_breakdown",
+                    target="ai_weekly_digest_cache",
+                    details=_details,
+                    ip="",
+                )
+            except Exception as _audit_err:
+                logging.warning("backfill_shop_breakdown: audit write failed: %s", _audit_err)
+
+    scheduler.add_job(
+        backfill_shop_breakdown,
+        CronTrigger(day_of_week='fri', hour=6, minute=0),
+        id='backfill_shop_breakdown',
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3600,

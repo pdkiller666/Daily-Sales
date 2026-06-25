@@ -223,17 +223,29 @@
         <template x-if="!items.length">
             <div class="space-y-3">
                 {% for d in weekly_digests %}
-                <div class="card p-4 space-y-2">
-                    {% if d.org_name %}
+                <div class="card p-4 space-y-2" x-data="{ shopOpen: false }">
                     <div class="flex items-center justify-between flex-wrap gap-1">
+                        {% if d.org_name %}
                         <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">{{ d.org_name }}</span>
-                        <span class="text-xs text-slate-400">{{ d.generated_at }}</span>
+                        {% else %}
+                        <span></span>
+                        {% endif %}
+                        <div class="flex items-center gap-2 flex-wrap justify-end">
+                            {% if d.shops_included %}
+                            <span class="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/60 rounded-full px-2 py-0.5"
+                                  title="{{ d.shops_included | join(', ') }}">
+                                🏪 {{ d.shops_included | length }} {{ 'магазин' if d.shops_included | length == 1 else ('магазина' if d.shops_included | length in [2, 3, 4] else 'магазинов') }}
+                            </span>
+                            {% endif %}
+                            <span class="text-xs text-slate-400">{{ d.generated_at }}</span>
+                        </div>
                     </div>
-                    {% else %}
-                    <div class="text-xs text-slate-400 text-right">{{ d.generated_at }}</div>
-                    {% endif %}
                     {% if d.metrics %}
                     <div class="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-700/60">
+                        <div class="flex items-center justify-between px-3 py-1 border-b border-slate-100 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-800/50">
+                            <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">текущий месяц</span>
+                            <span class="text-xs text-slate-400 dark:text-slate-500">данные на {{ today_label }}</span>
+                        </div>
                         <table class="w-full text-xs">
                             <thead>
                                 <tr class="text-slate-400 dark:text-slate-500 uppercase tracking-wide bg-slate-50 dark:bg-slate-800/50">
@@ -270,6 +282,49 @@
                     </div>
                     {% endif %}
                     <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-100 dark:border-slate-700">{{ d.digest_text }}</div>
+                    {% if d.shop_breakdown and d.shop_breakdown|length >= 2 %}
+                    <div>
+                        <button @click="shopOpen = !shopOpen"
+                                class="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:underline mt-1">
+                            <svg class="w-3 h-3 transition-transform" :class="shopOpen ? 'rotate-90' : ''" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                            <span x-text="shopOpen ? 'Скрыть по точкам' : 'По точкам ({{ d.shop_breakdown|length }})'"></span>
+                        </button>
+                        <div x-show="shopOpen" x-cloak class="mt-2 overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-700">
+                            <table class="w-full text-xs">
+                                <thead>
+                                    <tr class="bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                                        <th class="text-left px-3 py-2 font-semibold">Магазин</th>
+                                        <th class="text-right px-3 py-2 font-semibold whitespace-nowrap">Выручка за неделю</th>
+                                        <th class="text-right px-3 py-2 font-semibold whitespace-nowrap">Δ к пред. нед.</th>
+                                        <th class="text-center px-3 py-2 font-semibold whitespace-nowrap">6 нед.</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+                                    {% for s in d.shop_breakdown %}
+                                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                                        <td class="px-3 py-2 font-medium text-slate-800 dark:text-slate-100 max-w-[9rem] truncate" title="{{ s.name }}">{{ s.name }}</td>
+                                        <td class="px-3 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                                            {{ "{:,.0f}".format(s.week_revenue).replace(",", " ") }} ₽
+                                        </td>
+                                        <td class="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                                            {% if s.delta_pct is none %}
+                                                <span class="text-slate-400 dark:text-slate-500">—</span>
+                                            {% elif s.delta_pct > 0 %}
+                                                <span class="text-emerald-600 dark:text-emerald-400 font-medium">+{{ s.delta_pct }}%</span>
+                                            {% elif s.delta_pct < 0 %}
+                                                <span class="text-red-500 dark:text-red-400 font-medium">{{ s.delta_pct }}%</span>
+                                            {% else %}
+                                                <span class="text-slate-400 dark:text-slate-500">0%</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="px-3 py-2 text-center">{{ s.sparkline_svg | safe }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
                 {% endfor %}
             </div>
@@ -286,13 +341,25 @@
         <template x-if="items.length">
             <div class="space-y-3">
                 <template x-for="d in items" :key="d.org_db">
-                    <div class="card p-4 space-y-2">
+                    <div class="card p-4 space-y-2" x-data="{ shopOpen: false }">
                         <div class="flex items-center justify-between flex-wrap gap-1">
                             <span class="text-xs font-semibold text-slate-600 dark:text-slate-300" x-text="d.org_name || ''"></span>
-                            <span class="text-xs text-slate-400" x-text="d.generated_at"></span>
+                            <div class="flex items-center gap-2 flex-wrap justify-end">
+                                <template x-if="d.shops_included && d.shops_included.length">
+                                    <span class="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/60 rounded-full px-2 py-0.5"
+                                          :title="d.shops_included.join(', ')">
+                                        🏪 <span x-text="d.shops_included.length + ' ' + (d.shops_included.length === 1 ? 'магазин' : (d.shops_included.length <= 4 ? 'магазина' : 'магазинов'))"></span>
+                                    </span>
+                                </template>
+                                <span class="text-xs text-slate-400" x-text="d.generated_at"></span>
+                            </div>
                         </div>
                         <template x-if="d.metrics && d.metrics.length">
                             <div class="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-700/60">
+                                <div class="flex items-center justify-between px-3 py-1 border-b border-slate-100 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-800/50">
+                                    <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">текущий месяц</span>
+                                    <span class="text-xs text-slate-400 dark:text-slate-500">данные на {{ today_label }}</span>
+                                </div>
                                 <table class="w-full text-xs">
                                     <thead>
                                         <tr class="text-slate-400 dark:text-slate-500 uppercase tracking-wide bg-slate-50 dark:bg-slate-800/50">
@@ -322,6 +389,45 @@
                             </div>
                         </template>
                         <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-100 dark:border-slate-700" x-text="d.digest_text"></div>
+                        <div x-show="d.shop_breakdown && d.shop_breakdown.length >= 2">
+                            <button @click="shopOpen = !shopOpen"
+                                    class="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:underline mt-1">
+                                <svg class="w-3 h-3 transition-transform" :class="shopOpen ? 'rotate-90' : ''" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                                <span x-text="shopOpen ? 'Скрыть по точкам' : ('По точкам (' + (d.shop_breakdown ? d.shop_breakdown.length : 0) + ')')"></span>
+                            </button>
+                            <div x-show="shopOpen" x-cloak class="mt-2 overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-700">
+                                <table class="w-full text-xs">
+                                    <thead>
+                                        <tr class="bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                                            <th class="text-left px-3 py-2 font-semibold">Магазин</th>
+                                            <th class="text-right px-3 py-2 font-semibold whitespace-nowrap">Выручка за неделю</th>
+                                            <th class="text-right px-3 py-2 font-semibold whitespace-nowrap">Δ к пред. нед.</th>
+                                            <th class="text-center px-3 py-2 font-semibold whitespace-nowrap">6 нед.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+                                        <template x-for="s in (d.shop_breakdown || [])" :key="s.name">
+                                            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                                                <td class="px-3 py-2 font-medium text-slate-800 dark:text-slate-100 max-w-[9rem] truncate" x-text="s.name" :title="s.name"></td>
+                                                <td class="px-3 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300"
+                                                    x-text="Number(s.week_revenue).toLocaleString('ru-RU', {maximumFractionDigits:0}) + ' ₽'"></td>
+                                                <td class="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                                                    <span x-show="s.delta_pct === null || s.delta_pct === undefined" class="text-slate-400 dark:text-slate-500">—</span>
+                                                    <span x-show="s.delta_pct !== null && s.delta_pct !== undefined && s.delta_pct > 0"
+                                                          class="text-emerald-600 dark:text-emerald-400 font-medium"
+                                                          x-text="'+' + s.delta_pct + '%'"></span>
+                                                    <span x-show="s.delta_pct !== null && s.delta_pct !== undefined && s.delta_pct < 0"
+                                                          class="text-red-500 dark:text-red-400 font-medium"
+                                                          x-text="s.delta_pct + '%'"></span>
+                                                    <span x-show="s.delta_pct === 0" class="text-slate-400 dark:text-slate-500">0%</span>
+                                                </td>
+                                                <td class="px-3 py-2 text-center" x-html="s.sparkline_svg || ''"></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </template>
             </div>
@@ -561,6 +667,27 @@
                             </select>
                         </div>
                     </div>
+
+                    {# Фильтр точек продаж (только если ≥2 магазинов) #}
+                    {% if digest_all_shops and digest_all_shops|length >= 2 %}
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm font-medium text-slate-700 dark:text-slate-300">🏪 Точки продаж в дайджесте</p>
+                            <span class="text-xs text-slate-400 dark:text-slate-500">по умолчанию — все</span>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700 overflow-hidden">
+                            {% for shop in digest_all_shops %}
+                            <label class="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                <input type="checkbox" name="digest_shop_filter" value="{{ shop | e }}"
+                                       class="rounded border-slate-300 dark:border-slate-600 accent-indigo-600"
+                                       {% if not ai_alert_settings.digest_shop_filter or shop in ai_alert_settings.digest_shop_filter %}checked{% endif %}>
+                                <span class="text-sm text-slate-700 dark:text-slate-300">{{ shop | e }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                        <p class="text-xs text-slate-400 dark:text-slate-500">Снимите галочку, чтобы исключить точку из дайджеста</p>
+                    </div>
+                    {% endif %}
 
                     <div class="flex items-center justify-between">
                         <div>

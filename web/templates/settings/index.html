@@ -968,12 +968,29 @@
         {% if has_network_insights %}
         <div class="card p-5" id="ai-digest">
             <h2 class="font-semibold text-slate-800 dark:text-slate-200 mb-1">🌐 AI-дайджест сети</h2>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Выберите, когда получать еженедельный AI-отчёт по всем магазинам</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Выберите расписание и магазины для еженедельного AI-отчёта</p>
             <form method="post" action="/settings/ai-digest" class="space-y-4"
                   x-data="{
                       digestDay: {{ digest_prefs.weekday if digest_prefs.weekday is not none else 0 }},
                       digestHour: {{ digest_prefs.hour_msk if digest_prefs.hour_msk is not none else 12 }},
-                      get nextSendLabel() { return calcNextDigest(this.digestDay, this.digestHour); }
+                      allShops: {{ digest_shops | tojson }},
+                      selectedShops: {{ (digest_shop_filter if digest_shop_filter else digest_shops) | tojson }},
+                      get nextSendLabel() { return calcNextDigest(this.digestDay, this.digestHour); },
+                      get summaryLabel() {
+                          let sel = this.selectedShops.length, tot = this.allShops.length;
+                          if (!tot) return '';
+                          if (sel >= tot) return 'Все магазины (' + tot + ')';
+                          if (sel === 0) return 'Ни одного';
+                          let suffix = sel === 1 ? 'магазин' : (sel >= 2 && sel <= 4 ? 'магазина' : 'магазинов');
+                          return sel + ' из ' + tot + ' ' + suffix;
+                      },
+                      toggleAll() {
+                          if (this.selectedShops.length >= this.allShops.length) {
+                              this.selectedShops = [];
+                          } else {
+                              this.selectedShops = [...this.allShops];
+                          }
+                      }
                   }">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -1008,9 +1025,49 @@
                     </p>
                 </div>
 
+                <!-- Shop filter -->
+                {% if digest_shops %}
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Магазины в дайджесте</label>
+                        <span class="text-xs font-semibold text-indigo-600 dark:text-indigo-400" x-text="summaryLabel"></span>
+                    </div>
+                    <div class="rounded-xl border border-slate-200 dark:border-slate-600 overflow-hidden divide-y divide-slate-100 dark:divide-slate-700">
+                        <!-- Toggle-all row -->
+                        <label class="flex items-center gap-3 px-3 py-2.5 bg-slate-50 dark:bg-slate-800/50 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none">
+                            <input type="checkbox"
+                                   class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500"
+                                   :checked="selectedShops.length >= allShops.length"
+                                   :indeterminate="selectedShops.length > 0 && selectedShops.length < allShops.length"
+                                   @change="toggleAll()">
+                            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Все магазины</span>
+                        </label>
+                        <!-- Per-shop checkboxes (Alpine renders) -->
+                        <template x-for="shop in allShops" :key="shop">
+                            <label class="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors select-none">
+                                <input type="checkbox"
+                                       name="digest_shop_filter"
+                                       :value="shop"
+                                       :checked="selectedShops.includes(shop)"
+                                       @change="
+                                           if ($event.target.checked) {
+                                               if (!selectedShops.includes(shop)) selectedShops = [...selectedShops, shop];
+                                           } else {
+                                               selectedShops = selectedShops.filter(s => s !== shop);
+                                           }
+                                       "
+                                       class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200" x-text="shop"></span>
+                            </label>
+                        </template>
+                    </div>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-1.5">Снимите галочки с магазинов, которые не нужно включать в дайджест</p>
+                </div>
+                {% endif %}
+
                 <button type="submit"
                         class="w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
-                    Сохранить расписание дайджеста
+                    Сохранить настройки дайджеста
                 </button>
             </form>
         </div>

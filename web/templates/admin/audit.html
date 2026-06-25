@@ -36,7 +36,8 @@
                     </td>
                     <td class="px-4 py-2.5 whitespace-nowrap">
                         <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                            {% if 'revoke' in e.action %}bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300
+                            {% if e.actor_name == 'scheduler' %}bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300
+                            {% elif 'revoke' in e.action %}bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300
                             {% else %}bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300{% endif %}">
                             {{ e.action }}
                         </span>

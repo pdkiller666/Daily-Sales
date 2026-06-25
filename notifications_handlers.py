@@ -1403,9 +1403,11 @@ def _build_ai_alert_settings_text(cfg: dict) -> str:
     hour = cfg.get("alert_hour_msk", 10)
     metrics = cfg.get("metrics", ["revenue"])
     alert_push = cfg.get("alert_push_enabled", True)
+    shop_filter = cfg.get("digest_shop_filter") or []
 
     metric_labels = {"revenue": "Выручка", "avg_check": "Средний чек", "transactions": "Транзакции"}
     metrics_str = ", ".join(metric_labels.get(m, m) for m in metrics) if metrics else "Выручка"
+    shop_filter_str = f"{len(shop_filter)} магаз." if shop_filter else "все магазины"
 
     text = (
         "🤖 <b>Настройки AI-алертов</b>\n\n"
@@ -1413,7 +1415,8 @@ def _build_ai_alert_settings_text(cfg: dict) -> str:
         f"Порог срабатывания: <b>{threshold}%</b>\n"
         f"Время отправки: <b>{hour}:00 МСК</b>\n"
         f"Метрики: <b>{metrics_str}</b>\n"
-        f"Пуш-уведомление: {'✅ включено' if alert_push else '❌ отключено'}\n\n"
+        f"Пуш-уведомление: {'✅ включено' if alert_push else '❌ отключено'}\n"
+        f"Магазины дайджеста: <b>{shop_filter_str}</b>\n\n"
         "<b>Блоки контекста AI-дайджеста</b>\n"
         "Выберите, какие данные включаются в анализ при алерте:\n\n"
     )
@@ -1466,6 +1469,12 @@ def _build_ai_alert_settings_kb(cfg: dict) -> InlineKeyboardMarkup:
             text=f"{mark} {label}",
             callback_data=f"toggle_ai_ctx:{key}"
         )])
+
+    # Shop filter
+    shop_filter = cfg.get("digest_shop_filter") or []
+    shop_label = f"🏪 Магазины дайджеста ({len(shop_filter)} выбр.)" if shop_filter else "🏪 Магазины дайджеста (все)"
+    buttons.append([InlineKeyboardButton(text=shop_label, callback_data="ai_alert_shop_filter")])
+
     buttons.append([back_button("notification_settings")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -1544,6 +1553,7 @@ async def toggle_ai_context_block(callback: CallbackQuery, state: FSMContext):
             metrics=cfg.get("metrics", ["revenue"]),
             digest_context=ctx,
             alert_push_enabled=cfg.get("alert_push_enabled", True),
+            digest_shop_filter=cfg.get("digest_shop_filter") or None,
         )
         cfg["digest_context"] = ctx
         await callback.answer(f"✅ {_AI_CTX_LABELS[block]} {action}")
@@ -1600,6 +1610,7 @@ async def toggle_ai_alerts_enabled(callback: CallbackQuery, state: FSMContext):
             metrics=cfg.get("metrics", ["revenue"]),
             digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
             alert_push_enabled=cfg.get("alert_push_enabled", True),
+            digest_shop_filter=cfg.get("digest_shop_filter") or None,
         )
         cfg["enabled"] = new_enabled
         status = "включены ✅" if new_enabled else "отключены ❌"
@@ -1638,6 +1649,7 @@ async def toggle_alert_push(callback: CallbackQuery, state: FSMContext):
             digest_hour_msk=int(cfg.get("digest_hour_msk", 9)),
             digest_push_enabled=cfg.get("digest_push_enabled", True),
             alert_push_enabled=new_push,
+            digest_shop_filter=cfg.get("digest_shop_filter") or None,
         )
         cfg["alert_push_enabled"] = new_push
         status = "включён 🔔" if new_push else "отключён 🔕"
@@ -1699,6 +1711,7 @@ async def process_ai_threshold(message: Message, state: FSMContext):
             metrics=cfg.get("metrics", ["revenue"]),
             digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
             alert_push_enabled=cfg.get("alert_push_enabled", True),
+            digest_shop_filter=cfg.get("digest_shop_filter") or None,
         )
         cfg["threshold_pct"] = value
     except Exception as _err:
@@ -1713,6 +1726,168 @@ async def process_ai_threshold(message: Message, state: FSMContext):
         parse_mode="HTML",
     )
     await clear_state_keep_org(state)
+
+
+# ---------------------------------------------------------------------------
+# Shop filter sub-menu for AI digest
+# ---------------------------------------------------------------------------
+
+def _build_ai_shop_filter_text(cfg: dict, all_shops: list) -> str:
+    shop_filter = cfg.get("digest_shop_filter") or []
+    if not all_shops:
+        return (
+            "🏪 <b>Фильтр магазинов дайджеста</b>\n\n"
+            "Магазины не найдены. Добавьте магазины в настройках организации."
+        )
+    if shop_filter:
+        lines = "\n".join(
+            ("✅" if s in shop_filter else "❌") + f" {s}" for s in all_shops
+        )
+    else:
+        lines = "\n".join(f"✅ {s}" for s in all_shops)
+    return (
+        "🏪 <b>Фильтр магазинов дайджеста</b>\n\n"
+        "Выберите магазины, которые включаются в еженедельный AI-дайджест.\n"
+        "Если все выбраны — дайджест включает все магазины.\n\n"
+        f"{lines}"
+    )
+
+
+def _build_ai_shop_filter_kb(cfg: dict, all_shops: list) -> InlineKeyboardMarkup:
+    shop_filter = cfg.get("digest_shop_filter") or []
+    buttons = []
+    for shop in all_shops:
+        mark = "✅" if (not shop_filter or shop in shop_filter) else "❌"
+        buttons.append([InlineKeyboardButton(
+            text=f"{mark} {shop}",
+            callback_data=safe_cb("toggle_ai_shop:", shop),
+        )])
+    if shop_filter:
+        buttons.append([InlineKeyboardButton(
+            text="🔄 Включить все магазины",
+            callback_data="ai_shop_filter_reset",
+        )])
+    buttons.append([back_button("ai_alert_settings")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@notifications_router.callback_query(F.data == "ai_alert_shop_filter")
+async def ai_alert_shop_filter_menu(callback: CallbackQuery, state: FSMContext):
+    """Показывает список магазинов для настройки фильтра AI-дайджеста."""
+    if not await _check_ai_alert_access(callback):
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    cfg = await _load_ai_cfg(current_db)
+    try:
+        all_shops = await current_db.get_all_shops()
+    except Exception:
+        all_shops = []
+
+    await callback.answer()
+    await callback.message.edit_text(
+        _build_ai_shop_filter_text(cfg, all_shops),
+        reply_markup=_build_ai_shop_filter_kb(cfg, all_shops),
+        parse_mode="HTML",
+    )
+
+
+@notifications_router.callback_query(F.data.startswith("toggle_ai_shop:"))
+async def toggle_ai_shop_filter(callback: CallbackQuery, state: FSMContext):
+    """Переключает один магазин в фильтре AI-дайджеста."""
+    if not await _check_ai_alert_access(callback):
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    cfg = await _load_ai_cfg(current_db)
+    try:
+        all_shops = await current_db.get_all_shops()
+    except Exception:
+        all_shops = []
+
+    partial = callback.data.split(":", 1)[1]
+    shop_name = resolve_cb_name(partial, all_shops)
+    if not shop_name or shop_name not in all_shops:
+        await callback.answer("❌ Магазин не найден", show_alert=True)
+        return
+
+    shop_filter: list = list(cfg.get("digest_shop_filter") or [])
+
+    if not shop_filter:
+        # Фильтр пустой = все включены; первое нажатие исключает этот магазин
+        shop_filter = [s for s in all_shops if s != shop_name]
+        action = "исключён из дайджеста"
+    elif shop_name in shop_filter:
+        shop_filter.remove(shop_name)
+        action = "исключён из дайджеста"
+    else:
+        shop_filter.append(shop_name)
+        action = "добавлен в дайджест"
+
+    # Если выбраны все — сбрасываем в «все» (пустой список)
+    if set(shop_filter) >= set(all_shops):
+        shop_filter = []
+
+    new_filter = shop_filter or None
+    try:
+        await current_db.save_ai_alert_settings(
+            enabled=cfg.get("enabled", True),
+            threshold_pct=int(cfg.get("threshold_pct", 35)),
+            alert_hour_msk=int(cfg.get("alert_hour_msk", 10)),
+            metrics=cfg.get("metrics", ["revenue"]),
+            digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
+            alert_push_enabled=cfg.get("alert_push_enabled", True),
+            digest_shop_filter=new_filter,
+        )
+        cfg["digest_shop_filter"] = shop_filter
+        await callback.answer(f"🏪 {shop_name}: {action}")
+    except Exception as _err:
+        logging.error("toggle_ai_shop_filter: %s", _err)
+        await callback.answer("❌ Ошибка сохранения", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        _build_ai_shop_filter_text(cfg, all_shops),
+        reply_markup=_build_ai_shop_filter_kb(cfg, all_shops),
+        parse_mode="HTML",
+    )
+
+
+@notifications_router.callback_query(F.data == "ai_shop_filter_reset")
+async def ai_shop_filter_reset(callback: CallbackQuery, state: FSMContext):
+    """Сбрасывает фильтр магазинов дайджеста — включаются все магазины."""
+    if not await _check_ai_alert_access(callback):
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    cfg = await _load_ai_cfg(current_db)
+    try:
+        all_shops = await current_db.get_all_shops()
+    except Exception:
+        all_shops = []
+
+    try:
+        await current_db.save_ai_alert_settings(
+            enabled=cfg.get("enabled", True),
+            threshold_pct=int(cfg.get("threshold_pct", 35)),
+            alert_hour_msk=int(cfg.get("alert_hour_msk", 10)),
+            metrics=cfg.get("metrics", ["revenue"]),
+            digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
+            alert_push_enabled=cfg.get("alert_push_enabled", True),
+            digest_shop_filter=None,
+        )
+        cfg["digest_shop_filter"] = []
+        await callback.answer("✅ Все магазины включены в дайджест")
+    except Exception as _err:
+        logging.error("ai_shop_filter_reset: %s", _err)
+        await callback.answer("❌ Ошибка сохранения", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        _build_ai_shop_filter_text(cfg, all_shops),
+        reply_markup=_build_ai_shop_filter_kb(cfg, all_shops),
+        parse_mode="HTML",
+    )
 
 
 @notifications_router.callback_query(F.data == "set_ai_alert_hour")
@@ -1760,6 +1935,7 @@ async def process_ai_alert_hour(message: Message, state: FSMContext):
             metrics=cfg.get("metrics", ["revenue"]),
             digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
             alert_push_enabled=cfg.get("alert_push_enabled", True),
+            digest_shop_filter=cfg.get("digest_shop_filter") or None,
         )
         cfg["alert_hour_msk"] = value
     except Exception as _err:
