@@ -2073,6 +2073,80 @@ class Database:
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
 
+        # ── Авто-фикс: восстановление подписок испорченных багом extension_ ──
+        # Баг: extension_<key> падал в create_subscription() и перезаписывал
+        # базовый план (Премиум и т.д.) на extension_<key> с end_date=9999.
+        # Исправлено в confirm_payment_request. Этот блок чинит уже испорченные
+        # данные при первом старте после деплоя. Идемпотентен — если таких строк
+        # нет, ничего не делает.
+        if 'shop_bot' in self.db_file:
+            try:
+                bad_rows = cursor.execute(
+                    "SELECT s.id, s.user_id, u.telegram_id "
+                    "FROM subscriptions s JOIN users u ON s.user_id=u.id "
+                    "WHERE s.plan_type LIKE 'extension_%'"
+                ).fetchall()
+                for sub_id, user_id, tg_id in bad_rows:
+                    bad_row = cursor.execute(
+                        "SELECT plan_type FROM subscriptions WHERE id=?", (sub_id,)
+                    ).fetchone()
+                    ext_plan = bad_row[0] if bad_row else ''
+                    ext_key = ext_plan[len('extension_'):]
+                    # Найти последний одобренный базовый платёж
+                    prem = cursor.execute(
+                        "SELECT plan_type, processed_at FROM payment_requests "
+                        "WHERE user_id=? AND plan_type IN ('Премиум','Стандарт','Базовый') "
+                        "AND status='approved' ORDER BY processed_at DESC LIMIT 1",
+                        (user_id,)
+                    ).fetchone()
+                    if prem:
+                        restore_plan = prem[0]
+                        try:
+                            from datetime import datetime, timedelta as _td
+                            base_dt = datetime.fromisoformat(prem[1])
+                            restore_end = (base_dt + _td(days=30)).strftime('%Y-%m-%d %H:%M:%S')
+                        except Exception:
+                            restore_end = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d %H:%M:%S')
+                    else:
+                        restore_plan = 'Бесплатный'
+                        restore_end = '9999-12-31 23:59:59'
+                    cursor.execute(
+                        "UPDATE subscriptions SET plan_type=?, end_date=?, "
+                        "start_date=CURRENT_TIMESTAMP WHERE id=?",
+                        (restore_plan, restore_end, sub_id)
+                    )
+                    # Добавить расширение в billing_module_subs если его нет
+                    already = cursor.execute(
+                        "SELECT 1 FROM billing_module_subs "
+                        "WHERE user_telegram_id=? AND item_key=? LIMIT 1",
+                        (tg_id, ext_key)
+                    ).fetchone()
+                    if not already and ext_key:
+                        from datetime import datetime, timedelta as _td
+                        ext_end = (datetime.now() + _td(days=30)).strftime('%Y-%m-%d %H:%M:%S')
+                        ext_req = cursor.execute(
+                            "SELECT id FROM payment_requests "
+                            "WHERE user_id=? AND plan_type=? AND status='approved' "
+                            "ORDER BY processed_at DESC LIMIT 1",
+                            (user_id, ext_plan)
+                        ).fetchone()
+                        cursor.execute(
+                            "INSERT INTO billing_module_subs "
+                            "(user_telegram_id,item_type,item_key,duration_days,"
+                            "price_paid,granted_by,note,end_date,is_active,"
+                            "payment_request_id,created_at) "
+                            "VALUES (?,?,?,30,0.0,'autofix',"
+                            "'Авто-восстановление (баг extension_fallthrough)',?,1,?,datetime('now'))",
+                            (tg_id, 'extension', ext_key, ext_end,
+                             ext_req[0] if ext_req else None)
+                        )
+                    logger.info(
+                        "autofix extension_fallthrough: sub_id=%s tg_id=%s "
+                        "restored plan=%s ext_key=%s", sub_id, tg_id, restore_plan, ext_key
+                    )
+            except Exception as _fix_exc:
+                logger.warning("autofix extension_fallthrough: %s", _fix_exc)
+
         conn.commit()
         conn.close()
 

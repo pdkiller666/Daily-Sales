@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.201.0"
+CURRENT_VERSION = "1.202.0"
 
 ENTRIES = [
+    {
+        "version": "1.202.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Fix bug that overwrites user subscriptions with extensions",
+        ],
+    },
     {
         "version": "1.201.0",
         "date": "25 июня 2026",
