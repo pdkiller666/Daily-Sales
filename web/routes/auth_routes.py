@@ -20,6 +20,29 @@ def _check_rate_limit(ip: str) -> bool:
         return True  # fail open
 
 
+def _record_telegram_consent(telegram_id: int) -> None:
+    """Фиксирует момент первого согласия с политикой ПДн для Telegram-пользователей.
+
+    Обновляет consent_at в web_credentials только если:
+    - строка существует (пользователь зарегистрирован через email + привязал Telegram)
+    - consent_at ещё не установлен (идемпотентно — первый логин)
+    Для чистых Telegram-пользователей (без web_credentials) — no-op, что корректно:
+    согласие с условиями Telegram покрывает использование бота.
+    """
+    try:
+        import sqlite3 as _sq
+        _c = _sq.connect('data/shop_bot.db', timeout=5)
+        _c.execute(
+            "UPDATE web_credentials SET consent_at=datetime('now')"
+            " WHERE telegram_id=? AND consent_at IS NULL",
+            (telegram_id,),
+        )
+        _c.commit()
+        _c.close()
+    except Exception:
+        pass
+
+
 @router.get("/login")
 async def login_page(request: Request):
     from web.auth import get_session_user, generate_login_nonce
@@ -68,6 +91,9 @@ async def telegram_callback(request: Request):
         org_db = 'data/shop_bot.db'
 
     token = create_session_token(telegram_id, first_name, org_db, role)
+
+    # Фиксируем согласие с политикой ПДн (первый логин через Telegram)
+    _record_telegram_consent(telegram_id)
 
     # Уведомление при входе с нового IP (fire-and-forget, не блокирует ответ)
     try:
@@ -190,6 +216,9 @@ async def code_auto_login(request: Request, c: str = "", next: str = ""):
     first_name = _get_display_name(telegram_id, org_db)
     token = create_session_token(telegram_id, first_name, org_db, role)
 
+    # Фиксируем согласие с политикой ПДн (первый логин через код бота)
+    _record_telegram_consent(telegram_id)
+
     # Уведомление при входе с нового IP (fire-and-forget)
     try:
         from web.login_notif import _real_ip, check_and_record_ip, notify_new_ip
@@ -293,6 +322,9 @@ async def code_login_submit(
     first_name = _get_display_name(telegram_id, org_db)
 
     token = create_session_token(telegram_id, first_name, org_db, role)
+
+    # Фиксируем согласие с политикой ПДн (первый логин через код бота)
+    _record_telegram_consent(telegram_id)
 
     # Уведомление при входе с нового IP (fire-and-forget)
     try:
