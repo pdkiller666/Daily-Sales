@@ -411,12 +411,27 @@
                     {% if plan.is_current %}
                     <span class="text-xs text-slate-400 italic">Активен</span>
                     {% elif plan.is_downgrade %}
-                    <form method="POST" action="/subscription/tariff-request"
-                          onsubmit="return confirm('Понижение тарифа на «{{ plan.name }}».{% if plan.downgrade_days_left is not none %} До конца текущего периода ещё {{ plan.downgrade_days_left }} дн.{% endif %} При немедленной замене остаток сгорит. Создать заявку?');">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="plan_name" value="{{ plan.name }}">
-                        <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors">Выбрать →</button>
-                    </form>
+                    <div x-data="{ warn: false }" class="relative">
+                        <button type="button" @click="warn = !warn"
+                                class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors">
+                            Выбрать →
+                        </button>
+                        <div x-show="warn" x-cloak @click.outside="warn = false"
+                             class="absolute right-0 bottom-full mb-2 w-72 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-xl shadow-xl p-4 z-30">
+                            <p class="text-sm font-bold text-amber-700 dark:text-amber-400 mb-2">⚠️ Понижение тарифа</p>
+                            <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
+                                Переход на «{{ plan.name }}»{% if plan.downgrade_days_left is not none %} — до конца текущего периода ещё {{ plan.downgrade_days_left }} дн.{% endif %}. При немедленной замене остаток сгорит.
+                            </p>
+                            <form method="POST" action="/subscription/tariff-request">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="plan_name" value="{{ plan.name }}">
+                                <button type="submit"
+                                        class="w-full bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-2 rounded-lg transition-colors">
+                                    Да, создать заявку на понижение
+                                </button>
+                            </form>
+                        </div>
+                    </div>
                     {% else %}
                     <form method="POST" action="/subscription/tariff-request">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -496,6 +511,11 @@
             🔌 Доп.
         </button>
         {% endif %}
+        <button type="button" @click="setTab('history')"
+                :class="tab === 'history' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
+                class="flex-1 text-center px-2 py-2 rounded-lg text-sm font-semibold transition-all whitespace-nowrap">
+            📋{% if history %}<span class="ml-0.5 text-[10px] bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300 px-1 py-0.5 rounded-full font-bold align-middle">{{ history|length }}</span>{% endif %}
+        </button>
     </div>
 </div>
 
@@ -890,25 +910,31 @@
 
 </div>{# end extensions tab #}
 
-</div>{# end Alpine tabs wrapper #}
 
+{# ══════════════════════════════════════
+   TAB: ИСТОРИЯ ЗАЯВОК
+══════════════════════════════════════ #}
+<div x-show="tab === 'history'" {% if _qtab != 'history' %}x-cloak{% endif %}>
 
-{# ── История ── #}
 {% if history %}
-<div class="card overflow-hidden mt-6">
-    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700">
+<div class="card overflow-hidden mb-6">
+    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between gap-3">
         <h2 class="font-bold text-slate-800 dark:text-white text-sm">🧾 История заявок</h2>
+        <a href="/payments" class="text-xs text-indigo-500 dark:text-indigo-400 hover:underline font-semibold shrink-0">Полный архив →</a>
     </div>
     <div class="divide-y divide-slate-100 dark:divide-slate-700">
         {% for h in history %}
         <div class="flex items-center justify-between px-4 py-3 gap-3">
             <div class="flex-1 min-w-0">
                 <p class="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{{ h.plan_label }}</p>
-                <p class="text-xs text-slate-400 mt-0.5">{{ h.created_at }}</p>
+                <p class="text-xs text-slate-400 mt-0.5">Создана: {{ h.created_at }}</p>
+                {% if h.processed_at != '—' %}
+                <p class="text-xs text-slate-400">Обработана: {{ h.processed_at }}</p>
+                {% endif %}
             </div>
             <div class="shrink-0 flex flex-col items-end gap-1">
                 <span class="text-sm font-bold text-slate-700 dark:text-slate-200">{{ h.amount }}&nbsp;₽</span>
-                <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold {{ h.status_css }}">{{ h.status_label }}</span>
+                <span class="text-xs px-2 py-0.5 rounded-full font-bold {{ h.status_css }}">{{ h.status_label }}</span>
             </div>
         </div>
         {% endfor %}
@@ -921,6 +947,20 @@
     </div>
     {% endif %}
 </div>
+
+{% else %}
+<div class="py-16 text-center px-4">
+    <p class="text-5xl mb-4">🧾</p>
+    <p class="text-base font-bold text-slate-700 dark:text-slate-200 mb-1">Заявок пока нет</p>
+    <p class="text-sm text-slate-400 dark:text-slate-500 leading-relaxed">После оплаты первого модуля или тарифа<br>ваши заявки появятся здесь</p>
+    <a href="/payments" class="inline-flex items-center gap-1.5 mt-4 text-sm text-indigo-600 dark:text-indigo-400 font-semibold hover:underline">
+        Открыть полную историю →
+    </a>
+</div>
 {% endif %}
+
+</div>{# end history tab #}
+
+</div>{# end Alpine tabs wrapper #}
 
 {% endblock %}

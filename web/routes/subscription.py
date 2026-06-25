@@ -35,10 +35,14 @@ def _notify_admin_new_request(plan_type: str, amount: int, user_display: str, te
             data=payload,
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=10):
+        with urllib.request.urlopen(req, timeout=4):
             pass
     except Exception as exc:
-        logging.warning("_notify_admin_new_request: %s", exc)
+        _is_timeout = "timeout" in type(exc).__name__.lower() or "timed out" in str(exc).lower()
+        if _is_timeout:
+            logging.warning("_notify_admin_new_request: timeout после 4 с")
+        else:
+            logging.warning("_notify_admin_new_request: %s", exc)
 
 
 def _notify_admin_async(plan_type: str, amount: int, user_display: str, telegram_id: int) -> None:
@@ -471,44 +475,51 @@ def _get_tariff_plans(current_plan_name: str | None, user_id: int | None = None)
         except Exception:
             _dg_db = None
 
-    result = []
-    for r in rows:
-        pid, name, duration, price, desc, mp, ms, msl = r
-        _price = int(price or 0)
-        is_downgrade = False
-        dg_current_plan = ""
-        dg_end_date = ""
-        dg_days_left = None
+    try:
+        result = []
+        for r in rows:
+            pid, name, duration, price, desc, mp, ms, msl = r
+            _price = int(price or 0)
+            is_downgrade = False
+            dg_current_plan = ""
+            dg_end_date = ""
+            dg_days_left = None
+            if _dg_db is not None:
+                try:
+                    _is_dg, _info = _dg_db.check_subscription_downgrade(user_id, name)
+                    if _is_dg and _info:
+                        from datetime import datetime as _dt
+                        is_downgrade = True
+                        dg_current_plan = _info.get("current_plan") or ""
+                        _end = _info.get("end_datetime")
+                        if _end is not None:
+                            dg_end_date = _end.strftime("%d.%m.%Y")
+                            dg_days_left = max(0, (_end - _dt.now()).days)
+                except Exception:
+                    pass
+            result.append({
+                "id": pid,
+                "name": name,
+                "duration_days": int(duration or 30),
+                "price": _price,
+                "price_fmt": f"{_price:,}".replace(",", "\u00a0") + "\u00a0₽",
+                "description": desc or "",
+                "max_products_fmt": _fmt_cap(mp),
+                "max_shops_fmt": _fmt_cap(ms),
+                "max_sales_fmt": _fmt_cap(msl),
+                "is_current": bool(current_plan_name and name == current_plan_name),
+                "is_downgrade": is_downgrade,
+                "downgrade_current_plan": dg_current_plan,
+                "downgrade_end_date": dg_end_date,
+                "downgrade_days_left": dg_days_left,
+            })
+        return result
+    finally:
         if _dg_db is not None:
             try:
-                _is_dg, _info = _dg_db.check_subscription_downgrade(user_id, name)
-                if _is_dg and _info:
-                    from datetime import datetime as _dt
-                    is_downgrade = True
-                    dg_current_plan = _info.get("current_plan") or ""
-                    _end = _info.get("end_datetime")
-                    if _end is not None:
-                        dg_end_date = _end.strftime("%d.%m.%Y")
-                        dg_days_left = max(0, (_end - _dt.now()).days)
+                _dg_db.get_connection().close()
             except Exception:
                 pass
-        result.append({
-            "id": pid,
-            "name": name,
-            "duration_days": int(duration or 30),
-            "price": _price,
-            "price_fmt": f"{_price:,}".replace(",", "\u00a0") + "\u00a0₽",
-            "description": desc or "",
-            "max_products_fmt": _fmt_cap(mp),
-            "max_shops_fmt": _fmt_cap(ms),
-            "max_sales_fmt": _fmt_cap(msl),
-            "is_current": bool(current_plan_name and name == current_plan_name),
-            "is_downgrade": is_downgrade,
-            "downgrade_current_plan": dg_current_plan,
-            "downgrade_end_date": dg_end_date,
-            "downgrade_days_left": dg_days_left,
-        })
-    return result
 
 
 def _get_item_price(plan_type: str) -> int | None:
@@ -621,6 +632,226 @@ def _get_payment_requisites() -> str:
         return ""
 
 
+def _load_shop_bot_data(telegram_id: int) -> dict:
+    """Загружает ВСЕ данные из shop_bot.db за ОДНО соединение.
+
+    Возвращает словарь: user_id, modules, bundles, extensions, mmap,
+    requisites, user_mod_subs, has_pending, history, history_has_more, trial.
+    При любой ошибке — возвращает пустую структуру, страница не падает."""
+    _EMPTY: dict = {
+        "user_id": None,
+        "modules": [],
+        "bundles": [],
+        "extensions": [],
+        "mmap": {},
+        "requisites": "",
+        "user_mod_subs": {},
+        "has_pending": False,
+        "history": [],
+        "history_has_more": False,
+        "trial": None,
+    }
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        try:
+            # user_id
+            _uid_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+            user_id = _uid_row[0] if _uid_row else None
+
+            # modules
+            mod_rows = conn.execute(
+                """SELECT key, name, icon, description, price_monthly, features_json,
+                          COALESCE(price_annual,0)
+                   FROM billing_modules WHERE is_active=1
+                   ORDER BY sort_order, id"""
+            ).fetchall()
+
+            # bundles
+            bun_rows = conn.execute(
+                """SELECT key, name, icon, description, includes_json, price_monthly,
+                          COALESCE(price_annual,0)
+                   FROM billing_bundles WHERE is_active=1
+                   ORDER BY sort_order, id"""
+            ).fetchall()
+
+            # extensions
+            ext_rows = conn.execute(
+                """SELECT module_key, key, name, icon, description, price_monthly
+                   FROM billing_extensions WHERE is_active=1
+                   ORDER BY module_key, sort_order, id"""
+            ).fetchall()
+
+            # requisites
+            req_row = conn.execute(
+                "SELECT value FROM payment_settings WHERE key='card_number'"
+            ).fetchone()
+
+            # user billing_module_subs
+            sub_rows = conn.execute(
+                """SELECT item_key, item_type, end_date FROM billing_module_subs
+                   WHERE user_telegram_id=? AND is_active=1
+                     AND (end_date IS NULL OR end_date > datetime('now'))""",
+                (telegram_id,),
+            ).fetchall()
+
+            # user-specific: pending, history, trial (only if user_id known)
+            pending_row = None
+            hist_total = 0
+            hist_rows = []
+            trial_row = None
+            if user_id:
+                pending_row = conn.execute(
+                    "SELECT id FROM payment_requests WHERE user_id=? AND status='pending' LIMIT 1",
+                    (user_id,),
+                ).fetchone()
+                hist_total = conn.execute(
+                    "SELECT COUNT(*) FROM payment_requests WHERE user_id=?", (user_id,)
+                ).fetchone()[0]
+                hist_rows = conn.execute(
+                    """SELECT id, plan_type, amount, status, created_at, processed_at
+                       FROM payment_requests WHERE user_id=?
+                       ORDER BY created_at DESC LIMIT 10""",
+                    (user_id,),
+                ).fetchall()
+                trial_row = conn.execute(
+                    """SELECT end_date FROM subscriptions
+                       WHERE user_id=? AND is_trial=1 AND end_date > datetime('now')
+                       ORDER BY end_date DESC LIMIT 1""",
+                    (user_id,),
+                ).fetchone()
+        finally:
+            conn.close()
+
+        # ── Process modules ──
+        modules: list[dict] = []
+        for r in mod_rows:
+            key, name, icon, desc, price, feats_json, price_annual = r
+            try:
+                features = json.loads(feats_json or "[]")
+            except Exception:
+                features = []
+            _icon = icon or "🔧"
+            item: dict = {
+                "key": key,
+                "name": name,
+                "name_display": _strip_leading_emoji(name, _icon),
+                "icon": _icon,
+                "description": desc or "",
+                "price_monthly": int(price or 0),
+                "price_fmt": f"{int(price or 0):,}".replace(",", "\u00a0") + "\u00a0₽/мес.",
+                "features": features,
+            }
+            item.update(_annual_fields(int(price or 0), int(price_annual or 0)))
+            modules.append(item)
+
+        # ── Process bundles ──
+        bundles: list[dict] = []
+        for r in bun_rows:
+            key, name, icon, desc, inc_json, price, price_annual = r
+            try:
+                includes = json.loads(inc_json or '{"modules":[],"extensions":[]}')
+            except Exception:
+                includes = {"modules": [], "extensions": []}
+            item = {
+                "key": key,
+                "name": name,
+                "icon": icon or "📦",
+                "description": desc or "",
+                "includes": includes,
+                "modules_count": len(includes.get("modules", [])),
+                "price_monthly": int(price or 0),
+                "price_fmt": f"{int(price or 0):,}".replace(",", "\u00a0") + "\u00a0₽/мес.",
+            }
+            item.update(_annual_fields(int(price or 0), int(price_annual or 0)))
+            bundles.append(item)
+
+        # ── Process extensions ──
+        extensions: list[dict] = []
+        for r in ext_rows:
+            module_key, key, name, icon, desc, price = r
+            _icon = icon or "🔧"
+            extensions.append({
+                "module_key": module_key,
+                "key": key,
+                "name": name,
+                "name_display": _strip_leading_emoji(name, _icon),
+                "icon": _icon,
+                "description": desc or "",
+                "price_monthly": int(price or 0),
+                "price_fmt": f"{int(price or 0):,}".replace(",", "\u00a0") + "\u00a0₽/мес.",
+            })
+
+        # Requisites
+        requisites = req_row[0] if req_row and req_row[0] else ""
+
+        # Module subs with days_remaining
+        today = _date.today()
+        user_mod_subs: dict = {}
+        for r in sub_rows:
+            end_str = str(r[2] or "")[:10]
+            days_remaining = None
+            if end_str:
+                try:
+                    from datetime import datetime as _dt
+                    end_d = _dt.strptime(end_str, "%Y-%m-%d").date()
+                    days_remaining = max(0, (end_d - today).days)
+                except Exception:
+                    pass
+            user_mod_subs[r[0]] = {
+                "item_type": r[1],
+                "end_date": end_str or "∞",
+                "days_remaining": days_remaining,
+            }
+
+        has_pending = pending_row is not None
+
+        # History rows
+        _STATUS_LABELS = {
+            "pending": ("⏳ Ожидает", "text-amber-600 bg-amber-50"),
+            "approved": ("✅ Подтверждено", "text-emerald-600 bg-emerald-50"),
+            "rejected": ("❌ Отклонено", "text-red-600 bg-red-50"),
+        }
+        history: list[dict] = []
+        for row in hist_rows:
+            st = row[3] or "pending"
+            label, css = _STATUS_LABELS.get(st, (st, "text-slate-500 bg-slate-50"))
+            history.append({
+                "id": row[0],
+                "plan_type": row[1],
+                "plan_label": _plan_type_label(row[1] or ""),
+                "amount": int(row[2] or 0),
+                "status": st,
+                "status_label": label,
+                "status_css": css,
+                "created_at": str(row[4] or "")[:16].replace("T", " "),
+                "processed_at": str(row[5] or "")[:16].replace("T", " ") if row[5] else "—",
+            })
+        history_has_more = hist_total > 10
+
+        # Trial
+        trial = None
+        if trial_row:
+            trial = {"end_date": str(trial_row[0] or "")[:10], "is_trial": True}
+
+        return {
+            "user_id": user_id,
+            "modules": modules,
+            "bundles": bundles,
+            "extensions": extensions,
+            "mmap": _modules_map(modules, extensions),
+            "requisites": requisites,
+            "user_mod_subs": user_mod_subs,
+            "has_pending": has_pending,
+            "history": history,
+            "history_has_more": history_has_more,
+            "trial": trial,
+        }
+    except Exception:
+        return _EMPTY
+
+
 @router.get("/subscription")
 def subscription_page(request: Request, msg: str = "", tab: str = "modules", need: str = ""):
     from web.auth import get_session_user, get_csrf_token
@@ -633,14 +864,12 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
         return RedirectResponse(url="/dashboard", status_code=302)
 
     telegram_id = int(user["sub"])
-    modules = _get_all_billing_modules()
-    bundles = _get_all_billing_bundles()
-    extensions = _get_all_billing_extensions()
-    mmap = _modules_map(modules, extensions)
-    requisites = _get_payment_requisites()
+
+    # Все запросы к shop_bot.db в одном соединении
+    data = _load_shop_bot_data(telegram_id)
 
     need = need.strip()[:64]
-    need_ext = next((e for e in extensions if e["key"] == need), None) if need else None
+    need_ext = next((e for e in data["extensions"] if e["key"] == need), None) if need else None
 
     if user.get("role") == "super_admin":
         return request.app.state.templates.TemplateResponse(
@@ -652,15 +881,16 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
                 "trial": None,
                 "msg": msg,
                 "csrf_token": get_csrf_token(request),
-                "modules": modules,
-                "bundles": bundles,
-                "extensions": extensions,
-                "modules_map": mmap,
+                "modules": data["modules"],
+                "bundles": data["bundles"],
+                "extensions": data["extensions"],
+                "modules_map": data["mmap"],
                 "user_mod_subs": {"*": {"item_type": "all", "end_date": "∞"}},
                 "active_items": {"modules": ["*"], "extensions": ["*"], "bundles": ["*"]},
                 "has_pending": False,
                 "history": [],
-                "requisites": requisites,
+                "history_has_more": False,
+                "requisites": data["requisites"],
                 "tariff": None,
                 "tariff_plans": [],
                 "need_ext": need_ext,
@@ -668,13 +898,10 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
             },
         )
 
-    user_id = _get_user_id_in_shop_bot(telegram_id)
-    trial = _get_active_trial(user_id)
+    user_id = data["user_id"]
+    trial = data["trial"]
     tariff = _get_tariff_overview(telegram_id)
     tariff_plans = _get_tariff_plans(tariff.get("plan_name") if tariff else None, user_id)
-    history, history_has_more = _get_payment_history(user_id) if user_id else ([], False)
-    has_pending = _has_pending_request(user_id) if user_id else False
-    user_mod_subs = _get_user_active_module_subs(telegram_id)
     try:
         active_items = get_active_billing_items(telegram_id)
         active_items = {k: list(v) for k, v in active_items.items()}
@@ -693,16 +920,16 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
             "trial": trial,
             "msg": msg,
             "csrf_token": get_csrf_token(request),
-            "modules": modules,
-            "bundles": bundles,
-            "extensions": extensions,
-            "modules_map": mmap,
-            "user_mod_subs": user_mod_subs,
+            "modules": data["modules"],
+            "bundles": data["bundles"],
+            "extensions": data["extensions"],
+            "modules_map": data["mmap"],
+            "user_mod_subs": data["user_mod_subs"],
             "active_items": active_items,
-            "has_pending": has_pending,
-            "history": history,
-            "history_has_more": history_has_more,
-            "requisites": requisites,
+            "has_pending": data["has_pending"],
+            "history": data["history"],
+            "history_has_more": data["history_has_more"],
+            "requisites": data["requisites"],
             "tariff": tariff,
             "tariff_plans": tariff_plans,
             "need_ext": need_ext,
