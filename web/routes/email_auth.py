@@ -314,6 +314,7 @@ async def register_submit(
     first_name: str = Form(default=""),
     invite_code: str = Form(default=""),
     login_nonce: str = Form(default=""),
+    consent: str = Form(default=""),
 ):
     from web.auth import (verify_login_nonce, generate_login_nonce,
                           create_session_token, COOKIE_NAME, hash_password)
@@ -354,6 +355,8 @@ async def register_submit(
         return _err("Введите ваше имя.")
     if not invite_code:
         return _err("Введите инвайт-код организации.")
+    if not consent:
+        return _err("Необходимо согласиться с политикой обработки персональных данных.")
 
     try:
         conn = sqlite3.connect('data/main.db')
@@ -386,6 +389,18 @@ async def register_submit(
 
         synthetic_tg_id = -(10_000_000 + cred_id)
         db.set_web_synthetic_tg_id(cred_id, synthetic_tg_id, org_db, first_name)
+        # Записываем момент получения согласия с политикой ПДн
+        try:
+            import sqlite3 as _sqlite3
+            _sc = _sqlite3.connect('data/shop_bot.db')
+            _sc.execute(
+                "UPDATE web_credentials SET consent_at=datetime('now') WHERE id=?",
+                (cred_id,)
+            )
+            _sc.commit()
+            _sc.close()
+        except Exception:
+            pass
 
         from database import Database
         if os.path.exists(org_db):

@@ -353,7 +353,9 @@ class TenantManager:
             conn.close()
 
     def delete_organization(self, org_id):
-        """Удалить организацию: запись в main.db, маппинг пользователей и файл БД"""
+        """Удалить организацию: запись в main.db, маппинг пользователей,
+        файл тенант-БД, а также анонимизация/удаление ПДн из shop_bot.db
+        (ФЗ-152, право на забвение)."""
         conn = sqlite3.connect(self.main_db_path)
         cursor = conn.cursor()
         try:
@@ -363,21 +365,57 @@ class TenantManager:
                 return False, "Организация не найдена"
             org_name, db_path = org
 
+            # Собираем telegram_id членов ДО удаления маппинга
+            members = cursor.execute(
+                "SELECT telegram_id FROM user_org_mapping WHERE org_id=?", (org_id,)
+            ).fetchall()
+            member_tg_ids = [r[0] for r in members if r[0] is not None]
+
             cursor.execute("DELETE FROM user_org_mapping WHERE org_id = ?", (org_id,))
             cursor.execute("DELETE FROM organizations WHERE id = ?", (org_id,))
             conn.commit()
-
-            if db_path and os.path.exists(db_path):
-                try:
-                    os.remove(db_path)
-                except OSError:
-                    pass
-
-            return True, org_name
         except sqlite3.Error as e:
             return False, f"Ошибка базы данных: {str(e)}"
         finally:
             conn.close()
+
+        # Удаляем файл тенант-БД
+        if db_path and os.path.exists(db_path):
+            try:
+                os.remove(db_path)
+            except OSError:
+                pass
+
+        # Анонимизируем ПДн в shop_bot.db: удаляем web_credentials для
+        # email-only пользователей; затираем имена в users (платёжная история
+        # сохраняется в анонимном виде для бухгалтерии)
+        if member_tg_ids:
+            try:
+                shop_conn = sqlite3.connect('data/shop_bot.db', timeout=10)
+                try:
+                    # Email-only пользователи (synthetic_tg_id < 0)
+                    email_only = [t for t in member_tg_ids if t < 0]
+                    if email_only:
+                        placeholders = ','.join('?' * len(email_only))
+                        shop_conn.execute(
+                            f"DELETE FROM web_credentials WHERE synthetic_tg_id IN ({placeholders})",
+                            email_only,
+                        )
+                    # Анонимизируем имена всех членов
+                    placeholders = ','.join('?' * len(member_tg_ids))
+                    shop_conn.execute(
+                        f"UPDATE users SET first_name='[Удалён]', last_name='', "
+                        f"username=NULL WHERE telegram_id IN ({placeholders})",
+                        member_tg_ids,
+                    )
+                    shop_conn.commit()
+                finally:
+                    shop_conn.close()
+            except Exception as exc:
+                import logging as _log
+                _log.warning("delete_organization: shop_bot.db cleanup: %s", exc)
+
+        return True, org_name
 
     def change_user_role(self, telegram_id: int, new_role: str,
                          scope_type: str = None, scope_value=None,

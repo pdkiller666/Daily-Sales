@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.202.0"
+CURRENT_VERSION = "1.203.0"
 
 ENTRIES = [
+    {
+        "version": "1.203.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Automatically fix corrupted subscription data on startup",
+        ],
+    },
     {
         "version": "1.202.0",
         "date": "25 июня 2026",

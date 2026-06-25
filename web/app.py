@@ -1267,6 +1267,10 @@ def create_web_app() -> FastAPI:
             "pricing_meta": _landing_pricing_meta(),
         })
 
+    @app.get("/privacy", include_in_schema=False)
+    async def privacy_policy(request: Request):
+        return templates.TemplateResponse(request, "privacy.html", {})
+
     @app.exception_handler(404)
     async def not_found(request: Request, exc):
         return templates.TemplateResponse(

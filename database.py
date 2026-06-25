@@ -1708,6 +1708,8 @@ class Database:
                 cursor.execute("ALTER TABLE web_credentials ADD COLUMN totp_enabled INTEGER DEFAULT 0")
             if 'totp_recovery' not in _wc_cols:
                 cursor.execute("ALTER TABLE web_credentials ADD COLUMN totp_recovery TEXT")
+            if 'consent_at' not in _wc_cols:
+                cursor.execute("ALTER TABLE web_credentials ADD COLUMN consent_at TEXT")
 
         # ── admin_audit_log — действия супер-админа (только shop_bot.db) ───────
         if 'shop_bot' in self.db_file:

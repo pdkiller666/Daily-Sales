@@ -1,15 +1,53 @@
 """
-Модуль для управления резервными копиями базы данных
+Модуль для управления резервными копиями базы данных.
+Все бэкап-файлы шифруются AES-256 (Fernet) ключом, выведенным из BOT_TOKEN.
 """
+import base64
+import hashlib
+import logging
+import glob
 import os
 import re
-import sqlite3
 import shutil
+import sqlite3
+import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
-import glob
-import logging
-import time
+
+
+def _derive_fernet_key() -> bytes | None:
+    """Выводит 32-байтный Fernet-ключ из BOT_TOKEN через PBKDF2-SHA256.
+    Возвращает None если BOT_TOKEN не задан или библиотека недоступна."""
+    try:
+        token = os.getenv('BOT_TOKEN', '').strip()
+        if not token:
+            return None
+        raw = hashlib.pbkdf2_hmac(
+            'sha256',
+            token.encode(),
+            b'dailysales-backup-salt-v1',
+            100_000,
+            dklen=32,
+        )
+        return base64.urlsafe_b64encode(raw)
+    except Exception as exc:
+        logging.warning('backup: не удалось вывести ключ шифрования: %s', exc)
+        return None
+
+
+def _get_fernet():
+    """Возвращает экземпляр Fernet или None если шифрование недоступно."""
+    try:
+        from cryptography.fernet import Fernet
+        key = _derive_fernet_key()
+        if key is None:
+            return None
+        return Fernet(key)
+    except ImportError:
+        logging.warning('backup: cryptography не установлена — бэкапы не шифруются')
+        return None
+
 
 class BackupManager:
     def __init__(self, db_path='data/main.db', backup_dir='data/backup'):
@@ -18,224 +56,299 @@ class BackupManager:
         self.ensure_backup_directory()
 
     def ensure_backup_directory(self):
-        """Создает директорию для резервных копий если не существует"""
         Path(self.backup_dir).mkdir(parents=True, exist_ok=True)
 
+    # ─────────────────────────────────────────────────────────────────
+    #  Создание бэкапа
+    # ─────────────────────────────────────────────────────────────────
+
     def create_backup(self, custom_db_path=None, custom_label=None):
-        """Создает резервную копию базы данных (основной или тенанта)"""
+        """Создаёт зашифрованную резервную копию БД (.db.enc).
+        Если Fernet недоступен — сохраняет обычный .db (с предупреждением)."""
         try:
             target_db = custom_db_path or self.db_path
             if not os.path.exists(target_db):
-                logging.error(f"База данных не найдена: {target_db}")
-                return False, "База данных не найдена"
+                logging.error('backup: БД не найдена: %s', target_db)
+                return False, 'База данных не найдена'
 
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            label = custom_label or "main"
-            backup_filename = f"backup_{label}_{timestamp}.db"
-            backup_path = os.path.join(self.backup_dir, backup_filename)
+            timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+            label = custom_label or 'main'
+            fernet = _get_fernet()
 
-            source_conn = sqlite3.connect(target_db)
-            backup_conn = sqlite3.connect(backup_path)
-            source_conn.backup(backup_conn)
-            source_conn.close()
-            backup_conn.close()
+            if fernet:
+                backup_filename = f'backup_{label}_{timestamp}.db.enc'
+                backup_path = os.path.join(self.backup_dir, backup_filename)
+                # Сначала SQLite-бэкап во временный файл
+                with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
+                    tmp_path = tmp.name
+                try:
+                    src = sqlite3.connect(target_db)
+                    dst = sqlite3.connect(tmp_path)
+                    src.backup(dst)
+                    src.close()
+                    dst.close()
+                    # Шифруем и сохраняем
+                    with open(tmp_path, 'rb') as f:
+                        plaintext = f.read()
+                    ciphertext = fernet.encrypt(plaintext)
+                    with open(backup_path, 'wb') as f:
+                        f.write(ciphertext)
+                finally:
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+            else:
+                logging.warning('backup: шифрование недоступно, сохраняем открытый .db')
+                backup_filename = f'backup_{label}_{timestamp}.db'
+                backup_path = os.path.join(self.backup_dir, backup_filename)
+                src = sqlite3.connect(target_db)
+                dst = sqlite3.connect(backup_path)
+                src.backup(dst)
+                src.close()
+                dst.close()
 
-            logging.info(f"Создана резервная копия: {backup_filename}")
-            return True, f"Резервная копия создана: {backup_filename}"
+            logging.info('backup: создан %s', backup_filename)
+            return True, f'Резервная копия создана: {backup_filename}'
 
-        except Exception as e:
-            logging.error(f"Ошибка создания резервной копии: {e}")
-            return False, f"Ошибка: {str(e)}"
+        except Exception as exc:
+            logging.error('backup create: %s', exc)
+            return False, f'Ошибка: {exc}'
 
     def backup_all_tenants(self):
-        """Создает резервные копии для всех баз данных (main + shop_bot + тенанты)"""
+        """Создаёт бэкапы всех БД (main + shop_bot + тенанты)."""
         results = []
 
-        # 1. Бэкап main.db (организации + маппинг)
-        success, msg = self.create_backup('data/main.db', "main")
-        results.append(f"main.db: {'✅' if success else '❌'} {msg}")
+        ok, msg = self.create_backup('data/main.db', 'main')
+        results.append(f"main.db: {'✅' if ok else '❌'} {msg}")
 
-        # 2. Бэкап shop_bot.db (подписки, платежи, личные пользователи)
         if os.path.exists('data/shop_bot.db'):
-            success, msg = self.create_backup('data/shop_bot.db', "shop_bot")
-            results.append(f"shop_bot.db: {'✅' if success else '❌'} {msg}")
+            ok, msg = self.create_backup('data/shop_bot.db', 'shop_bot')
+            results.append(f"shop_bot.db: {'✅' if ok else '❌'} {msg}")
 
-        # 3. Бэкап тенантов
         tenants_dir = 'data/tenants'
         if os.path.exists(tenants_dir):
             for f in sorted(os.listdir(tenants_dir)):
                 if f.endswith('.db'):
-                    tenant_path = os.path.join(tenants_dir, f)
-                    tenant_label = f.replace('.db', '')
-                    success, msg = self.create_backup(tenant_path, tenant_label)
-                    results.append(f"Tenant {f}: {'✅' if success else '❌'} {msg}")
+                    ok, msg = self.create_backup(
+                        os.path.join(tenants_dir, f),
+                        f.replace('.db', ''),
+                    )
+                    results.append(f"Tenant {f}: {'✅' if ok else '❌'} {msg}")
 
         return results
 
+    # ─────────────────────────────────────────────────────────────────
+    #  Очистка старых бэкапов
+    # ─────────────────────────────────────────────────────────────────
+
     def cleanup_old_backups(self, keep_days=30):
-        """Удаляет резервные копии старше указанного количества дней"""
         try:
-            current_time = datetime.now()
-            deleted_count = 0
+            now = datetime.now()
+            deleted = 0
+            patterns = [
+                os.path.join(self.backup_dir, 'backup_*.db.enc'),
+                os.path.join(self.backup_dir, 'backup_*.db'),
+                os.path.join(self.backup_dir, 'shop_bot_backup_*.db'),
+            ]
+            for pattern in patterns:
+                for path in glob.glob(pattern):
+                    age = (now - datetime.fromtimestamp(os.path.getmtime(path))).days
+                    if age > keep_days:
+                        os.remove(path)
+                        deleted += 1
+                        logging.info('backup: удалён старый файл %s', os.path.basename(path))
+            return True, f'Удалено старых копий: {deleted}'
+        except Exception as exc:
+            logging.error('backup cleanup: %s', exc)
+            return False, f'Ошибка очистки: {exc}'
 
-            backup_pattern = os.path.join(self.backup_dir, "backup_*.db")
-            backup_files = glob.glob(backup_pattern)
-            # Совместимость со старым форматом имён
-            backup_files.extend(glob.glob(os.path.join(self.backup_dir, "shop_bot_backup_*.db")))
-
-            for backup_file in backup_files:
-                # getmtime — время последней модификации (надёжнее getctime на Linux)
-                file_time = datetime.fromtimestamp(os.path.getmtime(backup_file))
-                age_days = (current_time - file_time).days
-
-                if age_days > keep_days:
-                    os.remove(backup_file)
-                    deleted_count += 1
-                    logging.info(f"Удалена старая резервная копия: {os.path.basename(backup_file)}")
-
-            return True, f"Удалено старых копий: {deleted_count}"
-
-        except Exception as e:
-            logging.error(f"Ошибка очистки старых копий: {e}")
-            return False, f"Ошибка очистки: {str(e)}"
+    # ─────────────────────────────────────────────────────────────────
+    #  Список бэкапов
+    # ─────────────────────────────────────────────────────────────────
 
     def get_backup_list(self):
-        """Получает список всех резервных копий"""
         try:
-            backup_pattern = os.path.join(self.backup_dir, "backup_*.db")
-            backup_files = glob.glob(backup_pattern)
-            # Совместимость со старым форматом имён
-            backup_files.extend(glob.glob(os.path.join(self.backup_dir, "shop_bot_backup_*.db")))
+            patterns = [
+                os.path.join(self.backup_dir, 'backup_*.db.enc'),
+                os.path.join(self.backup_dir, 'backup_*.db'),
+                os.path.join(self.backup_dir, 'shop_bot_backup_*.db'),
+            ]
+            seen = set()
+            files = []
+            for pattern in patterns:
+                for path in glob.glob(pattern):
+                    if path not in seen:
+                        seen.add(path)
+                        files.append(path)
 
             backups = []
-            for backup_file in backup_files:
-                stat = os.stat(backup_file)
-                size_mb = round(stat.st_size / (1024 * 1024), 2)
-                # getmtime — надёжнее getctime на Linux
+            for path in files:
+                stat = os.stat(path)
                 created = datetime.fromtimestamp(stat.st_mtime)
-
                 backups.append({
-                    'filename': os.path.basename(backup_file),
-                    'path': backup_file,
-                    'size_mb': size_mb,
+                    'filename': os.path.basename(path),
+                    'path': path,
+                    'size_mb': round(stat.st_size / (1024 * 1024), 2),
                     'created': created,
-                    'age_days': (datetime.now() - created).days
+                    'age_days': (datetime.now() - created).days,
+                    'encrypted': path.endswith('.enc'),
                 })
-
             backups.sort(key=lambda x: x['created'], reverse=True)
             return backups
-
-        except Exception as e:
-            logging.error(f"Ошибка получения списка копий: {e}")
+        except Exception as exc:
+            logging.error('backup list: %s', exc)
             return []
+
+    # ─────────────────────────────────────────────────────────────────
+    #  Определение целевой БД по имени файла
+    # ─────────────────────────────────────────────────────────────────
 
     def _resolve_db_path(self, backup_filename):
         """Определяет целевой путь БД по имени бэкап-файла.
+        Поддерживает как .db.enc (зашифрованные), так и .db (старые)."""
+        # Убираем .enc суффикс для парсинга
+        name = backup_filename
+        if name.endswith('.enc'):
+            name = name[:-4]
 
-        Формат имени: backup_{label}_{YYYY-MM-DD_HH-MM-SS}.db
-        Маппинг:
-          label == 'main'      → data/main.db
-          label == 'shop_bot'  → data/shop_bot.db
-          label == 'central'   → data/main.db  (старый формат)
-          label начинается с 'org_' → data/tenants/{label}.db
-          иначе               → self.db_path (fallback, лог предупреждения)
-        """
-        m = re.match(r'^backup_(.+)_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.db$', backup_filename)
+        m = re.match(r'^backup_(.+)_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.db$', name)
         if not m:
-            # Старый формат или неизвестный — fallback
-            logging.error(f"Не удалось определить тип БД из имени: {backup_filename}, восстанавливаем в {self.db_path}")
+            logging.error('backup: не удалось определить тип БД из имени: %s', backup_filename)
             return self.db_path
 
         label = m.group(1)
-
-        if label == 'main' or label == 'central':
+        if label in ('main', 'central'):
             return 'data/main.db'
         if label == 'shop_bot':
             return 'data/shop_bot.db'
         if label.startswith('org_'):
-            return os.path.join('data', 'tenants', f"{label}.db")
+            return os.path.join('data', 'tenants', f'{label}.db')
 
-        logging.error(f"Неизвестный label '{label}' в имени {backup_filename}, восстанавливаем в {self.db_path}")
+        logging.error("backup: неизвестный label '%s' в %s", label, backup_filename)
         return self.db_path
 
+    # ─────────────────────────────────────────────────────────────────
+    #  Восстановление
+    # ─────────────────────────────────────────────────────────────────
+
     def restore_backup(self, backup_filename):
-        """Восстанавливает базу данных из резервной копии в правильный файл"""
+        """Восстанавливает БД из резервной копии (поддерживает .db.enc и .db)."""
         try:
             backup_path = os.path.join(self.backup_dir, backup_filename)
-
             if not os.path.exists(backup_path):
-                return False, "Резервная копия не найдена"
+                return False, 'Резервная копия не найдена'
 
             target_path = self._resolve_db_path(backup_filename)
 
-            # Создаём резервную копию текущей базы перед восстановлением
+            # Предварительный бэкап текущей БД
             target_label = os.path.splitext(os.path.basename(target_path))[0]
-            current_backup_result = self.create_backup(target_path, f"pre_restore_{target_label}")
-            if not current_backup_result[0]:
-                return False, f"Не удалось создать резервную копию текущей БД: {current_backup_result[1]}"
+            ok, msg = self.create_backup(target_path, f'pre_restore_{target_label}')
+            if not ok:
+                return False, f'Не удалось создать пред-restore бэкап: {msg}'
 
-            # Убеждаемся, что директория назначения существует (для тенантов)
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
 
-            # Безопасное восстановление через SQLite Online Backup API: страницы пишутся в
-            # живой файл БД с корректными блокировками. shutil.copy2 поверх открытых
-            # соединений (бот + веб держат БД в режиме WAL) мог порвать рабочую БД —
-            # перезаписывал .db, игнорируя незакоммиченные страницы в -wal/-shm.
-            src_conn = sqlite3.connect(backup_path)
-            dest_conn = sqlite3.connect(target_path, timeout=30)
+            # Если зашифрован — расшифруем во временный файл
+            if backup_filename.endswith('.enc'):
+                fernet = _get_fernet()
+                if fernet is None:
+                    return False, 'Невозможно расшифровать бэкап: BOT_TOKEN не задан или cryptography не установлена'
+                with open(backup_path, 'rb') as f:
+                    ciphertext = f.read()
+                try:
+                    plaintext = fernet.decrypt(ciphertext)
+                except Exception as dec_exc:
+                    return False, f'Ошибка расшифровки: {dec_exc}'
+                with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
+                    tmp.write(plaintext)
+                    tmp_path = tmp.name
+                src_path = tmp_path
+            else:
+                src_path = backup_path
+                tmp_path = None
+
+            # Восстановление через SQLite Backup API
             try:
-                # Ограниченный retry на случай блокировки живой БД (бот/веб пишут).
+                src = sqlite3.connect(src_path)
+                dst = sqlite3.connect(target_path, timeout=30)
                 _last_err = None
-                for _attempt in range(5):
+                for attempt in range(5):
                     try:
-                        with dest_conn:
-                            src_conn.backup(dest_conn)
+                        with dst:
+                            src.backup(dst)
                         _last_err = None
                         break
-                    except sqlite3.OperationalError as _be:
-                        _last_err = _be
-                        time.sleep(0.5 * (_attempt + 1))
-                if _last_err is not None:
+                    except sqlite3.OperationalError as be:
+                        _last_err = be
+                        time.sleep(0.5 * (attempt + 1))
+                if _last_err:
                     raise _last_err
             finally:
-                src_conn.close()
-                dest_conn.close()
+                src.close()
+                dst.close()
+                if tmp_path:
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
 
-            logging.info(f"БД восстановлена из {backup_filename} → {target_path}")
-            return True, f"БД восстановлена из {backup_filename} → {target_path}"
+            logging.info('backup: восстановлено %s → %s', backup_filename, target_path)
+            return True, f'БД восстановлена из {backup_filename} → {target_path}'
 
-        except Exception as e:
-            logging.error(f"Ошибка восстановления: {e}")
-            return False, f"Ошибка восстановления: {str(e)}"
+        except Exception as exc:
+            logging.error('backup restore: %s', exc)
+            return False, f'Ошибка восстановления: {exc}'
+
+    # ─────────────────────────────────────────────────────────────────
+    #  Информация о конкретном бэкапе
+    # ─────────────────────────────────────────────────────────────────
 
     def get_backup_info(self, backup_filename):
-        """Получает детальную информацию о резервной копии"""
+        """Детальная информация о бэкапе. Для .db.enc — расшифровывает во временный файл."""
         try:
             backup_path = os.path.join(self.backup_dir, backup_filename)
-
             if not os.path.exists(backup_path):
                 return None
 
             stat = os.stat(backup_path)
+            tmp_path = None
 
             try:
-                conn = sqlite3.connect(backup_path)
-                cursor = conn.cursor()
-                cursor.execute("PRAGMA integrity_check")
-                integrity = cursor.fetchone()[0]
+                if backup_filename.endswith('.enc'):
+                    fernet = _get_fernet()
+                    if fernet is None:
+                        return {
+                            'filename': backup_filename,
+                            'size_mb': round(stat.st_size / (1024 * 1024), 2),
+                            'created': datetime.fromtimestamp(stat.st_mtime),
+                            'integrity': False,
+                            'encrypted': True,
+                            'error': 'BOT_TOKEN не задан — расшифровка невозможна',
+                        }
+                    with open(backup_path, 'rb') as f:
+                        plaintext = fernet.decrypt(f.read())
+                    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
+                        tmp.write(plaintext)
+                        tmp_path = tmp.name
+                    read_path = tmp_path
+                else:
+                    read_path = backup_path
 
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                tables = cursor.fetchall()
-
-                total_records = 0
+                conn = sqlite3.connect(read_path)
+                cur = conn.cursor()
+                cur.execute('PRAGMA integrity_check')
+                integrity = cur.fetchone()[0]
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = cur.fetchall()
+                total = 0
                 table_info = []
-                for table in tables:
-                    if table[0] != 'sqlite_sequence':
-                        cursor.execute(f"SELECT COUNT(*) FROM {table[0]}")
-                        count = cursor.fetchone()[0]
-                        total_records += count
-                        table_info.append({'table': table[0], 'records': count})
-
+                for (tname,) in tables:
+                    if tname != 'sqlite_sequence':
+                        cur.execute(f'SELECT COUNT(*) FROM "{tname}"')
+                        cnt = cur.fetchone()[0]
+                        total += cnt
+                        table_info.append({'table': tname, 'records': cnt})
                 conn.close()
 
                 return {
@@ -243,34 +356,33 @@ class BackupManager:
                     'size_mb': round(stat.st_size / (1024 * 1024), 2),
                     'created': datetime.fromtimestamp(stat.st_mtime),
                     'integrity': integrity == 'ok',
+                    'encrypted': backup_filename.endswith('.enc'),
                     'tables_count': len(tables),
-                    'total_records': total_records,
-                    'table_info': table_info
+                    'total_records': total,
+                    'table_info': table_info,
                 }
+            finally:
+                if tmp_path:
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
 
-            except Exception as e:
-                return {
-                    'filename': backup_filename,
-                    'size_mb': round(stat.st_size / (1024 * 1024), 2),
-                    'created': datetime.fromtimestamp(stat.st_mtime),
-                    'integrity': False,
-                    'error': str(e)
-                }
-
-        except Exception as e:
-            logging.error(f"Ошибка получения информации о копии: {e}")
+        except Exception as exc:
+            logging.error('backup info: %s', exc)
             return None
 
+    # ─────────────────────────────────────────────────────────────────
+    #  Ежедневная процедура
+    # ─────────────────────────────────────────────────────────────────
+
     def daily_backup_routine(self):
-        """Ежедневная процедура резервного копирования (все БД + очистка старых)"""
         try:
             results = self.backup_all_tenants()
-            cleanup_success, cleanup_msg = self.cleanup_old_backups(30)
-
-            all_ok = all('✅' in r for r in results) and cleanup_success
-            summary = "\n".join(results) + f"\nОчистка: {cleanup_msg}"
+            ok_clean, msg_clean = self.cleanup_old_backups(30)
+            all_ok = all('✅' in r for r in results) and ok_clean
+            summary = '\n'.join(results) + f'\nОчистка: {msg_clean}'
             return all_ok, summary
-
-        except Exception as e:
-            logging.error(f"Ошибка ежедневного копирования: {e}")
-            return False, f"Ошибка: {str(e)}"
+        except Exception as exc:
+            logging.error('backup daily: %s', exc)
+            return False, f'Ошибка: {exc}'

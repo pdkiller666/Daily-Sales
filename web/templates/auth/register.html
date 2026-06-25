@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Регистрация — DailySales</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%232563eb'/><text x='50' y='57' text-anchor='middle' font-size='44' font-family='Arial,sans-serif' font-weight='bold' fill='white'>DS</text><text x='50' y='75' text-anchor='middle' font-size='21' font-family='Arial,sans-serif' font-weight='bold' fill='white' letter-spacing='1'>CRM</text></svg>">
-    <link rel="stylesheet" href="/static/app.css?v=29c9432c68">
+    <link rel="stylesheet" href="/static/app.css?v=ff1d9a89e7">
     <style>.circuit-line{position:absolute;background:rgba(37,99,235,.1);border-radius:2px}</style>
 </head>
 <body class="h-full min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden py-8">
@@ -86,6 +86,15 @@
                            style="text-transform:uppercase"
                            class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-mono tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
                     <p class="text-[11px] text-slate-400 mt-1">Код выдаёт руководитель вашей организации</p>
+                </div>
+
+                <div class="flex items-start gap-2 pt-1">
+                    <input type="checkbox" name="consent" id="consent" required
+                           class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-400 cursor-pointer">
+                    <label for="consent" class="text-xs text-slate-500 leading-relaxed cursor-pointer">
+                        Я согласен(-на) с
+                        <a href="/privacy" target="_blank" class="text-blue-500 hover:underline">политикой обработки персональных данных</a>
+                    </label>
                 </div>
 
                 <button type="submit"
