@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-19 (сессии 858–859: AI-биллинг per-org квота + `/admin/ai-limits` + 30-дневный график расходов; авто-фильтры дашборда (`today_iso`/`user_shop`); `old_price[9]` в products; APScheduler +1 → 13 задач) · 55 модулей · GitHub `9576413` · Amvera `cd435c4`
+> Последнее обновление: 2026-06-25 (сессии 970–974: AI digest shop-filter в боте; AI Insights (спарклайны, разбивка по магазинам, свежесть данных); рефакторинг input-бара чата ([+]-попап, Ctrl+Enter); фикс label планов при совпадении фильтров; APScheduler +11 → 24 задачи; `digest_shop_filter` в `ai_alert_settings`; `shop_breakdown_json`+`shops_included_json` в `ai_weekly_digest_cache`; новые джобы: `ai_weekly_digest`, `ai_smart_alerts`, `ai_network_insights`, `ai_morning_briefing`, `ai_anomaly_check`, `ai_procurement_advisor`, `ai_seller_coach`, `ai_task_digest`, `ai_task_overdue_predictor`, `check_task_reminders`, `backfill_shop_breakdown`) · 55 модулей · GitHub `53a7565` · Amvera `ae78b43`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -489,6 +489,12 @@ del_sched_notif_{id}        — удалить запланированное
 # UTC fix: ввод time → get_utc_time(naive, admin_tz) → scheduled_datetime (UTC)
 # check_scheduled_notifications: now = datetime.now().isoformat() (UTC) vs scheduled_datetime (UTC)
 # ⚠️ Techdebt: 3 строки "BROADCAST DEBUG" logging.info() — minor, стоит убрать
+
+# AI digest shop-filter (сессии 970–974):
+ai_alert_shop_filter        — экран выбора магазинов для AI еженедельного дайджеста
+toggle_ai_shop:{name}       — safe_cb("toggle_ai_shop:", shop) — тоггл конкретного магазина
+ai_shop_filter_reset        — сбросить фильтр (все магазины = без фильтра)
+# digest_shop_filter хранится как JSON array в ai_alert_settings; NULL = все магазины
 ```
 
 ### subscription_handlers.py (subscription_router)
@@ -579,20 +585,31 @@ APScheduler (AsyncIOScheduler)
   coalesce=True          — пропущенные повторы схлопываются в один
   max_instances=1        — никакого параллельного запуска одного задания
 
-Задачи (13 штук):
-  send_sales_alerts()               cron(minute='*', second=0)   — дневные цели продаж
-  send_payment_alerts()             cron(minute='*', second=12)  — напоминания подписки (14/7/3/1 день) + trial reminders
-  send_daily_reports()              cron(minute='*', second=24)  — ежедневные отчёты (async)
-  send_personalized_notifications() cron(minute='*', second=36)  — персонализированные
-  check_scheduled_notifications()   cron(minute='*', second=48)  — запланированные рассылки (UTC)
-  send_trial_expired_upsell()       cron(hour='*', minute=5)     — upsell при истечении триала; dedup threshold=-1
-  auto_finish_contests()            cron(hour='*', minute=0)     — завершение конкурсов
-  auto_reject_stale_payments()      cron(hour=10, minute=15)     — отклонение pending СБП >72ч
-  backup_job()                      cron(hour=3, minute=0)       — авто-бэкап (retention 30 дней)
-  cleanup_fsm_storage()             cron(day_of_week='sun', hour=4, minute=30) — удаление FSM-записей старше 30 дней
-  prune_ai_tool_stats()             cron(hour=3, minute=15)      — обрезка старой статистики AI-инструментов
-  auto_archive_ai_sessions()        cron(hour=3, minute=20)      — авто-разрыв AI-сессий без активности >30 дней (все org_*.db)
-  prune_ai_cost_log_job()           cron(hour=3, minute=35)      — очистка ai_cost_log в rate_limits.db (retention 90 дней)
+Задачи (24 штуки) — id из jobs/registry.py:
+  shift_start_notifier              cron(minute='*', second=0)   — дневные цели продаж / смена
+  trial_expired_upsell              cron(hour='*', minute=5)     — upsell при истечении триала; dedup threshold=-1
+  auto_finish_contests              cron(hour='*', minute=0)     — завершение конкурсов
+  auto_reject_stale_payments        cron(hour=10, minute=15)     — отклонение pending СБП >72ч
+  weekly_ranking_notification       cron(day_of_week='mon', hour=9) — еженедельный рейтинг
+  monthly_ranking_notification      cron(day=1, hour=9)          — ежемесячный рейтинг
+  daily_backup                      cron(hour=3, minute=0)       — авто-бэкап (retention 30 дней)
+  fsm_storage_cleanup               cron(day_of_week='sun', hour=4, minute=30) — удаление FSM-записей >30 дней
+  prune_ai_tool_stats               cron(hour=3, minute=15)      — обрезка старой статистики AI-инструментов
+  prune_ai_usage_log                cron(hour=3, minute=20)      — очистка ai_org_usage_log в rate_limits.db
+  prune_ai_cost_log                 cron(hour=3, minute=35)      — очистка ai_cost_log в rate_limits.db (retention 90 дней)
+  auto_archive_ai_sessions          cron(hour=3, minute=20)      — авто-разрыв AI-сессий без активности >30 дней (все org_*.db)
+  check_task_deadlines              cron(hour=9, minute=10)      — просроченные задачи → уведомление
+  check_task_reminders              cron(minute='*')             — напоминания о задачах
+  ai_network_insights               cron(hour=7, minute=0)       — AI инсайты по сети магазинов (07:00 UTC)
+  ai_smart_alerts                   cron(hour=7, minute=5)       — AI умные предупреждения (07:05 UTC)
+  ai_task_overdue_predictor         cron(hour=7, minute=10)      — AI прогноз просрочки задач
+  ai_task_digest                    cron(hour=7, minute=15)      — AI дайджест задач
+  ai_morning_briefing               cron(hour=7, minute=20)      — AI утренний брифинг (чат)
+  ai_anomaly_check                  cron(hour='*', minute=30)    — AI проверка аномалий продаж
+  ai_weekly_digest                  cron(day_of_week='mon', hour=9, minute=0) — AI еженедельный дайджест
+  ai_procurement_advisor            cron(hour=7, minute=25)      — AI советник по закупкам
+  ai_seller_coach                   cron(hour=7, minute=30)      — AI коучинг продавцов
+  backfill_shop_breakdown           cron(day_of_week='fri', hour=6) — бэкфилл разбивки по магазинам в ai_weekly_digest_cache
 
 _get_scheduler_db_paths()  → list[str]  — TTL-кеш 5 мин, все tenant БД + shop_bot.db
 ```
@@ -819,6 +836,12 @@ web/
     payments.py       — GET /payments, POST /payments/{id}/confirm, /payments/{id}/reject
     absences.py       — GET /absences, POST /absences/add, /absences/update,
                          GET /absences/settings, POST /absences/settings/update
+    ai_insights.py    — GET /ai-insights (страница аналитики AI; спарклайны выручки/продаж,
+                         разбивка по магазинам, метки свежести данных, фильтр магазинов в настройках);
+                         GET /api/ai-insights/sparklines (JSON, 7 точек тренда);
+                         GET /api/ai-insights/shop-breakdown (JSON, per-shop);
+                         `_compute_shop_weekly_breakdown(org_db, shops)` — helper, вызывается
+                         из ai_weekly_digest job и backfill_shop_breakdown
     chat.py           — GET /chat, POST /chat/send, GET /chat/poll,
                          GET /chat/topics/{id}/messages, GET /chat/file/{id},
                          GET /chat/file/attachment/{id},

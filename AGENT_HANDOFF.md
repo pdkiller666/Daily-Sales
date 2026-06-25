@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-06-25 (сессия 974)
+> Последнее обновление: 2026-06-25 (сессии 970–974)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -29,12 +29,23 @@ Workflow: "Start application" → python start.py (→ убивает порт 5
 - `YANDEX_EMAIL` — адрес Яндекс Почты для SMTP (email-auth)
 - `YANDEX_SMTP_PASSWORD` — **пароль приложения** Яндекс (16 симв.), НЕ пароль аккаунта
 
-**Последний деплой:** GitHub `53a7565` · Amvera `ae78b43` (2026-06-25, сессия 974). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `53a7565` · Amvera `ae78b43` (2026-06-25, сессии 970–974). Оба хэша верифицированы через `git ls-remote`.
 
 **Новые секреты (Web Push VAPID):**
 - `VAPID_PUBLIC_KEY` — публичный VAPID-ключ (base64url, генерируется один раз)
 - `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
 - `VAPID_MAILTO` — контактный email для VAPID заявок (`mailto:admin@example.com`)
+
+**Сессии 970–974 (2026-06-25) — AI digest shop-filter · AI Insights рефакторинг · чат input-бар · фикс label планов:**
+
+- **AI digest shop-filter** (`notifications_handlers.py`): пользователь выбирает конкретные магазины, которые войдут в еженедельный AI-дайджест; 3 новых callback — `ai_alert_shop_filter` (экран выбора), `toggle_ai_shop:{name}` (тоггл, safe_cb), `ai_shop_filter_reset` (сбросить). Колонка `digest_shop_filter TEXT DEFAULT NULL` добавлена в `ai_alert_settings` (ALTER TABLE, org_*.db); NULL = все магазины.
+- **AI Insights страница** (`web/routes/ai_insights.py`): спарклайны выручки и кол-ва продаж (7-точечный тренд), таблица разбивки по магазинам из `shop_breakdown_json`, метки «свежести» данных дайджеста, фильтр магазинов в настройках. Новые API: `GET /api/ai-insights/sparklines`, `GET /api/ai-insights/shop-breakdown`. Helper `_compute_shop_weekly_breakdown(org_db, shops)` — вызывается из `ai_weekly_digest` job и `backfill_shop_breakdown` cron.
+- **Новые DB-колонки** (`ai_weekly_digest_cache`): `shop_breakdown_json TEXT DEFAULT NULL` (per-shop breakdown) и `shops_included_json TEXT DEFAULT NULL` (список магазинов дайджеста) — оба через ALTER TABLE.
+- **Новые DB-методы**: `get_latest_audit_by_action(action)` → dict|None; `get_network_digest_prefs(tg_id)` → dict; `save_network_digest_prefs(tg_id, weekday, hour_msk)` → bool.
+- **APScheduler +11 → 24 задачи** (все вынесены в `jobs/registry.py`): добавлены `ai_weekly_digest` (пн 09:00), `ai_smart_alerts` (07:05), `ai_network_insights` (07:00), `ai_morning_briefing` (07:20), `ai_anomaly_check` (каждый час :30), `ai_procurement_advisor` (07:25), `ai_seller_coach` (07:30), `ai_task_digest` (07:15), `ai_task_overdue_predictor` (07:10), `check_task_reminders` (каждую минуту), `backfill_shop_breakdown` (пт 06:00 UTC).
+- **Рефакторинг input-бара чата** (`web/templates/chat/`): кнопка [+] открывает попап (прикрепить файл / создать тему); 🗑️ удаление сообщения перенесено в хедер; Ctrl+Enter отправляет сообщение (ранее — всегда Enter); применено и в групповом чате, и в DM.
+- **Фикс AI-ответа на планы** (`sales_plans_handlers.py`, `get_plans_with_progress()`): при нескольких планах одного магазина с разными фильтрами категорий функция добавляла одинаковый ключ → перезатиралась. Исправлено: лейбл дополняется суффиксом фильтра в квадратных скобках — напр. `«на ТЦ Лето 2905: выручка за неделю [Смартфоны]»`.
+- **Деплои**: два деплоя (v1.182.0 `01233de` и v1.184.0 `ae78b43` на Amvera); все три репозитория (local/GitHub/Amvera) синхронизированы.
 
 **Сессии 858–859 (2026-06-19) — AI-биллинг per-org квота + авто-фильтры дашборда + old_price:**
 
@@ -303,11 +314,11 @@ Telegram API                       Browser (admin/owner)
     ↓                                     ↓
 main.py  — polling, регистрация     web/app.py — FastAPI (порт 5000)
            роутеров, APScheduler    web/routes/*.py — 15 роутеров (read+write)
-           (12 задач)               web/templates/*.html — Jinja2+Tailwind
+           (24 задачи)              web/templates/*.html — Jinja2+Tailwind
     ↓                                     ↓
   [оба читают одни и те же SQLite БД через Database()]
 
-main.py  — polling, регистрация роутеров, APScheduler (12 задач)
+main.py  — polling, регистрация роутеров, APScheduler (24 задачи)
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
 │  25 РОУТЕРОВ (handlers)                                          │
@@ -816,24 +827,36 @@ paginate(items, page=0, per_page) → (page_items, total_pages)
 page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 ```
 
-### main.py — APScheduler (12 задач)
+### jobs/registry.py — APScheduler (24 задачи)
 
 | ID задачи | Расписание | Назначение |
 |---|---|---|
-| `send_sales_alerts` | каждую минуту (сек 0) | уведомления о дневных целях продаж |
-| `send_payment_alerts` | каждую минуту (сек 12) | напоминания об окончании подписки + trial reminders 14/7/3/1d |
-| `send_daily_reports` | каждую минуту (сек 24) | ежедневные отчёты |
-| `send_personalized_notifications` | каждую минуту (сек 36) | персонализированные уведомления |
-| `check_scheduled_notifications` | каждую минуту (сек 48) | запланированные рассылки (UTC) |
-| `send_trial_expired_upsell` | каждый час в :05 | upsell-пуш при истечении триала; dedup threshold=-1 |
+| `shift_start_notifier` | каждую минуту (сек 0) | уведомления о дневных целях продаж / смена |
+| `trial_expired_upsell` | каждый час в :05 | upsell-пуш при истечении триала; dedup threshold=-1 |
 | `auto_finish_contests` | каждый час в :00 | автозавершение конкурсов |
 | `auto_reject_stale_payments` | 10:15 ежедневно | авто-отклонение pending СБП-заявок >72ч |
-| `backup_job` | 03:00 ежедневно | авто-бэкап всех БД (retention 30 дней) |
-| `cleanup_fsm_storage` | воскресенье 04:30 | удаление FSM-записей старше 30 дней из `fsm_data` |
+| `weekly_ranking_notification` | понедельник 09:00 | еженедельный рейтинг |
+| `monthly_ranking_notification` | 1-е число 09:00 | ежемесячный рейтинг |
+| `daily_backup` | 03:00 ежедневно | авто-бэкап всех БД (retention 30 дней) |
+| `fsm_storage_cleanup` | воскресенье 04:30 | удаление FSM-записей старше 30 дней из `fsm_data` |
 | `prune_ai_tool_stats` | 03:15 ежедневно | обрезка старой статистики AI-инструментов |
-| `auto_archive_ai_sessions` | 03:20 ежедневно | авто-разрыв AI-сессий без активности >30 дней (все org_*.db) |
+| `prune_ai_usage_log` | 03:20 ежедневно | очистка ai_org_usage_log в rate_limits.db |
+| `prune_ai_cost_log` | 03:35 ежедневно | очистка ai_cost_log в rate_limits.db (retention 90 дней) |
+| `auto_archive_ai_sessions` | 03:20 ежедневно | авто-разрыв AI-сессий без активности >30 дней |
+| `check_task_deadlines` | 09:10 ежедневно | просроченные задачи → уведомление |
+| `check_task_reminders` | каждую минуту | напоминания о задачах по дедлайну |
+| `ai_network_insights` | 07:00 ежедневно | AI инсайты по сети магазинов |
+| `ai_smart_alerts` | 07:05 ежедневно | AI умные предупреждения (anomaly alerts) |
+| `ai_task_overdue_predictor` | 07:10 ежедневно | AI прогноз просрочки задач |
+| `ai_task_digest` | 07:15 ежедневно | AI дайджест задач |
+| `ai_morning_briefing` | 07:20 ежедневно | AI утренний брифинг в org-чат |
+| `ai_anomaly_check` | каждый час в :30 | AI проверка аномалий продаж |
+| `ai_weekly_digest` | понедельник 09:00 | AI еженедельный дайджест (с shop-filter) |
+| `ai_procurement_advisor` | 07:25 ежедневно | AI советник по закупкам |
+| `ai_seller_coach` | 07:30 ежедневно | AI коучинг продавцов |
+| `backfill_shop_breakdown` | пятница 06:00 UTC | бэкфилл разбивки по магазинам в ai_weekly_digest_cache |
 
-**APScheduler config:** `misfire_grace_time=60`, `coalesce=True`, `max_instances=1` — никакого параллельного запуска, пропущенные таски схлопываются. Итого: **12 задач** (добавлены `prune_ai_tool_stats` 03:15 и `auto_archive_ai_sessions` 03:20).
+**APScheduler config:** `misfire_grace_time=60`, `coalesce=True`, `max_instances=1` — никакого параллельного запуска, пропущенные таски схлопываются. Итого: **24 задачи**. Все джобы вынесены в `jobs/registry.py`.
 
 **Timezone в APScheduler:** все задачи используют `datetime.now()` (UTC на Amvera), конвертируют через `.astimezone(user_tz)` для сравнения с настроенным временем.
 

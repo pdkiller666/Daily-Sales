@@ -2,7 +2,7 @@
 
 > Справочник для агентов. Описывает полную карту интерфейса по каждому типу пользователя,
 > все callback_data, состояния FSM и разветвления логики.
-> Обновлён: 2026-06-19
+> Обновлён: 2026-06-25
 
 ---
 
@@ -811,8 +811,14 @@
  │              └─ ✅ Готово             [ntf_usr_done]
  │         Превью → [admin_confirm_send_now] или [admin_schedule_notification]
  │              └─ FSM: waiting_for_schedule_time → ввод ДД.ММ.ГГГГ ЧЧ:ММ
- └─ 📅 Запланированные        [view_scheduled_notifications]
-      └─ [delete_scheduled_notification_{id}]
+ ├─ 📅 Запланированные        [view_scheduled_notifications]
+ │    └─ [delete_scheduled_notification_{id}]
+ └─ 🤖 Настройки AI-дайджеста [ai_alert_settings_menu]  (только при подключённом модуле AI)
+      ├─ ⚙️ Настроить магазины [ai_alert_shop_filter]
+      │    ├─ Чекбокс-список магазинов
+      │    │    └─ [toggle_ai_shop:{safe_cb(name)}]  — тоггл магазина
+      │    └─ ♻️ Все магазины  [ai_shop_filter_reset]  — сбросить фильтр (NULL = все)
+      └─ Хранение: digest_shop_filter JSON-array в ai_alert_settings; NULL = все магазины
 ```
 
 **APScheduler-джобы:**
