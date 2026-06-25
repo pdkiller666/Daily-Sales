@@ -83,12 +83,9 @@ requirements.txt: `google-auth==2.53.0`, `gspread-asyncio==2.0.0`, `tenacity==9.
 
 **How to apply:** Any route that accepts browser push subscription data must apply these three checks before DB write.
 
-### 16. create_subscription_addon is NOT idempotent — money risk
-`create_subscription_addon` (database.py) does a blind `INSERT` into `subscription_addons`. A double-click/retry stacks addons (+100 → +200 → +300 items), inflating paid limits for free.
-
-**Why:** No dedup on `(user_telegram_id, addon_type)` and no guard against re-processing the same `payment_id`.
-
-**How to apply:** When wiring addon grants to a payment confirmation, dedup by payment_id (mark request processed) or upsert per addon_type — never rely on a bare INSERT for money-affecting grants.
+### 16. create_subscription_addon — идемпотентность РЕАЛИЗОВАНА ✅
+`UNIQUE INDEX idx_addons_payment` (partial, WHERE NOT NULL) + pre-check SELECT + race-recovery в except.
+Все вызовы в `confirm_payment_request` передают `payment_request_id`. Тест в `test_imports.py`.
 
 ### 17. Payment confirmation must be single-pathed (web vs bot divergence)
 Bot path (`payment_admin_handlers.py`) calls `confirm_payment_request` then does EXTRA manual updates to main.db/shop_bot.db (org plan expiration). Web path (`web/routes/payments.py`) calls only `confirm_payment_request`.

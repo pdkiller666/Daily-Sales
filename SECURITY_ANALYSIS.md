@@ -86,9 +86,9 @@ Alpine.js + Chart.js с inline-конфигами требуют оба флаг
 
 Если `SECRET_KEY` утечёт — нет механизма server-side logout / token revocation (JWT stateless по природе). Инвалидация всех сессий требует смены ключа и рестарта.
 
-**7. `create_subscription_addon` не идемпотентна**
+**7. ✅ `create_subscription_addon` — идемпотентность реализована** _(2026-06-26)_
 
-Двойная отправка формы аддона может применить его дважды (слепой INSERT). Нужен upsert или dedup по `payment_id`.
+`UNIQUE INDEX idx_addons_payment` (partial, WHERE payment_request_id IS NOT NULL) + pre-check SELECT + race-recovery в except. Все вызовы в `confirm_payment_request` передают `payment_request_id`. Тест в `test_imports.py` строки 220–228.
 
 ---
 

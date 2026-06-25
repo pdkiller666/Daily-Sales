@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.205.0"
+CURRENT_VERSION = "1.206.0"
 
 ENTRIES = [
+    {
+        "version": "1.206.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Update dependency and release version to fix build errors",
+        ],
+    },
     {
         "version": "1.205.0",
         "date": "25 июня 2026",
