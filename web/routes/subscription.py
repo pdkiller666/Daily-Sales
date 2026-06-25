@@ -920,6 +920,16 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
     except Exception:
         active_items = {"modules": [], "extensions": [], "bundles": []}
 
+    # Free modules (price_monthly=0) are always accessible without a billing
+    # record — ensure they appear as active so their extension groups show
+    # "N доступно" instead of "⚠ нет модуля".
+    if "*" not in active_items.get("modules", []):
+        for _fm in data.get("modules", []):
+            if _fm.get("price_monthly", 1) == 0:
+                _fk = _fm.get("key", "")
+                if _fk and _fk not in active_items["modules"]:
+                    active_items["modules"].append(_fk)
+
     is_free_plan = not tariff or tariff.get("plan_name") in (None, "Бесплатный", "")
     addon_all_unlimited = False
     addon_options = []
