@@ -1,55 +1,70 @@
 # Анализ безопасности DailySales
 
-> Дата последнего аудита: 26 июня 2026  
-> Охват: web-слой (FastAPI), бот (aiogram), database.py, шаблоны Jinja2  
-> Статус: актуально
+> **Дата последнего аудита:** 25 июня 2026  
+> **Охват:** web-слой (FastAPI), бот (aiogram), database.py, шаблоны Jinja2, деплой-инфраструктура  
+> **Версия:** v1.211.0 · Amvera `2052518`
 
 ---
 
 ## ✅ Что реализовано на хорошем уровне
 
-### Аутентификация
-- **Пароли**: PBKDF2-SHA256, 390 000 итераций + случайная соль
-- **2FA (TOTP)**: Google Authenticator / любое TOTP-приложение. Коды восстановления — SHA-256 хэши
+### Аутентификация и сессии
+- **Пароли**: PBKDF2-SHA256, 390 000 итераций + случайная 32-байтовая соль
+- **2FA (TOTP)**: Google Authenticator / любое TOTP-приложение; коды восстановления — SHA-256 хэши
 - **Telegram Widget**: HMAC-SHA256 по токену бота с проверкой давности (max 1 ч)
 - **Mini App**: HMAC-SHA256 по `b"WebAppData"` — отдельный ключ от Widget
-- **Magic-link / code**: одноразовые коды, хранятся в памяти бота, TTL
+- **Magic-link / code**: одноразовые коды в памяти бота, TTL
 - **Сессии**: JWT HS256, 7 дней, cookie `HttpOnly + Secure + SameSite=Lax`
-- **WEB_SECRET_KEY**: независимый от BOT_TOKEN секрет (если задан); иначе domain-bound HMAC
-- **consent_at**: фиксируется при email-регистрации И при всех трёх путях Telegram-входа (Widget / magic-link / code-form) — _(исправлено 2026-06-26)_
+- **JWT jti revocation**: каждый токен содержит уникальный `jti`; logout вносит его в blacklist (`revoked_tokens` в shop_bot.db + in-memory кэш); `get_session_user()` проверяет revocation на каждый запрос — выживает рестарт сервера _(2026-06-25)_
+- **WEB_SECRET_KEY**: независимый от BOT_TOKEN секрет; при отсутствии — domain-bound HMAC (не `sha256(BOT_TOKEN)`)
+- **consent_at**: фиксируется при email-регистрации И при всех трёх Telegram-путях (Widget / magic-link / code-form) _(2026-06-26)_
 
 ### Защита от типовых атак
-- **CSRF**: `nonce.HMAC(secret, jwt+nonce)[:32]` — сессионно-привязан, per-request. Проверяется на всех ~120 POST-эндпоинтах (form-data). JSON API-эндпоинты (AI-ассистент, push/subscribe) защищены SameSite=Lax + CORS preflight — CSRF-токен не требуется
-- **SQL-инъекции**: все запросы параметризованы; f-строки с SQL используются только для безопасных серверных значений (имена таблиц, `sys_filter` из булева аргумента)
-- **XSS**: Jinja2 auto-escape по умолчанию; `| safe` используется только для SVG (с ручным html.escape) и pre-serialized числовых данных. Пользовательские имена в Chart.js переданы как Python-списки через `| tojson` — _(исправлено 2026-06-26)_
-- **Open redirects**: `_safe_next()` — принимает только `/path` без `//` и внешних схем
+- **CSRF**: `HMAC(secret, jwt+nonce)[:32]` — сессионно-привязан, per-request. Проверяется на всех ~120 POST-эндпоинтах (form-data). JSON API-эндпоинты защищены SameSite=Lax + CORS preflight — CSRF-токен не требуется
+- **SQL-инъекции**: все запросы параметризованы; f-строки с SQL — только для безопасных серверных значений
+- **XSS**: Jinja2 auto-escape по умолчанию; `| safe` — только для SVG (с ручным `html.escape`) и числовых данных; Chart.js данные через `| tojson` _(исправлено 2026-06-26)_
+- **Open redirects**: `_safe_next()` — только `/path` без `//` и внешних схем
 - **Path traversal**: доказательства оплаты проверяются по абсолютному prefix-у
 
-### Заголовки безопасности
+### Заголовки безопасности (все ответы)
 ```
-Content-Security-Policy: default-src 'self' + строгий allow-list (+ unsafe-eval для Alpine)
-Strict-Transport-Security: 31536000 (HSTS)
+Content-Security-Policy:
+  default-src 'self'
+  script-src  'self' 'unsafe-eval' 'nonce-{per-request}'  ← unsafe-inline убран
+  style-src   'self' 'unsafe-inline'
+  frame-src   https://telegram.org https://oauth.telegram.org
+  object-src  'none'  |  base-uri 'self'  |  form-action 'self'
+Strict-Transport-Security: max-age=31536000; includeSubDomains  (HTTPS-only)
 X-Frame-Options: SAMEORIGIN
 X-Content-Type-Options: nosniff
 Referrer-Policy: strict-origin-when-cross-origin
-Permissions-Policy: camera=(self)
+Permissions-Policy: camera=(self), microphone=(self), geolocation=(), payment=(self)
+X-XSS-Protection: 1; mode=block
 ```
+
+Per-request CSP nonce: `SecurityHeadersMiddleware` генерирует `secrets.token_urlsafe(16)` до `call_next()`; все 93 `<script>`-блока в 52 шаблонах тегированы `nonce="{{ csp_nonce(request) }}"` _(2026-06-25)_
+
+### Rate limiting
+- Auth-эндпоинты: persistent SQLite (`rate_store`), 5 req/60 s на IP; fail-**closed** при сбое БД _(2026-06-25)_
+- AI-эндпоинты: `check_and_increment_ai` — fail-closed, per-org квота
+- Web Push: `rate_store`-based, per-telegram_id (не per-IP — за reverse-proxy)
 
 ### Изоляция клиентов (мультитенантность)
 - Каждая организация — отдельный SQLite-файл `data/tenants/org_*.db`
-- JWT содержит путь к конкретной БД организации
-- Нет cross-org доступа: `org_db` берётся только из проверенного JWT
-
-### Мониторинг и аудит
-- Вход с нового IP → уведомление в Telegram
-- `admin_audit_log` — действия супер-админа с IP и деталью; охватывает веб-панель И бота — _(бот добавлен 2026-06-26)_
-- Fail-closed rate limiter для AI-эндпоинтов (`check_and_increment_ai` → `return False` при сбое БД)
-- Persistent rate limiter (SQLite) для auth-эндпоинтов: выживает рестарты
+- JWT содержит путь к конкретной БД; cross-org доступ исключён
+- Email-only пользователи изолированы через `web_credentials.org_db`
 
 ### Платежи
 - Никаких PAN/CVV — карточные данные не хранятся
 - Доказательства оплаты — рандомизированные имена файлов
-- Идемпотентность выдачи по `payment_request_id` (UNIQUE INDEX + pre-check)
+- Идемпотентность выдачи по `payment_request_id` (UNIQUE INDEX + pre-check, атомарный `UPDATE WHERE status='pending'`)
+- Веб `billing_grant` / `billing_revoke` вызывают `invalidate_plan_cache()` — кэш плана сбрасывается немедленно _(2026-06-25)_
+
+### Мониторинг, аудит и ПДн
+- Вход с нового IP → уведомление в Telegram
+- `admin_audit_log`: действия супер-админа (IP, детали) — веб + бот _(2026-06-26)_
+- **Право на забвение (ФЗ-152 / GDPR)**: `Database.erase_user_pii()` + `erase_user_globally()` — анонимизация ПДн во всех org-базах, удаление `web_credentials` / `login_ips`, чистка чата; веб-интерфейс `/admin/users/{id}/erase`; аудит-лог каждого стирания _(2026-06-25)_
+- Бэкапы зашифрованы AES-256 _(2026-06-25)_
 
 ---
 
@@ -57,76 +72,46 @@ Permissions-Policy: camera=(self)
 
 ### 🔴 Критично для корпоративных клиентов
 
-**1. Нет шифрования данных на диске (Encryption at Rest)**
+**Нет шифрования данных на диске (Encryption at Rest)**
 
-Все SQLite-файлы (`data/*.db`) хранятся открытым текстом:
+SQLite-файлы (`data/*.db`) хранятся открытым текстом:
 - Компрометация хостинга → все данные всех организаций читаемы без пароля
-- Google OAuth токены в `integration_connections` — plaintext в БД
-- Бэкапы зашифрованы AES-256 ✅ — но live-БД нет
+- Google OAuth-токены в `integration_connections` — plaintext в БД
+- Бэкапы зашифрованы ✅, но live-БД — нет
 
-Для ФЗ-152 регулируемых отраслей — де-факто блокер.
-
-**2. ✅ Механизм «право на забвение» реализован (ФЗ-152 / GDPR)** _(2026-06-25)_
-
-Реализовано: `Database.erase_user_pii()` + `erase_user_globally()` в `tenant_manager.py`:
-- Анонимизация ПДн (ФИО, телефон, email, username, фото) во всех org-базах пользователя
-- Удаление `web_credentials` и `login_ips` из shop_bot.db
-- Анонимизация текста chat/DM-сообщений (структура reply-chain сохраняется)
-- Удаление `absence_records`, `work_schedule`, `notification_history/settings`
-- Удаление файла фото профиля с диска
-- Сохраняются: sales, salary_adjustments (бизнес-записи для бухгалтерии)
-- Веб-интерфейс: `/admin/users` → кнопка «🗑 ПДн» → страница подтверждения `/admin/users/{id}/erase`
-- Аудит-лог каждого стирания в `admin_audit_log`
-
-Остаётся: журнал передачи ПДн третьим лицам; настраиваемый retention переписки.
+Для регулируемых отраслей — блокер.  
+**Путь решения:** SQLCipher (at-rest encryption) или PostgreSQL с шифрованием тома.
 
 ---
 
-### 🟡 Важно, но решаемо
+### 🟡 Остаточные ограничения (осознанные компромиссы)
 
-~~**3. Auth rate limiter: внешний wrapper fail-open**~~ ✅ _Исправлено 2026-06-25_
-
-~~**4. `unsafe-eval` в CSP**~~ — `unsafe-eval` остаётся (Alpine.js 3 требует), **устранено** как риск через нонсы:
-
-CSP теперь использует `nonce-{random}` вместо `unsafe-inline`. Все 93 `<script>`-блока в 52 шаблонах получили `nonce="{{ csp_nonce(request) }}"`. Современные браузеры игнорируют `unsafe-inline` при наличии нонса → только тегированные скрипты выполняются. `unsafe-eval` остаётся нужным для Alpine.js — убирается при переходе на Alpine CSP-build (требует бандлер).
-
-~~**5. JWT без server-side revocation**~~ ✅ _Исправлено 2026-06-25_
-
-JWT теперь включает `jti` (уникальный ID токена). При logout jti вносится в `revoked_tokens` (shop_bot.db) и in-memory кэш. `get_session_user()` проверяет revocation при каждом запросе. Выживает рестарт сервера.
-
-~~**6. Расхождение путей подтверждения оплаты (веб vs бот)**~~ ✅ _Исправлено 2026-06-25_
-
-Веб-маршруты `/admin/billing/grant` и `/admin/billing/revoke` теперь вызывают `invalidate_plan_cache()` после успешного действия — устраняет задержку активации/деактивации из-за кэша плана.
+| Ограничение | Почему так | Путь решения |
+|---|---|---|
+| `unsafe-eval` в CSP | Alpine.js 3 требует `new Function()` для вычисления `x-*` выражений; без него вся JS-интерактивность мертва | Alpine CSP-build (требует бандлер/Vite) или миграция на Preact |
+| SQLite вместо PostgreSQL | Простота деплоя, изоляция per-org; потолок ~30 платящих орг | Поэтапная миграция при росте (план в `postgres-migration.md`) |
+| YooKassa без webhook | +latency при проверке статуса; polling-based подтверждение | Регистрация webhook-endpoint в кабинете ЮKassa |
+| Google OAuth токены plaintext | Только server-side, нет публичного пути чтения | Шифрование at-rest (SQLCipher) решит и это |
+| AI JSON-API без CSRF-токена | SameSite=Lax + CORS preflight достаточно для браузерного контекста | — |
 
 ---
 
-### 🟢 Закрытые риски (история)
+### 🟢 История закрытых рисков
 
 | Риск | Статус | Дата |
 |---|---|---|
 | Бэкапы plaintext | ✅ AES-256 шифрование | 2026-06-25 |
 | Удаление организации без аудита | ✅ Аудит-лог (веб + бот) | 2026-06-25 / 2026-06-26 |
 | Telegram-логин без consent_at | ✅ Все 3 пути записывают consent_at | 2026-06-26 |
-| Rate limiter fail-open (auth) | ✅ Persistent SQLite store | 2026-06-25 |
+| Rate limiter fail-open (persistent store) | ✅ SQLite-based, выживает рестарт | 2026-06-25 |
 | Auth rate limiter wrapper fail-open | ✅ `return False` при исключении | 2026-06-25 |
 | CSRF не проверялся в admin.py (8 маршрутов) | ✅ Исправлено (audit 2026-06) | 2026-06-17 |
-| Хранение подписки без идемпотентности | ✅ UNIQUE INDEX + pre-check | 2026-06-26 |
-| XSS в tasks/analytics (json.dumps + \| safe) | ✅ Исправлено на \| tojson | 2026-06-26 |
-| `unsafe-inline` в CSP | ✅ Заменён per-request nonce (93 script-блока) | 2026-06-25 |
-| JWT без server-side revocation | ✅ jti blacklist (память + shop_bot.db) | 2026-06-25 |
-| Расхождение billing grant/revoke (веб vs бот) | ✅ `invalidate_plan_cache` добавлен в веб | 2026-06-25 |
-
----
-
-### 🟢 Осознанные компромиссы
-
-| Решение | Почему так |
-|---|---|
-| SQLite вместо PostgreSQL | Простота деплоя, изоляция per-org. Потолок ~30 платящих орг. |
-| YooKassa без webhook | Работает, но +latency при проверке статуса |
-| `unsafe-eval` в CSP | Alpine.js 3 требует. Без него вся JS-интерактивность мертва |
-| Google OAuth токены plaintext | Server-side only, нет публичного access path |
-| AI JSON-API без CSRF-токена | Защищены SameSite=Lax cookie + CORS preflight браузера |
+| Хранение подписки без идемпотентности | ✅ UNIQUE INDEX + pre-check + атомарный UPDATE | 2026-06-26 |
+| XSS в tasks/analytics (json.dumps + `| safe`) | ✅ Заменено на `| tojson` | 2026-06-26 |
+| `unsafe-inline` в CSP | ✅ Заменён per-request nonce (93 блока, 52 шаблона) | 2026-06-25 |
+| JWT без server-side revocation | ✅ jti blacklist (in-memory + shop_bot.db) | 2026-06-25 |
+| Billing grant/revoke без invalidate_plan_cache | ✅ Добавлен в оба веб-маршрута | 2026-06-25 |
+| Право на забвение (ФЗ-152 / GDPR) | ✅ erase_user_pii() + веб-интерфейс + аудит | 2026-06-25 |
 
 ---
 
@@ -136,31 +121,35 @@ JWT теперь включает `jti` (уникальный ID токена). 
 |---|---|---|
 | МСБ без строгих требований | ✅ Можно продавать | — |
 | Сети / Франшизы (50–200 чел) | ✅ С оговорками | Нет шифрования at-rest; уведомить письменно |
-| Компании с требованиями ФЗ-152 | ⚠️ Нужна доработка | Шифрование at-rest + механизм «право на забвение» |
-| Госструктуры / медицина | ❌ Не готово | Шифрование, сертификация, on-premise |
-| Международные (GDPR) | ❌ Не готово | Право на забвение, DPA, локализация данных |
+| Компании с требованиями ФЗ-152 | ⚠️ Ограниченно | Шифрование at-rest (right-to-erasure уже ✅) |
+| Госструктуры / медицина | ❌ Не готово | Шифрование, сертификация ФСТЭК, on-premise |
+| Международные (GDPR) | ❌ Не готово | DPA, retention policy, локализация данных |
 
 ---
 
-## 🛠️ Дорожная карта устранения
+## 🛠️ Дорожная карта
 
-### Минимум (выполнено)
-1. ✅ Шифрование бэкапов AES-256 _(2026-06-25)_
-2. ✅ Удаление организации с полным аудит-логом (веб + бот) _(2026-06-25 / 2026-06-26)_
-3. ✅ consent_at при регистрации и при всех Telegram-входах _(2026-06-26)_
-4. ✅ Persistent rate limiter для auth-эндпоинтов _(2026-06-25)_
-5. ✅ XSS в tasks/analytics — `| tojson` вместо `json.dumps + | safe` _(2026-06-26)_
+### Выполнено ✅
+1. Шифрование бэкапов AES-256
+2. Удаление организации с полным аудит-логом (веб + бот)
+3. consent_at при регистрации и при всех Telegram-входах
+4. Persistent rate limiter для auth-эндпоинтов (fail-closed)
+5. XSS-фикс в tasks/analytics (`| tojson`)
+6. Auth rate limiter wrapper → fail-closed
+7. Унификация billing: `invalidate_plan_cache` в веб-маршрутах
+8. Право на забвение — `erase_user_pii()` + веб-интерфейс + аудит
+9. `unsafe-inline` → per-request nonce (93 script-блока)
+10. JWT server-side revocation — jti blacklist (память + DB)
 
-### Следующий уровень (приоритизированный)
-1. ✅ Auth rate limiter outer wrapper → fail-closed _(2026-06-25)_
-2. ✅ Унификация подтверждения оплаты: `invalidate_plan_cache` в веб-маршрутах _(2026-06-25)_
-3. ✅ **API «удалить данные пользователя» (right-to-erasure) реализован** _(2026-06-25)_
-4. ✅ `unsafe-inline` заменён per-request nonce; `unsafe-eval` остаётся (Alpine.js) _(2026-06-25)_
-5. ✅ JWT server-side revocation через jti blacklist _(2026-06-25)_
+### Следующий приоритет
+- **[Высокий]** SQLCipher — шифрование live-БД at-rest (требует миграцию, downtime)
+- **[Средний]** YooKassa webhook — убрать polling-подтверждение
+- **[Средний]** Alpine CSP-build — убрать `unsafe-eval` (требует бандлер)
+- **[Низкий]** Настраиваемый retention переписки и данных продаж по пользователю
+- **[Низкий]** DPA / Privacy Policy для GDPR-клиентов
 
-### Полноценно (2–3 месяца, enterprise-уровень)
-- SQLCipher для шифрования баз данных at-rest
-- Переход на PostgreSQL с row-level security (при >30 платящих орг)
-- Настраиваемый retention переписки и данных продаж по пользователю
+### Enterprise (2–3 месяца)
+- PostgreSQL с row-level security (при >30 платящих орг)
 - On-premise / self-hosted вариант поставки
 - SIEM-интеграция для корпоративного аудита
+- ФСТЭК / сертификация для госсектора

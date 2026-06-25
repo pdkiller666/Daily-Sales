@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.211.0"
+CURRENT_VERSION = "1.212.0"
 
 ENTRIES = [
+    {
+        "version": "1.212.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Implement enhanced security measures and update system components",
+        ],
+    },
     {
         "version": "1.211.0",
         "date": "25 июня 2026",
