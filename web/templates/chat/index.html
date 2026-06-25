@@ -2560,8 +2560,12 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             const wrapper = document.getElementById('chat-wrapper');
             if (!wrapper) return;
 
-            const MIN_DX   = 60;   /* минимальный горизонтальный сдвиг px */
-            const MAX_DY   = 40;   /* максимальный вертикальный сдвиг px */
+            /* Пороги ДОЛЖНЫ быть не строже base.html (MIN_DIST=50, MAX_VERT=60),
+               иначе появляется dead zone (dx 50–60px или dy 40–60px), где этот
+               обработчик молча пропускает жест, а base.html уводит в соседний
+               модуль. Держим 1-в-1 с base.html, чтобы чат всегда перехватывал первым. */
+            const MIN_DX   = 50;   /* минимальный горизонтальный сдвиг px (= base MIN_DIST) */
+            const MAX_DY   = 60;   /* максимальный вертикальный сдвиг px (= base MAX_VERT) */
             let ts = null;
 
             wrapper.addEventListener('touchstart', e => {
