@@ -312,9 +312,9 @@
         </div>
         {% endfor %}
     </div>
-    {% if tariff.addon_products or tariff.addon_shops %}
+    {% if tariff.addon_products or tariff.addon_shops or tariff.addon_sales %}
     <div class="px-4 py-2 text-xs text-slate-400 border-t border-slate-100 dark:border-slate-700/60">
-        Включены надстройки:{% if tariff.addon_products %} +{{ tariff.addon_products }} товаров{% endif %}{% if tariff.addon_shops %}{% if tariff.addon_products %},{% endif %} +{{ tariff.addon_shops }} магазин(а){% endif %}
+        Включены надстройки:{% if tariff.addon_products %} +{{ tariff.addon_products }} товаров{% endif %}{% if tariff.addon_shops %}{% if tariff.addon_products %},{% endif %} +{{ tariff.addon_shops }} магазин(а){% endif %}{% if tariff.addon_sales %}{% if tariff.addon_products or tariff.addon_shops %},{% endif %} +{{ tariff.addon_sales }} продаж{% endif %}
     </div>
     {% endif %}
     <div class="px-4 py-2.5 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-800/40">
@@ -325,14 +325,22 @@
 
 
 {# ══ ДОПОЛНИТЕЛЬНЫЙ ОБЪЁМ (АДДОНЫ) ══ #}
-{% if addon_options %}
+{% if addon_all_unlimited %}
+<div class="mb-6 rounded-2xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-4 flex items-start gap-3">
+    <span class="text-2xl shrink-0">∞</span>
+    <div>
+        <p class="font-bold text-emerald-800 dark:text-emerald-200 text-sm">У вас уже безлимитный объём</p>
+        <p class="text-xs text-emerald-600 dark:text-emerald-300 mt-0.5">Товары, магазины и продажи — без ограничений. Докупать дополнительный объём не нужно.</p>
+    </div>
+</div>
+{% elif addon_options %}
 <div class="mb-6">
     <div class="flex items-center gap-2 mb-3">
         <span class="text-lg">➕</span>
         <h2 class="text-base font-extrabold text-slate-800 dark:text-white">Дополнительный объём</h2>
     </div>
     <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Увеличьте лимиты сверх тарифа — без смены плана. Аддон добавляется на 30 дней.</p>
-    <div class="grid grid-cols-2 gap-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {% for opt in addon_options %}
         <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 flex flex-col gap-2">
             <div class="flex items-center gap-2">

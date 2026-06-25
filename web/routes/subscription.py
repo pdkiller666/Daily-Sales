@@ -378,6 +378,7 @@ def _get_tariff_overview(telegram_id: int) -> dict | None:
 
     extra_products = int(addons.get("extra_products", 0) or 0) * 100
     extra_shops = int(addons.get("extra_shops", 0) or 0)
+    extra_sales = int(addons.get("extra_sales", 0) or 0) * 500
 
     def _eff(base, extra):
         try:
@@ -388,7 +389,7 @@ def _get_tariff_overview(telegram_id: int) -> dict | None:
 
     max_products = _eff(limits.get("max_products", 0), extra_products)
     max_shops = _eff(limits.get("max_shops", 0), extra_shops)
-    max_sales = limits.get("max_sales_per_month", 0)
+    max_sales = _eff(limits.get("max_sales_per_month", 0), extra_sales)
 
     used_products = used_shops = used_sales = None
     try:
@@ -430,6 +431,7 @@ def _get_tariff_overview(telegram_id: int) -> dict | None:
         "days_remaining": days_remaining,
         "addon_products": extra_products,
         "addon_shops": extra_shops,
+        "addon_sales": extra_sales,
         "rows": [
             {"icon": "🛍", "label": "Товары", "used": used_products,
              "cap": max_products, "cap_fmt": _fmt_cap(max_products),
@@ -530,6 +532,7 @@ def _get_item_price(plan_type: str) -> int | None:
     _ADDON_PRICES: dict[str, int] = {
         "addon_shops_1": 150,
         "addon_products_1": 100,
+        "addon_sales_1": 200,
     }
     if plan_type in _ADDON_PRICES:
         return _ADDON_PRICES[plan_type]
@@ -578,14 +581,21 @@ def _get_item_price(plan_type: str) -> int | None:
         return None
 
 
-def _get_addon_options() -> list[dict]:
-    """Доп. объёмные аддоны (+магазины, +товары) с реальными ценами из БД."""
+def _get_addon_options(excluded_dims: set | None = None) -> list[dict]:
+    """Доп. объёмные аддоны (+магазины, +товары, +продажи) с реальными ценами.
+
+    excluded_dims — набор строк {'products', 'shops', 'sales'}:
+    если лимит по измерению безлимитный (∞), аддон по нему скрывается."""
+    _skip = excluded_dims or set()
     candidates = [
-        ("addon_products_1", "+100 товаров", "🛍", "Увеличить лимит товаров на 100 единиц"),
-        ("addon_shops_1", "+1 магазин", "🏪", "Добавить ещё один магазин к тарифу"),
+        ("addon_products_1", "+100 товаров", "🛍", "Увеличить лимит товаров на 100 единиц", "products"),
+        ("addon_shops_1", "+1 магазин", "🏪", "Добавить ещё один магазин к тарифу", "shops"),
+        ("addon_sales_1", "+500 продаж/мес", "🧾", "Увеличить лимит продаж на 500 в месяц", "sales"),
     ]
     opts = []
-    for plan_type, label, icon, desc in candidates:
+    for plan_type, label, icon, desc, dim in candidates:
+        if dim in _skip:
+            continue
         price = _get_item_price(plan_type)
         if price is not None and price > 0:
             opts.append({
@@ -911,7 +921,23 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
         active_items = {"modules": [], "extensions": [], "bundles": []}
 
     is_free_plan = not tariff or tariff.get("plan_name") in (None, "Бесплатный", "")
-    addon_options = [] if is_free_plan else _get_addon_options()
+    addon_all_unlimited = False
+    addon_options = []
+    if not is_free_plan and tariff:
+        _unlimited_dims: set = set()
+        _dim_map = {"Товар": "products", "Магазин": "shops", "Продаж": "sales"}
+        for _r in tariff.get("rows", []):
+            _cap = _r.get("cap")
+            try:
+                if int(_cap) < 0:
+                    for _kw, _dim in _dim_map.items():
+                        if _kw in _r.get("label", ""):
+                            _unlimited_dims.add(_dim)
+            except Exception:
+                pass
+        addon_all_unlimited = len(_unlimited_dims) >= 3
+        if not addon_all_unlimited:
+            addon_options = _get_addon_options(_unlimited_dims)
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -936,6 +962,7 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
             "tariff_plans": tariff_plans,
             "need_ext": need_ext,
             "addon_options": addon_options,
+            "addon_all_unlimited": addon_all_unlimited,
         },
     )
 

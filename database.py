@@ -4873,6 +4873,8 @@ class Database:
                             _addon_res = self.create_subscription_addon(_tg_id, 'extra_shops', _qty, 150.0 * _qty, days=30, payment_request_id=request_id)
                         elif _addon_key == 'products':
                             _addon_res = self.create_subscription_addon(_tg_id, 'extra_products', _qty, 100.0 * _qty, days=30, payment_request_id=request_id)
+                        elif _addon_key == 'sales':
+                            _addon_res = self.create_subscription_addon(_tg_id, 'extra_sales', _qty, 200.0 * _qty, days=30, payment_request_id=request_id)
                         if _addon_res == 0:
                             _addon_ok = False
                 if not _addon_ok:
@@ -12221,7 +12223,7 @@ class Database:
     def get_addon_totals(self, telegram_id: int) -> dict:
         """Суммарные надстройки по типам (extra_shops, extra_products)."""
         rows = self.get_active_addons(telegram_id)
-        result = {'extra_shops': 0, 'extra_products': 0}
+        result = {'extra_shops': 0, 'extra_products': 0, 'extra_sales': 0}
         for row in rows:
             addon_type = row[1]
             qty = row[2] or 0

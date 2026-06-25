@@ -337,6 +337,10 @@ def check_sales_limit(telegram_id):
     if limits['max_sales_per_month'] == -1:
         return True, None
 
+    addons = _get_addon_totals_for_user(telegram_id)
+    addon_extra = addons.get('extra_sales', 0) * 500
+    effective_limit = limits['max_sales_per_month'] + addon_extra
+
     from tenant_manager import tenant_manager
     from database import Database
     db_path = tenant_manager.get_user_db_path(telegram_id)
@@ -360,11 +364,13 @@ def check_sales_limit(telegram_id):
     except Exception:
         return True, None
 
-    if count >= limits['max_sales_per_month']:
-        return False, (
-            f"❌ Достигнут лимит продаж в месяц по вашему тарифу: {limits['max_sales_per_month']}.\n"
-            f"Перейдите в раздел «🔔 Подписка» для улучшения тарифа."
+    if count >= effective_limit:
+        base_msg = (
+            f"❌ Достигнут лимит продаж в месяц по вашему тарифу: {effective_limit}.\n"
+            f"Перейдите в раздел «🔔 Подписка» для улучшения тарифа"
         )
+        base_msg += " или купите надстройку «+500 продаж»." if addon_extra == 0 else "."
+        return False, base_msg
     return True, None
 
 
