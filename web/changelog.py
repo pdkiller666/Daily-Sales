@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.178.0"
+CURRENT_VERSION = "1.179.0"
 
 ENTRIES = [
+    {
+        "version": "1.179.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Fix error when clearing conversations and sending messages",
+            "Improve the input field for direct messages",
+        ],
+    },
     {
         "version": "1.178.0",
         "date": "25 июня 2026",

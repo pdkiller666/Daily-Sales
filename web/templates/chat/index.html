@@ -1024,13 +1024,13 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
             <textarea
                 x-show="!(recActive && recField==='group')"
                 x-model="text"
-                @keydown.enter.exact.prevent="(mentionOpen && mentionField==='group') ? applyMentionSelected() : sendMessage()"
-                @keydown.enter.shift.exact="text += '\n'"
+                @keydown.enter.exact="(mentionOpen && mentionField==='group') && ($event.preventDefault(), applyMentionSelected())"
+                @keydown.ctrl.enter.prevent="sendMessage()"
                 @keydown.arrow-down="(mentionOpen && mentionField==='group') && mentionNav($event, 1)"
                 @keydown.arrow-up="(mentionOpen && mentionField==='group') && mentionNav($event, -1)"
                 @keydown.escape="mentionClose()"
                 rows="1"
-                :placeholder="currentTopicIsAi ? '🤖 Спросите AI-ассистента…' : ('Написать в #' + currentTopicName + '… (Enter — отправить)')"
+                :placeholder="currentTopicIsAi ? '🤖 Спросите AI-ассистента…' : ('Написать в #' + currentTopicName + '… (Ctrl+Enter — отправить)')"
                 :disabled="sending"
                 class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug"
                 style="min-height:42px;max-height:120px"
@@ -1194,6 +1194,15 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                              x-text="dmPeerInitial"></div>
                         <span class="font-semibold text-slate-800 dark:text-slate-100 flex-1 truncate"
                               x-text="dmPeerName"></span>
+                        <button x-show="dmPeerId > 0" x-cloak type="button"
+                                @click="clearDmConversation()"
+                                class="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 transition-colors"
+                                title="Очистить переписку">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                            </svg>
+                        </button>
                         <div class="w-2 h-2 rounded-full shrink-0"
                              :class="dmWsOnline ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'"
                              :title="dmWsOnline ? 'Подключено' : 'Переподключение…'"></div>
@@ -1422,35 +1431,43 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                           d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                                 </svg>
                             </button>
-                            <!-- Кнопка «Очистить переписку» — не AI ЛС -->
-                            <button x-show="dmPeerId > 0" x-cloak type="button"
-                                    @click="clearDmConversation()"
-                                    class="shrink-0 p-2 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 transition-colors"
-                                    title="Очистить переписку — удалить все сообщения">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                </svg>
-                            </button>
-                            <!-- Кнопка прикрепить файл — скрыта в AI ЛС -->
-                            <label x-show="dmPeerId !== -1"
-                                   class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файлы (до 10)">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                          d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-                                </svg>
-                                <input type="file" class="hidden" multiple
-                                       @change="onDmFileChange($event)">
-                            </label>
-                            <!-- Кнопка записи голосового — скрыта в AI ЛС -->
-                            <button x-show="dmPeerId !== -1 && !(recActive && recField==='dm')" type="button"
-                                    @click="startRecording('dm')"
-                                    class="shrink-0 p-2 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 transition-colors" title="Записать голосовое">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                          d="M19 11a7 7 0 01-14 0m7 7v3m0-3a4 4 0 01-4-4V7a4 4 0 118 0v4a4 4 0 01-4 4z"/>
-                                </svg>
-                            </button>
+                            <!-- Кнопка «+» с попапом — только в обычных ЛС (не AI) -->
+                            <div x-show="dmPeerId > 0" x-cloak
+                                 class="relative shrink-0"
+                                 @click.outside="dmPlusOpen = false">
+                                <button type="button"
+                                        @click="dmPlusOpen = !dmPlusOpen"
+                                        :class="dmPlusOpen ? 'text-blue-500 bg-blue-50 dark:bg-slate-700' : 'text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700'"
+                                        class="p-2 rounded-xl transition-colors"
+                                        title="Прикрепить или записать">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                                    </svg>
+                                </button>
+                                <!-- Попап над кнопкой -->
+                                <div x-show="dmPlusOpen" x-cloak
+                                     class="absolute bottom-full mb-2 left-0 z-30 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 p-1 flex flex-col gap-0.5 min-w-max">
+                                    <label class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer transition-colors">
+                                        <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                  d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                                        </svg>
+                                        <span>Прикрепить файл</span>
+                                        <input type="file" class="hidden" multiple
+                                               @change="onDmFileChange($event); dmPlusOpen = false">
+                                    </label>
+                                    <button type="button"
+                                            x-show="!(recActive && recField==='dm')"
+                                            @click="startRecording('dm'); dmPlusOpen = false"
+                                            class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                                        <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                  d="M19 11a7 7 0 01-14 0m7 7v3m0-3a4 4 0 01-4-4V7a4 4 0 118 0v4a4 4 0 01-4 4z"/>
+                                        </svg>
+                                        <span>Голосовое</span>
+                                    </button>
+                                </div>
+                            </div>
                             <!-- Полоса записи (ЛС) -->
                             <template x-if="recActive && recField==='dm'">
                                 <div class="rec-bar">
@@ -1464,15 +1481,15 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                             <textarea
                                 x-show="!(recActive && recField==='dm')"
                                 x-model="dmText"
-                                @keydown.enter.exact.prevent="(mentionOpen && mentionField==='dm') ? applyMentionSelected() : dmSend()"
-                                @keydown.enter.shift.exact="dmText += '\n'"
+                                @keydown.enter.exact="(mentionOpen && mentionField==='dm') && ($event.preventDefault(), applyMentionSelected())"
+                                @keydown.ctrl.enter.prevent="dmSend()"
                                 @keydown.arrow-down="(mentionOpen && mentionField==='dm') && mentionNav($event, 1)"
                                 @keydown.arrow-up="(mentionOpen && mentionField==='dm') && mentionNav($event, -1)"
                                 @keydown.escape="mentionClose()"
                                 @input="onDmTyping($event.target); mentionInput($event.target, 'dm')"
                                 @blur="mentionBlur()"
                                 rows="1"
-                                :placeholder="'Написать ' + dmPeerName + '… (Enter — отправить)'"
+                                :placeholder="'Написать ' + dmPeerName + '… (Ctrl+Enter — отправить)'"
                                 :disabled="dmSending"
                                 class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug"
                                 style="min-height:42px;max-height:120px"
@@ -1729,6 +1746,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         dmSearch:          '',
         dmNewMode:         false,
         dmAttachedFiles:   [],
+        dmPlusOpen:        false,
         dmHasMore:         false,
         dmLoadingMore:     false,
         dmLoading:         false,
