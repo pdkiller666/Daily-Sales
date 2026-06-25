@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.198.0"
+CURRENT_VERSION = "1.199.0"
 
 ENTRIES = [
+    {
+        "version": "1.199.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Add swipe gestures for mobile chat navigation between group and direct messages",
+        ],
+    },
     {
         "version": "1.198.0",
         "date": "25 июня 2026",
