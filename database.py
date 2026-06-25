@@ -16664,6 +16664,32 @@ class Database:
             logger.error('get_ai_tool_stats_all_dates_db: %s', exc)
             return {}
 
+    def prune_old_chat_messages(self, days: int) -> dict:
+        """Hard-delete chat messages и DM старше N дней (retention policy, ФЗ-152).
+        Вызывается на org_*.db. Возвращает {'chat': N, 'dm': N}."""
+        try:
+            conn = self.get_connection()
+            interval = f'-{days} days'
+            chat_cur = conn.execute(
+                "DELETE FROM chat_messages WHERE created_at < datetime('now', ?)",
+                (interval,),
+            )
+            chat_del = chat_cur.rowcount
+            try:
+                dm_cur = conn.execute(
+                    "DELETE FROM direct_messages WHERE sent_at < datetime('now', ?)",
+                    (interval,),
+                )
+                dm_del = dm_cur.rowcount
+            except Exception:
+                dm_del = 0
+            conn.commit()
+            conn.close()
+            return {'chat': chat_del, 'dm': dm_del}
+        except Exception as exc:
+            logger.error('prune_old_chat_messages(%s): %s', days, exc)
+            return {'chat': 0, 'dm': 0}
+
     def prune_ai_tool_stats(self, days: int = 90) -> int:
         """Delete ai_tool_stats rows older than *days* days. Returns deleted row count."""
         try:

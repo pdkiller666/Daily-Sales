@@ -425,6 +425,50 @@ def register_inline_jobs(
         misfire_grace_time=3600,
     )
 
+    # Retention чата — ежедневно в 03:45 UTC
+    async def prune_chat_messages_job():
+        """Удаляет сообщения чата и ЛС старше chat_retention_days дней во всех орг-БД.
+        Если chat_retention_days = 0 (или не задано) — ничего не делает."""
+        try:
+            from database import Database as _Database
+            import glob as _glob
+            _shop_db = _Database('data/shop_bot.db')
+            _settings = _shop_db.get_payment_settings()
+            try:
+                _days = int(_settings.get('chat_retention_days', '0'))
+            except (ValueError, TypeError):
+                _days = 0
+            if _days < 7:
+                return  # 0 = отключено; < 7 — не трогаем (минимум неделя)
+            _tenant_dir = 'data/tenants'
+            _total_chat = 0
+            _total_dm = 0
+            _org_count = 0
+            for _path in sorted(_glob.glob(os.path.join(_tenant_dir, 'org_*.db'))):
+                try:
+                    _org_db = _Database(_path)
+                    _res = _org_db.prune_old_chat_messages(_days)
+                    _total_chat += _res.get('chat', 0)
+                    _total_dm   += _res.get('dm', 0)
+                    _org_count  += 1
+                except Exception as _oe:
+                    logging.warning('prune_chat_messages_job[%s]: %s', _path, _oe)
+            logging.info(
+                'prune_chat: %d орг, удалено %d сообщений + %d ЛС старше %d дней',
+                _org_count, _total_chat, _total_dm, _days,
+            )
+        except Exception as _e:
+            logging.error('prune_chat_messages_job error: %s', _e)
+
+    scheduler.add_job(
+        prune_chat_messages_job,
+        CronTrigger(hour=3, minute=45),
+        id='prune_chat_messages',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
     # Дедлайны задач — ежедневно в 09:10
     async def check_task_deadlines():
         """Напоминания о задачах с дедлайном сегодня и просроченных задачах."""

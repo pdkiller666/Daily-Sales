@@ -116,6 +116,19 @@
         <p class="text-xs text-slate-400 mt-2">Записи статистики использования AI-инструментов старше указанного количества дней удаляются автоматически каждую ночь. По умолчанию — 90 дней.</p>
     </div>
 
+    <!-- Chat retention -->
+    <div class="card p-5">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4">💬 Retention сообщений чата</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Срок хранения (дней, 0 = не удалять)</label>
+                <input name="chat_retention_days" value="{{ chat_retention_days }}" type="number" min="0" max="3650"
+                       class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">Сообщения групповых чатов и личных переписок старше указанного количества дней удаляются <strong>безвозвратно</strong> каждую ночь во всех организациях (ФЗ-152). Минимум — 7 дней. 0 — функция отключена.</p>
+    </div>
+
     <button type="submit"
             class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-colors text-sm">
         💾 Сохранить все настройки

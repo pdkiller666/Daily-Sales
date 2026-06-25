@@ -497,6 +497,7 @@ async def admin_pay_settings(request: Request):
     trial_days = settings.get("trial_days", "14")
     payment_instruction = settings.get("payment_instruction", "")
     ai_stats_retention_days = settings.get("ai_stats_retention_days", "90")
+    chat_retention_days = settings.get("chat_retention_days", "0")
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -508,6 +509,7 @@ async def admin_pay_settings(request: Request):
             "trial_days": trial_days,
             "payment_instruction": payment_instruction,
             "ai_stats_retention_days": ai_stats_retention_days,
+            "chat_retention_days": chat_retention_days,
             "csrf_token": get_csrf_token(request),
             "msg": _flash(request),
         }),
@@ -526,6 +528,7 @@ async def admin_pay_settings_save(
     provider: str = Form("sbp"),
     trial_days: str = Form("14"),
     ai_stats_retention_days: str = Form("90"),
+    chat_retention_days: str = Form("0"),
 ):
     user = get_session_user(request)
     if _guard(user):
@@ -547,6 +550,12 @@ async def admin_pay_settings_save(
         retention = int(ai_stats_retention_days.strip())
         if retention >= 7:
             db.update_payment_setting("ai_stats_retention_days", str(retention))
+    except (ValueError, AttributeError):
+        pass
+    try:
+        chat_ret = int(chat_retention_days.strip())
+        if chat_ret == 0 or chat_ret >= 7:
+            db.update_payment_setting("chat_retention_days", str(chat_ret))
     except (ValueError, AttributeError):
         pass
     db.set_web_interface_url(web_url.strip() or None)
