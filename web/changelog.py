@@ -1,6 +1,19 @@
-CURRENT_VERSION = "1.189.0"
+CURRENT_VERSION = "1.190.0"
 
 ENTRIES = [
+    {
+        "version": "1.190.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Establish a rule for immediate deployment after task merges",
+            "Show withdrawn requests differently in История tab",
+            "Let admins see withdrawn payment requests in bot payment panel",
+            "Show withdrawn request count badge in bot payment panel header",
+            "Git commit prior to merge",
+            "Add date-range filter to cancelled payments list in bot",
+            "Show withdrawn requests to admins in the bot payment panel with a clear label",
+        ],
+    },
     {
         "version": "1.189.0",
         "date": "25 июня 2026",

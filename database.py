@@ -4373,6 +4373,42 @@ class Database:
         conn.close()
         return requests
 
+    def get_cancelled_payment_requests(self, limit=20, since_days=None):
+        """Получение отозванных/отменённых заявок на оплату с данными пользователей.
+
+        Args:
+            limit: максимальное количество возвращаемых записей (default 20)
+            since_days: если указан, возвращает только заявки за последние N дней
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        if since_days is not None:
+            cursor.execute('''
+                SELECT pr.id, pr.user_id, pr.plan_type, pr.amount, pr.status,
+                       pr.payment_proof_file_id, pr.created_at, pr.processed_at, pr.processed_by,
+                       u.first_name, u.last_name, u.shop_name
+                FROM payment_requests pr
+                JOIN users u ON pr.user_id = u.id
+                WHERE pr.status = 'cancelled'
+                  AND pr.created_at >= datetime('now', ? || ' days')
+                ORDER BY pr.created_at DESC
+                LIMIT ?
+            ''', (f'-{since_days}', limit))
+        else:
+            cursor.execute('''
+                SELECT pr.id, pr.user_id, pr.plan_type, pr.amount, pr.status,
+                       pr.payment_proof_file_id, pr.created_at, pr.processed_at, pr.processed_by,
+                       u.first_name, u.last_name, u.shop_name
+                FROM payment_requests pr
+                JOIN users u ON pr.user_id = u.id
+                WHERE pr.status = 'cancelled'
+                ORDER BY pr.created_at DESC
+                LIMIT ?
+            ''', (limit,))
+        requests = cursor.fetchall()
+        conn.close()
+        return requests
+
     def get_payment_request_by_id(self, request_id):
         """Получение конкретной заявки на оплату по ID"""
         try:

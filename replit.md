@@ -9,6 +9,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Run**: `python start.py` (via workflow "Start application") — `start.py` убивает порт 5000, затем запускает `main.py`
 - **Deploy (GitHub + Amvera по умолчанию)**: `bash deploy.sh "commit message"`
 - **Deploy только GitHub**: `bash deploy.sh "message" --no-amvera`
+- **⚠️ ПРАВИЛО**: после каждого мержа task-агента — сразу `bash deploy.sh "..."` напрямую; никаких фоновых задач, никакого ожидания разрешения
 - **Env vars required**: `BOT_TOKEN`, `ADMIN_CHAT_ID`, `GITHUB_TOKEN` (all in Replit Secrets)
 - **Google Sheets OAuth**: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (in Replit Secrets)
 - **Web Push VAPID**: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_MAILTO` (in Replit Secrets)
@@ -82,6 +83,7 @@ Sales/inventory/daily reports · multi-org with invite codes & roles · sales pl
 
 - Deploy always goes to GitHub + Amvera directly (`--no-amvera` to skip Amvera push)
 - **Deploy запускать всегда напрямую**: `bash deploy.sh "сообщение"` — никаких фоновых задач, никаких Project Task для деплоя
+- **Deploy после мержа task-агента**: как только пришёл `[MERGED]` — сразу restart workflow + `bash deploy.sh "..."` без ожидания команды от пользователя
 - Amvera hash verification (`git ls-remote`) runs after every push to confirm sync
 - Amvera "write outside persistenceMount" warnings are **FALSE POSITIVES** — all `data/` paths correctly resolve to `/app/data` (persistenceMount)
 - No `.db`, `.pkl`, `data/tenants/` in GitHub repo — runtime data only on Amvera persistent volume

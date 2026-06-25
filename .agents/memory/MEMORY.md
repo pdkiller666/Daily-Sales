@@ -88,4 +88,5 @@
 - [AsyncDatabase double-wrap](async-db-double-wrap.md) — get_db() возвращает AsyncDatabase (сама оборачивает методы в to_thread); asyncio.to_thread(current_db.method) = двойная обёртка → coroutine вместо результата (truthy/TypeError); всегда await current_db.method()
 - [Chat Telegram visuals](chat-telegram-visuals.md) — date separators/grouping/unread-divider в index.html (фронт-only); created_at="DD.MM.YYYY HH:MM"; убран space-y/gap → per-row mb; unread-anchor по id ставить во ВСЕХ open-путях (init+switchTopic+openDm)
 - [Schedule Index notif scheduler](schedule-index.md) — минутные джобы читают in-memory индекс {type:{(hhmm,tz):[entry]}} вместо скана всех org-баз; dirty-флагом владеет только _ensure (снимать ДО сборки); per-entry try обязателен
+- [Deploy after task-agent merge](deploy-after-merge.md) — при [MERGED] Task #N → сразу restart_workflow + bash deploy.sh; без ожидания команды пользователя
 - [Chat voice messages player](chat-voice-messages.md) — кастомный <voice-msg> заменил нативный <audio>; чинит webm Infinity-duration (currentTime=1e101); button НЕ наследует color → нужен color:inherit

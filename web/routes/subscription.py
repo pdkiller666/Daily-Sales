@@ -311,6 +311,7 @@ def _get_payment_history(user_id: int, limit: int = 10) -> tuple[list[dict], boo
             "pending": ("⏳ Ожидает", "text-amber-600 bg-amber-50"),
             "approved": ("✅ Подтверждено", "text-emerald-600 bg-emerald-50"),
             "rejected": ("❌ Отклонено", "text-red-600 bg-red-50"),
+            "cancelled": ("🚫 Отозвано", "text-slate-500 bg-slate-100"),
         }
         result = []
         for row in rows:
@@ -812,6 +813,7 @@ def _load_shop_bot_data(telegram_id: int) -> dict:
             "pending": ("⏳ Ожидает", "text-amber-600 bg-amber-50"),
             "approved": ("✅ Подтверждено", "text-emerald-600 bg-emerald-50"),
             "rejected": ("❌ Отклонено", "text-red-600 bg-red-50"),
+            "cancelled": ("🚫 Отозвано", "text-slate-500 bg-slate-100"),
         }
         history: list[dict] = []
         for row in hist_rows:

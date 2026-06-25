@@ -43,7 +43,7 @@ async def safe_edit_message(callback, text, reply_markup=None, parse_mode="HTML"
             await callback.message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
 async def pending_payments_menu(callback: CallbackQuery):
-    """Меню просмотра ожидающих заявок на оплату"""
+    """Меню просмотра ожидающих и отозванных заявок на оплату"""
     if not env_manager.is_super_admin(callback.from_user.id):
         await callback.answer("❌ Доступ только для супер-администратора")
         return
@@ -51,35 +51,37 @@ async def pending_payments_menu(callback: CallbackQuery):
     await callback.answer()
     db = _get_payments_db()
     pending_requests = await db.get_pending_payment_requests()
+    cancelled_requests = await db.get_cancelled_payment_requests()
+    cancelled_count = len(cancelled_requests)
 
     text = "💳 <b>Заявки на оплату подписок</b>\n\n"
 
+    keyboard_buttons = []
+
     if not pending_requests:
         text += "📭 Нет ожидающих заявок"
+        if cancelled_count:
+            text += f"\n🚫 <b>Отозванных:</b> {cancelled_count}"
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Админ меню", callback_data="system_admin_panel")]
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🚫 Отозванные заявки", callback_data="cancelled_payments")
+        ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="⬅️ Админ меню", callback_data="system_admin_panel")
         ])
     else:
-        text += f"📋 <b>Ожидающих заявок:</b> {len(pending_requests)}\n\n"
-
-        keyboard_buttons = []
+        text += f"📋 <b>Ожидающих заявок:</b> {len(pending_requests)}\n"
+        text += f"🚫 <b>Отозванных:</b> {cancelled_count}\n\n"
 
         for req in pending_requests[:10]:
             req_id = req[0]
-            user_id = req[1]
             plan_type = req[2]
             amount = req[3]
-            file_id = req[5]
-            created_at = req[6]
             first_name = req[9]
             last_name = req[10]
-            shop_name = req[11]
 
-            plan_name = plan_type
             user_name = f"{first_name} {last_name}"
-
-            button_text = f"#{req_id}: {user_name} - {plan_name} ({amount}₽)"
+            button_text = f"#{req_id}: {user_name} - {plan_type} ({amount}₽)"
             keyboard_buttons.append([
                 InlineKeyboardButton(
                     text=button_text[:60] + "..." if len(button_text) > 60 else button_text,
@@ -93,11 +95,13 @@ async def pending_payments_menu(callback: CallbackQuery):
             ])
 
         keyboard_buttons.append([
+            InlineKeyboardButton(text="🚫 Отозванные заявки", callback_data="cancelled_payments")
+        ])
+        keyboard_buttons.append([
             InlineKeyboardButton(text="⬅️ Админ меню", callback_data="system_admin_panel")
         ])
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await safe_edit_message(callback, text, keyboard)
 
 async def view_payment_request(callback: CallbackQuery):
@@ -112,38 +116,57 @@ async def view_payment_request(callback: CallbackQuery):
     request_info = await db.get_payment_request_by_id(request_id)
 
     if not request_info:
-        await callback.answer("❌ Заявка не найдена или уже обработана", show_alert=True)
+        await callback.answer("❌ Заявка не найдена", show_alert=True)
         return
 
     await callback.answer()
     req_id = request_info[0]
-    user_id = request_info[1]
     plan_type = request_info[2]
     amount = request_info[3]
+    status = request_info[4]
     file_id = request_info[5]
     created_at = request_info[6]
     first_name = request_info[9]
     last_name = request_info[10]
     shop_name = request_info[11]
 
-    plan_name = plan_type
+    _STATUS_LABELS = {
+        'pending':   '⏳ Ожидает рассмотрения',
+        'approved':  '✅ Подтверждена',
+        'rejected':  '❌ Отклонена',
+        'cancelled': '🚫 Отозвано',
+    }
+    status_label = _STATUS_LABELS.get(status, status)
 
     text = f"💳 <b>Заявка на оплату #{req_id}</b>\n\n"
+    text += f"📌 <b>Статус:</b> {status_label}\n"
     text += f"👤 <b>Пользователь:</b> {he(first_name or '')} {he(last_name or '')}\n"
     text += f"🏪 <b>Магазин:</b> {he(shop_name) if shop_name else 'Не указан'}\n"
-    text += f"💎 <b>План:</b> {plan_name}\n"
+    text += f"💎 <b>План:</b> {plan_type}\n"
     text += f"💰 <b>Сумма:</b> {amount}₽\n"
-    text += f"📅 <b>Дата заявки:</b> {created_at[:19]}\n\n"
-    text += f"📎 <b>Чек об оплате прикреплен</b>"
+    text += f"📅 <b>Дата заявки:</b> {created_at[:19]}\n"
+    if file_id:
+        text += f"\n📎 <b>Чек об оплате прикреплен</b>"
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_payment_{req_id}"),
-            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_payment_{req_id}")
-        ],
-        [InlineKeyboardButton(text="📎 Показать чек", callback_data=f"show_payment_proof_{req_id}")],
-        [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")]
-    ])
+    if status == 'cancelled':
+        keyboard_rows = []
+        if file_id:
+            keyboard_rows.append([InlineKeyboardButton(text="📎 Показать чек", callback_data=f"show_payment_proof_{req_id}")])
+        keyboard_rows.append([InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+    elif status == 'pending':
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_payment_{req_id}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_payment_{req_id}")
+            ],
+            [InlineKeyboardButton(text="📎 Показать чек", callback_data=f"show_payment_proof_{req_id}")],
+            [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")]
+        ])
+    else:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")]
+        ])
 
     await safe_edit_message(callback, text, keyboard)
 
@@ -426,9 +449,140 @@ async def reject_payment_request(callback: CallbackQuery):
     else:
         await callback.answer("❌ Ошибка при отклонении заявки")
 
+def _parse_cancelled_filter(data: str):
+    """Извлекает since_days и метку из callback_data.
+
+    Форматы:
+      cancelled_payments        → все (None)
+      cancelled_payments_7d     → последние 7 дней
+      cancelled_payments_30d    → последние 30 дней
+      all_cancelled_payments    → все (None, псевдоним)
+    """
+    if data.endswith("_7d"):
+        return 7, "за последние 7 дней"
+    if data.endswith("_30d"):
+        return 30, "за последние 30 дней"
+    return None, "за всё время"
+
+
+async def cancelled_payments_menu(callback: CallbackQuery):
+    """Список отозванных/отменённых заявок с фильтром по периоду."""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора")
+        return
+
+    await callback.answer()
+
+    since_days, period_label = _parse_cancelled_filter(callback.data)
+
+    db = _get_payments_db()
+    cancelled = await db.get_cancelled_payment_requests(since_days=since_days)
+
+    active_7 = "✅ " if since_days == 7 else ""
+    active_30 = "✅ " if since_days == 30 else ""
+    active_all = "✅ " if since_days is None else ""
+
+    filter_row = [
+        InlineKeyboardButton(text=f"{active_7}7 дней", callback_data="cancelled_payments_7d"),
+        InlineKeyboardButton(text=f"{active_30}30 дней", callback_data="cancelled_payments_30d"),
+        InlineKeyboardButton(text=f"{active_all}Все", callback_data="cancelled_payments"),
+    ]
+
+    text = "🚫 <b>Отозванные заявки на оплату</b>\n\n"
+
+    if not cancelled:
+        text += f"📭 Нет отозванных заявок {period_label}"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            filter_row,
+            [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")]
+        ])
+    else:
+        text += f"📋 <b>Отозванных заявок {period_label}:</b> {len(cancelled)}\n\n"
+        keyboard_buttons = [filter_row]
+
+        for req in cancelled[:15]:
+            req_id = req[0]
+            plan_type = req[2]
+            amount = req[3]
+            first_name = req[9]
+            last_name = req[10]
+
+            user_name = f"{first_name or ''} {last_name or ''}".strip() or "—"
+            button_text = f"🚫 #{req_id}: {user_name} — {plan_type} ({amount}₽)"
+            keyboard_buttons.append([
+                InlineKeyboardButton(
+                    text=button_text[:60] + "…" if len(button_text) > 60 else button_text,
+                    callback_data=f"view_cancelled_{req_id}"
+                )
+            ])
+
+        if len(cancelled) > 15:
+            text += f"<i>Показаны первые 15 из {len(cancelled)}. Уточните период фильтром выше.</i>\n"
+
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")
+        ])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+
+    await safe_edit_message(callback, text, keyboard)
+
+
+async def view_cancelled_payment(callback: CallbackQuery):
+    """Просмотр отозванной заявки (только чтение, без кнопок действий)"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора")
+        return
+
+    request_id = int(callback.data.split('_')[2])
+
+    db = _get_payments_db()
+    request_info = await db.get_payment_request_by_id(request_id)
+
+    if not request_info:
+        await callback.answer("❌ Заявка не найдена", show_alert=True)
+        return
+
+    await callback.answer()
+    req_id = request_info[0]
+    plan_type = request_info[2]
+    amount = request_info[3]
+    status = request_info[4]
+    created_at = request_info[6]
+    processed_at = request_info[7]
+    first_name = request_info[9]
+    last_name = request_info[10]
+    shop_name = request_info[11]
+
+    if status != 'cancelled':
+        await callback.answer("⚠️ Статус заявки изменился", show_alert=True)
+        return
+
+    withdrawn_at = (processed_at or "")[:19] or "неизвестно"
+
+    text = f"🚫 <b>Отозванная заявка #{req_id}</b>\n\n"
+    text += f"👤 <b>Пользователь:</b> {he(first_name or '')} {he(last_name or '')}\n"
+    text += f"🏪 <b>Магазин:</b> {he(shop_name) if shop_name else 'Не указан'}\n"
+    text += f"💎 <b>Тариф/модуль:</b> {he(plan_type or '—')}\n"
+    text += f"💰 <b>Сумма:</b> {amount}₽\n"
+    text += f"📅 <b>Дата подачи:</b> {created_at[:19]}\n"
+    text += f"🗑 <b>Отозвана:</b> {withdrawn_at}\n\n"
+    text += "ℹ️ Заявка отозвана владельцем и не требует действий."
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ К отозванным", callback_data="cancelled_payments")]
+    ])
+
+    await safe_edit_message(callback, text, keyboard)
+
+
 payment_admin_router.callback_query(F.data == "pending_payments")(pending_payments_menu)
 payment_admin_router.callback_query(F.data == "all_pending_payments")(pending_payments_menu)
+payment_admin_router.callback_query(F.data == "cancelled_payments")(cancelled_payments_menu)
+payment_admin_router.callback_query(F.data == "all_cancelled_payments")(cancelled_payments_menu)
+payment_admin_router.callback_query(F.data == "cancelled_payments_7d")(cancelled_payments_menu)
+payment_admin_router.callback_query(F.data == "cancelled_payments_30d")(cancelled_payments_menu)
 payment_admin_router.callback_query(F.data.startswith("view_payment_"))(view_payment_request)
+payment_admin_router.callback_query(F.data.startswith("view_cancelled_"))(view_cancelled_payment)
 payment_admin_router.callback_query(F.data.startswith("show_payment_proof_"))(show_payment_proof)
 payment_admin_router.callback_query(F.data.startswith("confirm_payment_"))(confirm_payment_request)
 payment_admin_router.callback_query(F.data.startswith("reject_payment_"))(reject_payment_request)
