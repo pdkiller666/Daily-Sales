@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.193.0"
+CURRENT_VERSION = "1.194.0"
 
 ENTRIES = [
+    {
+        "version": "1.194.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Make free modules available for purchase and display them as active",
+        ],
+    },
     {
         "version": "1.193.0",
         "date": "25 июня 2026",

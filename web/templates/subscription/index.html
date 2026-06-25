@@ -119,6 +119,8 @@
     white-space: nowrap;
 }
 .btn-cancel:hover { color: #ef4444; border-color: #fca5a5; background: #fef2f2; }
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
 </style>
 
 {# ── Flash ── #}
@@ -500,33 +502,33 @@
     </div>
     {% endif %}
 
-    {# Вкладки #}
-    <div class="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
+    {# Вкладки — горизонтальный скролл на мобильном #}
+    <div class="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1 overflow-x-auto no-scrollbar">
         {% if bundles %}
         <button type="button" @click="setTab('bundles')"
                 :class="tab === 'bundles' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
-                class="flex-1 text-center px-2 py-2 rounded-lg text-sm font-semibold transition-all">
+                class="shrink-0 whitespace-nowrap text-center px-3 py-2 rounded-lg text-sm font-semibold transition-all">
             📦 Пакеты
         </button>
         {% endif %}
         {% if modules %}
         <button type="button" @click="setTab('modules')"
                 :class="tab === 'modules' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
-                class="flex-1 text-center px-2 py-2 rounded-lg text-sm font-semibold transition-all">
+                class="shrink-0 whitespace-nowrap text-center px-3 py-2 rounded-lg text-sm font-semibold transition-all">
             🧩 Модули{% if modules %} <span class="text-[10px] bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded-full font-bold align-middle ml-0.5">{{ modules|length }}</span>{% endif %}
         </button>
         {% endif %}
         {% if extensions %}
         <button type="button" @click="setTab('extensions')"
                 :class="tab === 'extensions' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
-                class="flex-1 text-center px-2 py-2 rounded-lg text-sm font-semibold transition-all">
-            🔌 Доп.
+                class="shrink-0 whitespace-nowrap text-center px-3 py-2 rounded-lg text-sm font-semibold transition-all">
+            🔌 Расширения
         </button>
         {% endif %}
         <button type="button" @click="setTab('history')"
                 :class="tab === 'history' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
-                class="flex-1 text-center px-2 py-2 rounded-lg text-sm font-semibold transition-all whitespace-nowrap">
-            📋{% if history %}<span class="ml-0.5 text-[10px] bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300 px-1 py-0.5 rounded-full font-bold align-middle">{{ history|length }}</span>{% endif %}
+                class="shrink-0 whitespace-nowrap text-center px-3 py-2 rounded-lg text-sm font-semibold transition-all">
+            📋 История{% if history %}<span class="ml-0.5 text-[10px] bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300 px-1 py-0.5 rounded-full font-bold align-middle">{{ history|length }}</span>{% endif %}
         </button>
     </div>
 </div>
