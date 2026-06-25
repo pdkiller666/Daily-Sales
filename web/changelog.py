@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.190.0"
+CURRENT_VERSION = "1.191.0"
 
 ENTRIES = [
+    {
+        "version": "1.191.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Add option to purchase additional sales capacity and display unlimited subscription status",
+        ],
+    },
     {
         "version": "1.190.0",
         "date": "25 июня 2026",

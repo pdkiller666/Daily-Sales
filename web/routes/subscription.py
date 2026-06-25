@@ -1053,7 +1053,7 @@ def subscription_withdraw_request(
                 return RedirectResponse(url="/subscription?tab=history&msg=not_found", status_code=303)
             plan_type = row[1] or ""
             conn.execute(
-                "UPDATE payment_requests SET status = 'cancelled' WHERE id = ?",
+                "UPDATE payment_requests SET status = 'cancelled', processed_at = datetime('now') WHERE id = ?",
                 (request_id,),
             )
             conn.commit()
