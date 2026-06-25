@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.204.0"
+CURRENT_VERSION = "1.205.0"
 
 ENTRIES = [
+    {
+        "version": "1.205.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Add multi-currency support to the application",
+        ],
+    },
     {
         "version": "1.204.0",
         "date": "25 июня 2026",
