@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.195.0"
+CURRENT_VERSION = "1.196.0"
 
 ENTRIES = [
+    {
+        "version": "1.196.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Add ability for users to upload payment screenshots via the web interface",
+        ],
+    },
     {
         "version": "1.195.0",
         "date": "25 июня 2026",

@@ -1314,6 +1314,22 @@ async def subscription_upload_proof(
     if not row or row[1] != user_id or row[2] != "pending":
         return RedirectResponse(url="/subscription?msg=error", status_code=303)
 
+    # Запоминаем старый файл (если был) — удалим после успешной замены
+    old_proof = None
+    try:
+        conn2 = sqlite3.connect(SHOP_BOT_DB)
+        try:
+            r2 = conn2.execute(
+                "SELECT payment_proof_file_id FROM payment_requests WHERE id=?",
+                (req_id,),
+            ).fetchone()
+        finally:
+            conn2.close()
+        if r2 and r2[0] and r2[0].startswith("web_proof:"):
+            old_proof = os.path.join(_PROOF_DIR, r2[0][len("web_proof:"):])
+    except Exception:
+        pass
+
     # Читаем файл (с проверкой размера)
     try:
         content = await proof_file.read()
@@ -1350,6 +1366,13 @@ async def subscription_upload_proof(
         logging.error("upload_proof db error: %s", exc)
         return RedirectResponse(url="/subscription?msg=error", status_code=303)
 
+    # Удаляем старый файл скриншота (если был)
+    if old_proof and os.path.isfile(old_proof):
+        try:
+            os.remove(old_proof)
+        except Exception as exc:
+            logging.warning("upload_proof: failed to remove old file %s: %s", old_proof, exc)
+
     # Уведомляем супер-админа
     threading.Thread(
         target=_notify_admin_proof_uploaded,
@@ -1370,11 +1393,14 @@ def payment_proof_serve(request: Request, filename: str):
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
-    # Защита от path traversal: только безопасные символы
-    if not re.match(r"^[\w\-\.]+$", filename):
+    # Защита от path traversal: только безопасные символы + abspath-проверка
+    if not re.match(r"^[\w\-\.]+$", filename) or ".." in filename:
         return _R(status_code=404)
 
-    file_path = os.path.join(_PROOF_DIR, filename)
+    proof_dir_abs = os.path.abspath(_PROOF_DIR)
+    file_path = os.path.abspath(os.path.join(_PROOF_DIR, filename))
+    if not file_path.startswith(proof_dir_abs + os.sep):
+        return _R(status_code=404)
     if not os.path.isfile(file_path):
         return _R(status_code=404)
 

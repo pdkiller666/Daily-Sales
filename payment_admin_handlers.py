@@ -15,6 +15,12 @@ from db_utils import wrap_db
 
 payment_admin_router = Router()
 
+_PROOF_PLACEHOLDERS = {"web_module_request", "web_tariff_request", "", None}
+
+def _is_real_proof(file_id) -> bool:
+    """Возвращает True, если file_id содержит реальный чек (не заглушку)."""
+    return bool(file_id) and file_id not in _PROOF_PLACEHOLDERS
+
 def _get_payments_db():
     """Возвращает БД для платёжных запросов (централизованная)"""
     return wrap_db(Database('data/shop_bot.db'))
@@ -145,24 +151,27 @@ async def view_payment_request(callback: CallbackQuery):
     text += f"💎 <b>План:</b> {plan_type}\n"
     text += f"💰 <b>Сумма:</b> {amount}₽\n"
     text += f"📅 <b>Дата заявки:</b> {created_at[:19]}\n"
-    if file_id:
-        text += f"\n📎 <b>Чек об оплате прикреплен</b>"
+    has_proof = _is_real_proof(file_id)
+    if has_proof:
+        proof_label = "веб-скриншот" if file_id.startswith("web_proof:") else "Telegram-фото"
+        text += f"\n📎 <b>Чек об оплате прикреплён</b> ({proof_label})"
+    elif file_id in ("web_module_request", "web_tariff_request"):
+        text += f"\n📎 <b>Скриншот не прикреплён</b> (заявка из веб-кабинета)"
 
     if status == 'cancelled':
         keyboard_rows = []
-        if file_id:
+        if has_proof:
             keyboard_rows.append([InlineKeyboardButton(text="📎 Показать чек", callback_data=f"show_payment_proof_{req_id}")])
         keyboard_rows.append([InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")])
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
     elif status == 'pending':
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_payment_{req_id}"),
-                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_payment_{req_id}")
-            ],
-            [InlineKeyboardButton(text="📎 Показать чек", callback_data=f"show_payment_proof_{req_id}")],
-            [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")]
-        ])
+        action_row = [
+            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_payment_{req_id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_payment_{req_id}")
+        ]
+        proof_row = [InlineKeyboardButton(text="📎 Показать чек", callback_data=f"show_payment_proof_{req_id}")] if has_proof else []
+        nav_row = [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")]
+        keyboard = InlineKeyboardMarkup(inline_keyboard=([action_row] + ([proof_row] if proof_row else []) + [nav_row]))
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")]
