@@ -2,12 +2,15 @@ import html as _html
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 import urllib.request
+import uuid
 from datetime import date as _date
-from fastapi import APIRouter, Form, Request
-from fastapi.responses import RedirectResponse
+from pathlib import Path
+from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 
 router = APIRouter()
 
@@ -1155,12 +1158,13 @@ def subscription_module_request(
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
         try:
-            conn.execute(
+            cur = conn.execute(
                 """INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id)
                    VALUES (?, ?, ?, 'web_module_request')""",
                 (user_id, plan_type, amount),
             )
             conn.commit()
+            new_req_id = cur.lastrowid
         finally:
             conn.close()
         _notify_admin_async(
@@ -1169,7 +1173,7 @@ def subscription_module_request(
             telegram_id,
         )
         return RedirectResponse(
-            url=f"/subscription?tab={_tab_for(plan_type)}&msg=module_request_sent",
+            url=f"/subscription?tab={_tab_for(plan_type)}&msg=module_request_sent&req_id={new_req_id}",
             status_code=303,
         )
     except Exception as exc:
@@ -1209,12 +1213,13 @@ def subscription_tariff_request(
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
         try:
-            conn.execute(
+            cur = conn.execute(
                 """INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id)
                    VALUES (?, ?, ?, 'web_tariff_request')""",
                 (user_id, plan["name"], plan["price"]),
             )
             conn.commit()
+            new_req_id = cur.lastrowid
         finally:
             conn.close()
         _notify_admin_async(
@@ -1222,7 +1227,203 @@ def subscription_tariff_request(
             user.get("first_name", user.get("email", "—")),
             telegram_id,
         )
-        return RedirectResponse(url="/subscription?msg=tariff_request_sent", status_code=303)
+        return RedirectResponse(url=f"/subscription?msg=tariff_request_sent&req_id={new_req_id}", status_code=303)
     except Exception as exc:
         logging.error("subscription_tariff_request error: %s", exc)
         return RedirectResponse(url="/subscription?msg=error", status_code=303)
+
+
+_PROOF_DIR = "data/payment_proofs"
+_PROOF_ALLOWED_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf"}
+_PROOF_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _notify_admin_proof_uploaded(req_id: int, user_display: str, telegram_id: int) -> None:
+    """Уведомляет супер-админа о том, что пользователь прикрепил скриншот оплаты."""
+    token = os.environ.get("BOT_TOKEN", "")
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "")
+    if not token or not admin_id:
+        return
+    domain = os.environ.get("REPLIT_DEV_DOMAIN", "")
+    proof_link = f"https://{domain}/payment-proof-req/{req_id}" if domain else ""
+    text = (
+        "📎 <b>Скриншот оплаты прикреплён</b>\n\n"
+        f"👤 <b>Пользователь:</b> {_html.escape(str(user_display))}\n"
+        f"🆔 <b>Telegram ID:</b> {telegram_id}\n"
+        f"🗒 <b>Заявка №:</b> {req_id}\n"
+    )
+    if proof_link:
+        text += f"\n🔗 <a href='{proof_link}'>Открыть скриншот</a>"
+    text += "\n\nПосмотреть заявку: /pending_payments"
+    payload = json.dumps({"chat_id": admin_id, "text": text, "parse_mode": "HTML"}).encode()
+    try:
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=4):
+            pass
+    except Exception as exc:
+        logging.warning("_notify_admin_proof_uploaded error: %s", exc)
+
+
+@router.post("/subscription/upload-proof")
+async def subscription_upload_proof(
+    request: Request,
+    req_id: int = Form(...),
+    csrf_token: str = Form(default=""),
+    proof_file: UploadFile = File(default=None),
+):
+    """Загрузка скриншота оплаты к существующей заявке."""
+    from web.auth import get_session_user, verify_csrf_token
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/subscription?msg=csrf_error", status_code=303)
+
+    if not proof_file or not proof_file.filename:
+        return RedirectResponse(url="/subscription?msg=no_file", status_code=303)
+
+    ext = Path(proof_file.filename).suffix.lower()
+    if ext not in _PROOF_ALLOWED_EXTS:
+        return RedirectResponse(url="/subscription?msg=bad_file_type", status_code=303)
+
+    telegram_id = int(user["sub"])
+    user_id = _get_user_id_in_shop_bot(telegram_id)
+    if not user_id:
+        return RedirectResponse(url="/subscription?msg=user_not_found", status_code=303)
+
+    # Проверяем, что заявка принадлежит этому пользователю и ещё pending
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        try:
+            row = conn.execute(
+                "SELECT id, user_id, status FROM payment_requests WHERE id=?",
+                (req_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+    except Exception:
+        row = None
+
+    if not row or row[1] != user_id or row[2] != "pending":
+        return RedirectResponse(url="/subscription?msg=error", status_code=303)
+
+    # Читаем файл (с проверкой размера)
+    try:
+        content = await proof_file.read()
+    except Exception as exc:
+        logging.error("upload_proof read error: %s", exc)
+        return RedirectResponse(url="/subscription?msg=error", status_code=303)
+
+    if len(content) > _PROOF_MAX_BYTES:
+        return RedirectResponse(url="/subscription?msg=file_too_large", status_code=303)
+
+    # Сохраняем
+    os.makedirs(_PROOF_DIR, exist_ok=True)
+    safe_name = f"{req_id}_{uuid.uuid4().hex[:10]}{ext}"
+    save_path = os.path.join(_PROOF_DIR, safe_name)
+    try:
+        with open(save_path, "wb") as fh:
+            fh.write(content)
+    except Exception as exc:
+        logging.error("upload_proof write error: %s", exc)
+        return RedirectResponse(url="/subscription?msg=error", status_code=303)
+
+    # Обновляем payment_proof_file_id
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        try:
+            conn.execute(
+                "UPDATE payment_requests SET payment_proof_file_id=? WHERE id=?",
+                (f"web_proof:{safe_name}", req_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logging.error("upload_proof db error: %s", exc)
+        return RedirectResponse(url="/subscription?msg=error", status_code=303)
+
+    # Уведомляем супер-админа
+    threading.Thread(
+        target=_notify_admin_proof_uploaded,
+        args=(req_id, user.get("first_name", user.get("email", "—")), telegram_id),
+        daemon=True,
+    ).start()
+
+    return RedirectResponse(url="/subscription?msg=proof_uploaded", status_code=303)
+
+
+@router.get("/payment-proof/{filename}")
+def payment_proof_serve(request: Request, filename: str):
+    """Отдаёт скриншот оплаты — только владельцу заявки или супер-админу."""
+    from web.auth import get_session_user
+    from fastapi.responses import Response as _R
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    # Защита от path traversal: только безопасные символы
+    if not re.match(r"^[\w\-\.]+$", filename):
+        return _R(status_code=404)
+
+    file_path = os.path.join(_PROOF_DIR, filename)
+    if not os.path.isfile(file_path):
+        return _R(status_code=404)
+
+    if user.get("role") != "super_admin":
+        telegram_id = int(user["sub"])
+        uid = _get_user_id_in_shop_bot(telegram_id)
+        try:
+            conn = sqlite3.connect(SHOP_BOT_DB)
+            try:
+                row = conn.execute(
+                    "SELECT user_id FROM payment_requests WHERE payment_proof_file_id=?",
+                    (f"web_proof:{filename}",),
+                ).fetchone()
+            finally:
+                conn.close()
+        except Exception:
+            row = None
+        if not row or row[0] != uid:
+            return _R(status_code=403)
+
+    return FileResponse(file_path)
+
+
+@router.get("/payment-proof-req/{req_id}")
+def payment_proof_by_req(request: Request, req_id: int):
+    """Редирект на файл скриншота по номеру заявки — удобная ссылка для бота."""
+    from web.auth import get_session_user
+    from fastapi.responses import Response as _R
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") != "super_admin":
+        return _R(status_code=403)
+
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        try:
+            row = conn.execute(
+                "SELECT payment_proof_file_id FROM payment_requests WHERE id=?",
+                (req_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+    except Exception:
+        row = None
+
+    if not row or not row[0].startswith("web_proof:"):
+        return _R(status_code=404)
+
+    filename = row[0][len("web_proof:"):]
+    return RedirectResponse(url=f"/payment-proof/{filename}", status_code=302)

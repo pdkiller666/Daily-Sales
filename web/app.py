@@ -207,6 +207,8 @@ Disallow: /tasks
 Disallow: /tasks/attachment/
 Disallow: /ai-insights
 Disallow: /api/
+Disallow: /payment-proof/
+Disallow: /payment-proof-req/
 Disallow: /login
 Disallow: /register
 Disallow: /auth/

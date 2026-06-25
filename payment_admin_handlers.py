@@ -217,6 +217,22 @@ async def show_payment_proof(callback: CallbackQuery):
     except Exception:
         pass
 
+    if file_id and file_id.startswith("web_proof:"):
+        import os
+        domain = os.environ.get("REPLIT_DEV_DOMAIN", "")
+        if domain:
+            proof_url = f"https://{domain}/payment-proof-req/{req_id}"
+            link_text = f'\n\n🔗 <a href="{proof_url}">Открыть скриншот →</a>'
+        else:
+            link_text = "\n\n📎 Скриншот загружен через веб-кабинет."
+        await callback.message.answer(
+            caption + link_text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+            disable_web_page_preview=False,
+        )
+        return
+
     try:
         await callback.message.answer_photo(
             photo=file_id,
