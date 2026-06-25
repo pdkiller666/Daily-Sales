@@ -4898,6 +4898,68 @@ class Database:
                     return False
                 return True
 
+            # Обработка расширений: extension_<key> / extension_annual_<key>
+            if plan_type and plan_type.startswith('extension_'):
+                _user_info = self.get_user_by_id(user_id)
+                if _user_info:
+                    _tg_id = _user_info[1]
+                    _rest = plan_type[len('extension_'):]
+                    if _rest.startswith('annual_'):
+                        _item_key = _rest[len('annual_'):]
+                        _duration = 365
+                    else:
+                        _item_key = _rest
+                        _duration = 30
+                    # Идемпотентность: не выдавать дважды по одной заявке
+                    try:
+                        _ic = self.get_connection()
+                        _dup = _ic.execute(
+                            "SELECT 1 FROM billing_module_subs WHERE payment_request_id=? LIMIT 1",
+                            (request_id,)
+                        ).fetchone()
+                        _ic.close()
+                        if _dup:
+                            return True
+                    except Exception:
+                        pass
+                    try:
+                        _pc = self.get_connection()
+                        _pr_row = _pc.execute(
+                            "SELECT amount FROM payment_requests WHERE id=?", (request_id,)
+                        ).fetchone()
+                        _pc.close()
+                        _price = float(_pr_row[0]) if _pr_row else 0.0
+                    except Exception:
+                        _price = 0.0
+                    _grant_id = self.grant_billing_item(
+                        user_telegram_id=_tg_id,
+                        item_type='extension',
+                        item_key=_item_key,
+                        duration_days=_duration,
+                        price_paid=_price,
+                        granted_by='payment',
+                        note=('Оплачен из веб-кабинета (год)' if _duration == 365 else 'Оплачен из веб-кабинета'),
+                        payment_request_id=request_id,
+                    )
+                    if not _grant_id:
+                        try:
+                            _cc = self.get_connection()
+                            _cc.execute(
+                                "UPDATE payment_requests SET status='pending', processed_at=NULL, processed_by=NULL WHERE id=?",
+                                (request_id,)
+                            )
+                            _cc.commit()
+                            _cc.close()
+                            logger.error(
+                                "confirm_payment_request: выдача расширения не удалась для "
+                                "request_id=%s, user_id=%s, plan=%s. Статус заявки сброшен в pending.",
+                                request_id, user_id, plan_type
+                            )
+                        except Exception as _ce:
+                            logger.error("confirm_payment_request extension compensation: %s", _ce)
+                        return False
+                return True
+
             # Обработка модульных подписок: module_analytics, bundle_starter, etc.
             if plan_type and (plan_type.startswith('module_') or plan_type.startswith('bundle_')):
                 _user_info = self.get_user_by_id(user_id)

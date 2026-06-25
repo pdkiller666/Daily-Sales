@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.200.0"
+CURRENT_VERSION = "1.201.0"
 
 ENTRIES = [
+    {
+        "version": "1.201.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Add annual pricing and toggles for extensions to subscriptions",
+        ],
+    },
     {
         "version": "1.200.0",
         "date": "25 июня 2026",
