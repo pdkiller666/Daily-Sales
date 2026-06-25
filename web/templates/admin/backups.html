@@ -93,7 +93,7 @@
 </div>
 {% endif %}
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function confirmDel(filename) {
     document.getElementById('del-filename').textContent = filename;
     const enc = encodeURIComponent(filename);

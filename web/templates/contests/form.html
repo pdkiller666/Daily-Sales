@@ -414,7 +414,7 @@
     </div>
 </form>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function onTypeChange() {
     const val = document.querySelector('input[name="contest_type"]:checked')?.value || 'any';
     document.getElementById('categorySection').classList.toggle('hidden', val !== 'category');

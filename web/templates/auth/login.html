@@ -222,7 +222,7 @@
 <style>
 .tab-active{background:#fff;color:#1e40af;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 </style>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function switchTab(tab) {
     var tg = document.getElementById('pane-tg');
     var em = document.getElementById('pane-email');

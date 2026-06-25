@@ -341,7 +341,7 @@
     {% endif %}
 </div>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function openInvHistory(shop, pid, productName) {
     const modal = document.getElementById('inv-history-modal');
     const title = document.getElementById('inv-hist-title');
@@ -368,7 +368,7 @@ document.addEventListener('keydown', function(e) {
 </script>
 
 {% if can_edit %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 var _invEditState = {shop: '', pid: 0, name: '', current: 0, mode: 'add', csrf: ''};
 
 function showInvToast(msg, type) {
@@ -505,7 +505,7 @@ function submitInvEdit() {
 </script>
 {% endif %}
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function(){
     var PAGE = 10;
     var _invPage = 1;
@@ -543,7 +543,7 @@ function submitInvEdit() {
     render();
 })();
 </script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* Persist inventory sort preference in localStorage across page visits */
 var _invSortCol = 'name';
 var _invSortDir = 'asc';
@@ -599,7 +599,7 @@ function _invApply() {
     } catch(e) {}
 })();
 </script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ── Persist inventory shop filter in localStorage across page visits ── */
 (function () {
     var _u   = '{{ user.sub }}';
@@ -623,7 +623,7 @@ function _invApply() {
     }
 })();
 </script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ── Persist inventory search query in localStorage across page visits ── */
 (function () {
     var _u   = '{{ user.sub }}';
@@ -655,7 +655,7 @@ function _invApply() {
     }
 })();
 </script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ── Persist inventory category filter in localStorage across page visits ── */
 (function () {
     var _u   = '{{ user.sub }}';
@@ -685,7 +685,7 @@ function _invApply() {
     }
 })();
 </script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ── Persist inventory status filter in localStorage across page visits ── */
 (function () {
     var _u   = '{{ user.sub }}';

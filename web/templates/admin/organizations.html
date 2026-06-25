@@ -98,7 +98,7 @@
 </div>
 {% endif %}
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function confirmDelete(orgId, orgName) {
     document.getElementById('del-modal-name').textContent = '«' + orgName + '» — удалится БД и все данные. Необратимо.';
     document.getElementById('del-form').action = '/admin/orgs/' + orgId + '/delete';

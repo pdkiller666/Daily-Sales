@@ -230,7 +230,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function () {
     const PAGE = 10;
     const rows = Array.from(document.querySelectorAll('#pmt-tbody tr'));

@@ -178,7 +178,7 @@
         <canvas id="reportsChart"></canvas>
     </div>
 </div>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function(){
     const labels    = {{ chart_labels | tojson }};
     const data      = {{ chart_data   | tojson }};
@@ -241,8 +241,8 @@
 </script>
 {% endif %}
 
-<!-- AI block: server-side data injected into <script> to avoid double-quote collision inside x-data="..." -->
-<script>
+<!-- AI block: server-side data injected into <script nonce="{{ csp_nonce(request) }}"> to avoid double-quote collision inside x-data="..." -->
+<script nonce="{{ csp_nonce(request) }}">
 window._aiReportData = {
     summary:     {{ summary | tojson }},
     chartData:   {{ chart_data | default([]) | tojson }},

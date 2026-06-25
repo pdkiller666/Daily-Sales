@@ -17,7 +17,7 @@ def _check_rate_limit(ip: str) -> bool:
         from web.rate_store import check_rate_limit
         return check_rate_limit(f"auth:{ip}", max_requests=5, window_seconds=60)
     except Exception:
-        return True  # fail open
+        return False  # fail closed — rate_store недоступен → блокируем во избежание bypass
 
 
 def _record_telegram_consent(telegram_id: int) -> None:
@@ -510,11 +510,24 @@ async def miniapp_auth(request: Request, init_data: str = Form(default="")):
 
 @router.post("/logout")
 async def logout(request: Request):
-    from web.auth import COOKIE_NAME, verify_csrf_token
+    from web.auth import COOKIE_NAME, verify_csrf_token, decode_session_token, revoke_jti
     form = await request.form()
     if not verify_csrf_token(request, str(form.get("csrf_token", ""))):
         # CSRF-провал → не разлогиниваем (защита от forced-logout через подделку)
         return RedirectResponse(url="/dashboard", status_code=302)
+    # Отзываем jti текущего токена — даже если cookie будет скопирован, он не сработает
+    try:
+        token = request.cookies.get(COOKIE_NAME, '')
+        if token:
+            payload = decode_session_token(token)
+            if payload and payload.get('jti'):
+                import time as _t
+                exp = payload.get('exp', _t.time() + 604800)
+                if hasattr(exp, 'timestamp'):
+                    exp = exp.timestamp()
+                revoke_jti(payload['jti'], float(exp))
+    except Exception:
+        pass
     response = RedirectResponse(url="/login", status_code=302)
     response.delete_cookie(COOKIE_NAME)
     return response

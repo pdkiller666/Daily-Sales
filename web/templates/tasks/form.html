@@ -33,7 +33,7 @@
   {% endif %}
 
   <!-- Alpine.js search data for recipient picker -->
-  <script>
+  <script nonce="{{ csp_nonce(request) }}">
     const _taskSearchItems = {{ search_items_json|safe }};
     const _taskInitSelected = {{ init_selected_json|safe }};
     const _taskInitAll = {{ init_assign_all|safe }};

@@ -257,7 +257,7 @@
                     🔗 Привязать email
                 </button>
             </form>
-            <script>
+            <script nonce="{{ csp_nonce(request) }}">
             (function(){
                 const form = document.querySelector('form[action="/settings/email-setup"]');
                 const btn  = document.getElementById('emailSetupBtn');
@@ -692,7 +692,7 @@
                        class="text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 transition-all">
                 <span id="orgLogoStatus" class="text-xs text-green-600 hidden">✓ Сохранено</span>
             </div>
-            <script>
+            <script nonce="{{ csp_nonce(request) }}">
             async function uploadOrgLogo(inp) {
                 if (!inp.files[0]) return;
                 const fd = new FormData();
@@ -1361,7 +1361,7 @@
 </div>
 {% endif %}
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function copyText(elemId, btn) {
     const el = document.getElementById(elemId);
     if (!el) return;

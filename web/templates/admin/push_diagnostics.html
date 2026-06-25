@@ -291,7 +291,7 @@
     {% endif %}
 </div>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function vapidGen() {
     return {
         loading: false,

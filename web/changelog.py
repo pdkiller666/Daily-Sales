@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.210.0"
+CURRENT_VERSION = "1.211.0"
 
 ENTRIES = [
+    {
+        "version": "1.211.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Усиление безопасности: 4 новые правки — rate limiter fail-closed, кэш плана при billing grant/revoke, nonce-based CSP (93 script-блока), JWT revocation по jti",
+            "Add a feature to erase user personal data and comply with privacy regulations",
+        ],
+    },
     {
         "version": "1.210.0",
         "date": "25 июня 2026",

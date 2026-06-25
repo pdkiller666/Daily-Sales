@@ -166,7 +166,7 @@
                 </button>
             </form>
 
-            <script>
+            <script nonce="{{ csp_nonce(request) }}">
             function onDropArt(e, input) {
                 const files = e.dataTransfer.files;
                 if (!files.length) return;

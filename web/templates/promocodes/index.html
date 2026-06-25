@@ -294,7 +294,7 @@
 {% block footer_info %}Промокоды: {{ promocodes|length }}{% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function () {
     const PAGE = 10;
     const rows = Array.from(document.querySelectorAll('#promo-tbody tr'));

@@ -167,7 +167,7 @@
     </div>
 </form>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function adjustQty(inputId, delta) {
     var inp = document.getElementById(inputId);
     if (!inp) return;

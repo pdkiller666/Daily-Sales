@@ -295,7 +295,7 @@
 {% endif %}
 
 {% if is_admin and plan %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function confirmDelete() {
     if (confirm('Удалить план «{{ plan.target_who }}»? Это действие необратимо.')) {
         document.getElementById('deleteForm').submit();
@@ -307,7 +307,7 @@ function confirmDelete() {
 
 {% block extra_js %}
 {% if has_ai_plan_analysis %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function escHtml(str) {
     return String(str)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;')

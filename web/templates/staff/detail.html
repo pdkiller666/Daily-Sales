@@ -231,7 +231,7 @@
         <canvas id="staffRevenueChart"></canvas>
     </div>
 </div>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function(){
     const labels = {{ chart_labels | tojson }};
     const data   = {{ chart_data   | tojson }};

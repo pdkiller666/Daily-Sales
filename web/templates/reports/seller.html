@@ -147,7 +147,7 @@
 {% endif %}
 
 <!-- Chart scripts -->
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function(){
     const isDark = () => document.documentElement.classList.contains('dark');
     const gridColor = () => isDark() ? '#1e293b' : 'rgba(0,0,0,0.04)';

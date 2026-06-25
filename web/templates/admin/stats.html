@@ -180,7 +180,7 @@
 
 {% if chart %}
 <script src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 const chartData = {{ chart | tojson }};
 const isDark = document.documentElement.classList.contains('dark');
 const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
@@ -211,7 +211,7 @@ new Chart(document.getElementById('revenueChart'), {
 
 {% if apk_by_day %}
 {% if not chart %}<script src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>{% endif %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function(){
     const apkData = {{ apk_by_day | tojson }};
     const reversed = apkData.slice().reverse();

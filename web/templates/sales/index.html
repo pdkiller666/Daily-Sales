@@ -685,7 +685,7 @@
 
 </div>{# end x-data saleModal #}
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function saleModal() {
     return {
         open: false,
@@ -1159,7 +1159,7 @@ function saleModal() {
 })();
 </script>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* Persist sort preference in localStorage across page visits */
 (function () {
     var LS_COL = 'sales_sort_col';

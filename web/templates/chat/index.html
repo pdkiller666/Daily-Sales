@@ -417,7 +417,7 @@ html.dark .search-result-item mark { background:#713f12; }
 <!-- ═══════════════════════════════════════════════════════════════════════════
      MAIN CHAT APP
      ═══════════════════════════════════════════════════════════════════════ -->
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 const _chatTopics    = {{ topics | tojson }};
 const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batch */
 const _initPinned    = {{ pinned | tojson }};    /* закреплённое сообщение темы (или null) */
@@ -1562,7 +1562,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
     </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ── Голосовое сообщение: кастомный Web Component <voice-msg src="..."> ──
    Нативный <audio controls> заменён, чтобы: (1) единый вид «как в Telegram»
    (play/пауза + дорожка перемотки + длительность), (2) починить классический
@@ -1677,7 +1677,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
 })();
 </script>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 const _CHAT_MY_USER_ID = {{ my_db_id or 0 }};
 const _CHAT_CSRF = '{{ csrf_token }}';
 

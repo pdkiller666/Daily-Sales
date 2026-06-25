@@ -20,7 +20,7 @@
     <meta name="apple-mobile-web-app-title" content="DailySales">
     <link rel="apple-touch-icon" href="/static/icon.svg">
     <!-- Dark mode: apply class before paint to avoid flash -->
-    <script>
+    <script nonce="{{ csp_nonce(request) }}">
         if (localStorage.getItem('ds_dark') === '1') {
             document.documentElement.classList.add('dark');
         }
@@ -296,7 +296,7 @@
         </div>
     </template>
 </div>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function toastMgr() {
     return {
         list: [],
@@ -612,7 +612,7 @@ function toastMgr() {
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     </div>
-    <script>
+    <script nonce="{{ csp_nonce(request) }}">
     (function(){
         var bar = document.getElementById('ds-beta-bar');
         if(bar && sessionStorage.getItem('ds_beta_dismissed') !== '1') bar.style.display = '';
@@ -754,7 +754,7 @@ function toastMgr() {
 
 {% block extra_js %}{% endblock %}
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ══════════════════════════════════════════════════
    1. Service Worker registration (PWA)
 ══════════════════════════════════════════════════ */
@@ -1489,7 +1489,7 @@ _dsApplyDark(document.documentElement.classList.contains('dark'));
 })();
 </script>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ══════════════════════════════════════════════════
    DS DEBUG LOG — ring buffer (100 entries) in localStorage
    View: add ?debug=1 to any URL, or run dsLogDump() in console.
@@ -1547,7 +1547,7 @@ function dsLogClear() { localStorage.removeItem(_DS_LOG_KEY); console.log('[DS] 
     });
 })();
 </script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ══════════════════════════════════════════════════
    bfcache prevention — MUST run before Alpine.
    An 'unload' listener makes browsers (Chrome, Yandex,
@@ -1795,7 +1795,7 @@ function mainApp() {
 }
 </script>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ══════════════════════════════════════════════════
    Onboarding hints — shown once per section per user
    Stored in localStorage ds_hints_v2 = [key, ...]
@@ -2586,7 +2586,7 @@ function mainApp() {
         </span>
     </button>
 </div>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function () {
     const wrap = document.getElementById('chat-fab-wrap');
     const fab = document.getElementById('chat-fab');
@@ -2776,7 +2776,7 @@ function mainApp() {
 {% endif %}
 
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ── Changelog dropdown (Alpine component) ── */
 window.dsOpenMobileChangelog = function() {
     document.dispatchEvent(new CustomEvent('ds-open-changelog'));
@@ -2803,7 +2803,7 @@ window.dsChangelog = function() {
 };
 </script>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* dsOnce — безопасный disable submit-кнопки: сначала checkValidity(), потом блокировка.
    setTimeout(0) откладывает disable на следующий тик ПОСЛЕ того, как браузер
    диспатчит submit — иначе мобильный Chrome отменяет отправку формы (disabled до submit). */
@@ -2821,7 +2821,7 @@ window.dsOnce = function(btn, label) {
 </script>
 
 <!-- ── Кеширование последнего URL модуля (восстановление фильтров/состояния при возврате) ── -->
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function() {
     /* Список модулей: точный pathname → ключ хранилища.
        Только корневые пути; детальные страницы (/products/123) не кешируются. */
@@ -2892,7 +2892,7 @@ window.dsOnce = function(btn, label) {
     } catch(_) { /* localStorage недоступен — молча игнорируем */ }
 })();
 </script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* A11y (roadmap 4.5): сделать кликабельные не-нативные элементы доступными
    с клавиатуры. Элементы с onclick / @click, не являющиеся <a>/<button>/input,
    получают role=button, tabindex=0 и реагируют на Enter/Space. */

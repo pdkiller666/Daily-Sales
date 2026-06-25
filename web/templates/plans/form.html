@@ -367,7 +367,7 @@
     </div>
 </form>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function triggerAiRefresh() {
     const hint = window._aiHint;
     if (!hint) return;

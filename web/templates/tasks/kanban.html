@@ -209,7 +209,7 @@
   </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 const CSRF_TOKEN = {{ csrf_token | tojson }};
 let draggingId = null;
 let draggingFrom = null;

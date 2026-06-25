@@ -119,12 +119,63 @@ def verify_telegram_auth(data: dict) -> bool:
     return True
 
 
+# ── JWT revocation blacklist ──────────────────────────────────────────────────
+# In-memory cache: jti → expiry unix timestamp.  Populated from DB on first
+# check (after restart), and written to DB on revoke for durability.
+_REVOKED: dict[str, float] = {}
+
+
+def revoke_jti(jti: str, exp: float) -> None:
+    """Добавить jti в blacklist (память + shop_bot.db)."""
+    if not jti:
+        return
+    _REVOKED[jti] = exp
+    try:
+        import sqlite3 as _sq
+        from datetime import datetime as _dt
+        exp_dt = _dt.utcfromtimestamp(exp).strftime('%Y-%m-%d %H:%M:%S')
+        _c = _sq.connect('data/shop_bot.db', timeout=3)
+        _c.execute(
+            "INSERT OR REPLACE INTO revoked_tokens (jti, expires_at) VALUES (?, ?)",
+            (jti, exp_dt),
+        )
+        _c.commit()
+        _c.close()
+    except Exception:
+        pass
+
+
+def is_jti_revoked(jti: str) -> bool:
+    """Проверить, отозван ли токен по jti. Сначала память, потом DB."""
+    if not jti:
+        return False
+    if jti in _REVOKED:
+        return True
+    # DB-fallback для случая после рестарта сервера
+    try:
+        import sqlite3 as _sq
+        _c = _sq.connect('data/shop_bot.db', timeout=3)
+        row = _c.execute(
+            "SELECT 1 FROM revoked_tokens WHERE jti=? AND expires_at > datetime('now') LIMIT 1",
+            (jti,),
+        ).fetchone()
+        _c.close()
+        if row:
+            import time as _t
+            _REVOKED[jti] = _t.time() + 604800  # cache hit
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def create_session_token(telegram_id: int, first_name: str, org_db: str, role: str) -> str:
     payload = {
         'sub': str(telegram_id),
         'name': first_name,
         'org_db': org_db,
         'role': role,
+        'jti': secrets.token_hex(16),   # уникальный ID токена для revocation
         'exp': datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS),
     }
     return jwt.encode(payload, _SECRET, algorithm=ALGORITHM)
@@ -145,6 +196,9 @@ def get_session_user(request) -> Optional[dict]:
         return state._session_user
     token = request.cookies.get(COOKIE_NAME)
     user = decode_session_token(token) if token else None
+    # Revocation check: отозванный jti → treat as unauthenticated
+    if user and is_jti_revoked(user.get('jti', '')):
+        user = None
     if state is not None:
         try:
             state._session_user = user

@@ -498,6 +498,13 @@ async def billing_grant(
         note=note.strip(),
     )
     msg = "granted" if sub_id else "error"
+    # Сбросить кэш плана — иначе пользователь не увидит выданный модуль до истечения TTL
+    if sub_id:
+        try:
+            from subscription_utils import invalidate_plan_cache
+            invalidate_plan_cache(user_telegram_id)
+        except Exception:
+            pass
     try:
         from web.audit import log_admin_action
         log_admin_action(
@@ -519,9 +526,28 @@ async def billing_revoke(
     user = get_session_user(request)
     if _guard(user) or not verify_csrf_token(request, csrf_token):
         return RedirectResponse("/dashboard", 303)
+    # Получить telegram_id ДО отзыва, чтобы сбросить кэш плана после
+    _revoke_tg_id = None
+    try:
+        _rc = sqlite3.connect(SHOP_BOT_DB, timeout=10)
+        _rrow = _rc.execute(
+            "SELECT user_telegram_id FROM billing_module_subs WHERE id=?", (sub_id,)
+        ).fetchone()
+        _rc.close()
+        if _rrow:
+            _revoke_tg_id = _rrow[0]
+    except Exception:
+        pass
     result = _db().revoke_billing_item(sub_id, cascade=True)
     cascaded = result.get("cascaded", 0)
     msg = f"revoked_cascade_{cascaded}" if cascaded else "revoked"
+    # Сбросить кэш плана — иначе у пользователя доступ сохранится до истечения TTL
+    if _revoke_tg_id:
+        try:
+            from subscription_utils import invalidate_plan_cache
+            invalidate_plan_cache(_revoke_tg_id)
+        except Exception:
+            pass
     try:
         from web.audit import log_admin_action
         log_admin_action(

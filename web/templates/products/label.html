@@ -640,7 +640,7 @@
 
 {% block extra_js %}
 {% set ls = label_settings %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ─── Данные из сервера ─────────────────────────────────────────────────── */
 const CSRF   = {{ csrf_token | tojson }};
 const IS_OWN = {{ 'true' if is_owner else 'false' }};

@@ -1743,6 +1743,19 @@ class Database:
                 'CREATE INDEX IF NOT EXISTS idx_login_ips_user ON login_ips(telegram_id)'
             )
 
+        # ── revoked_tokens — JWT revocation blacklist (только shop_bot.db) ─────
+        if 'shop_bot' in self.db_file:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS revoked_tokens (
+                    jti        TEXT PRIMARY KEY,
+                    revoked_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    expires_at TEXT NOT NULL
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_revoked_exp ON revoked_tokens(expires_at)'
+            )
+
         # ── Биллинг: модули, расширения, пакеты, подписки (только shop_bot.db) ─
         if 'shop_bot' in self.db_file:
             cursor.execute('''

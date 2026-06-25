@@ -102,7 +102,7 @@
 </div>
 {% endif %}
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function confirmCancel(userId, userName) {
     document.getElementById('cancel-name').textContent = userName + ' перейдёт на план «Бесплатный».';
     document.getElementById('cancel-form').action = '/admin/subs/' + userId + '/cancel';

@@ -333,7 +333,7 @@
 </div>
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function bulkTasks() {
   return {
     selected: new Set(),

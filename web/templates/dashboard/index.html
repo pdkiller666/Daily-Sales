@@ -55,7 +55,7 @@
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
     </button>
 </div>
-<script>if(localStorage.getItem('ds_apk_seen_v')==='{{ apk_new_version }}'){var ub=document.getElementById('apk-update-banner');if(ub)ub.remove();}</script>
+<script nonce="{{ csp_nonce(request) }}">if(localStorage.getItem('ds_apk_seen_v')==='{{ apk_new_version }}'){var ub=document.getElementById('apk-update-banner');if(ub)ub.remove();}</script>
 {% endif %}
 <!-- APK promo banner — dismissible once via localStorage -->
 <div id="apk-banner" class="mb-5 flex items-center gap-3 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-200">
@@ -70,7 +70,7 @@
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
     </button>
 </div>
-<script>(function(){var b=document.getElementById('apk-banner');if(!b)return;var inApp=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;if(inApp||localStorage.getItem('ds_apk_banner')==='1')b.remove();})();</script>
+<script nonce="{{ csp_nonce(request) }}">(function(){var b=document.getElementById('apk-banner');if(!b)return;var inApp=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;if(inApp||localStorage.getItem('ds_apk_banner')==='1')b.remove();})();</script>
 
 {% if gate_title %}
 <div class="mb-5 flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-200">
@@ -524,7 +524,7 @@
 </div>
 
 <!-- Chart.js + dark mode + drill-down -->
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function(){
     const labelsAll = {{ chart_labels | tojson }};
     const dataAll   = {{ chart_data   | tojson }};
@@ -701,7 +701,7 @@
     applyView(curRange);
 })();
 </script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 // Auto-refresh dashboard every 60 s (pauses when tab is hidden)
 (function(){
     let _t;

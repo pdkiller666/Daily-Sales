@@ -165,7 +165,7 @@
 </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 // Jinja2 custom filter polyfill for fromjson (used in includes_json display)
 </script>
 {% endblock %}

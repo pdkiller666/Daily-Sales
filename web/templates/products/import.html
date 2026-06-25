@@ -179,7 +179,7 @@
                 </button>
             </form>
 
-            <script>
+            <script nonce="{{ csp_nonce(request) }}">
             function onDrop(e, input) {
                 const files = e.dataTransfer.files;
                 if (!files.length) return;

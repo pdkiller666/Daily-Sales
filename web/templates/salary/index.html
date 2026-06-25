@@ -629,7 +629,7 @@
 {% block footer_info %}{{ month_name }} {{ year }}{% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function rateEdit(userId, currentRate) {
     return {
         userId,
@@ -645,7 +645,7 @@ function rateEdit(userId, currentRate) {
     };
 }
 </script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* Persist salary sort preference in localStorage across page visits */
 var _salCol = 'total';
 var _salDir = 'desc';

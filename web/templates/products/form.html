@@ -340,7 +340,7 @@
     </form>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function photoFormState() {
     return {
         deleteIds: [],

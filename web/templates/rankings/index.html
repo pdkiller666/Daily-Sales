@@ -282,7 +282,7 @@
 
 {% block extra_head %}<script src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>{% endblock %}
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ── City filter persistence for shops tab ── */
 (function () {
     var tab  = {{ tab|tojson }};
@@ -408,7 +408,7 @@ function _rnkApply() {
 })();
 </script>
 {% if ranking|length >= 2 %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function () {
     const top10 = {{ ranking[:10] | tojson }};
     if (!top10.length) return;

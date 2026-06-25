@@ -322,7 +322,7 @@ html.dark .dm-row.ai .dm-bubble {
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 const CSRF_TOKEN   = {{ csrf_token | tojson }};
 const MY_DB_ID     = {{ my_db_id | tojson }};
 const PEER_ID      = {{ (peer.id if peer else 0) | tojson }};

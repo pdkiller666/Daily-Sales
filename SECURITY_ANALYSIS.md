@@ -84,23 +84,19 @@ Permissions-Policy: camera=(self)
 
 ### 🟡 Важно, но решаемо
 
-**3. Auth rate limiter: внешний wrapper fail-open**
+~~**3. Auth rate limiter: внешний wrapper fail-open**~~ ✅ _Исправлено 2026-06-25_
 
-`_check_rate_limit()` в `auth_routes.py` при исключении возвращает `True` (пропустить). На практике `rate_store` надёжен (SQLite, всегда доступен), поэтому вероятность срабатывания низкая. Тем не менее, логически корректнее было бы `return False`.
+~~**4. `unsafe-eval` в CSP**~~ — `unsafe-eval` остаётся (Alpine.js 3 требует), **устранено** как риск через нонсы:
 
-Отличие от AI rate limiter: `check_and_increment_ai()` явно fail-closed (`return False`) — там более высокий стандарт, т.к. ресурс платный.
+CSP теперь использует `nonce-{random}` вместо `unsafe-inline`. Все 93 `<script>`-блока в 52 шаблонах получили `nonce="{{ csp_nonce(request) }}"`. Современные браузеры игнорируют `unsafe-inline` при наличии нонса → только тегированные скрипты выполняются. `unsafe-eval` остаётся нужным для Alpine.js — убирается при переходе на Alpine CSP-build (требует бандлер).
 
-**4. `unsafe-eval` в CSP**
+~~**5. JWT без server-side revocation**~~ ✅ _Исправлено 2026-06-25_
 
-Alpine.js 3 требует `unsafe-eval`. Снижает защиту от XSS в браузерном контексте. Решается переходом на Alpine CSP-build (без `x-*` eval) или Preact/React с nonce-based CSP.
+JWT теперь включает `jti` (уникальный ID токена). При logout jti вносится в `revoked_tokens` (shop_bot.db) и in-memory кэш. `get_session_user()` проверяет revocation при каждом запросе. Выживает рестарт сервера.
 
-**5. JWT без server-side revocation**
+~~**6. Расхождение путей подтверждения оплаты (веб vs бот)**~~ ✅ _Исправлено 2026-06-25_
 
-При утечке `SECRET_KEY` — нет механизма инвалидации живых сессий без смены ключа и рестарта. Для большинства клиентов приемлемо.
-
-**6. Расхождение путей подтверждения оплаты (веб vs бот)**
-
-Веб-панель (`/payments/{id}/confirm`) не дублирует некоторые side-effects, которые выполняет бот при подтверждении (обновления в `main.db`). Супер-админ через веб → возможна неполная выдача.
+Веб-маршруты `/admin/billing/grant` и `/admin/billing/revoke` теперь вызывают `invalidate_plan_cache()` после успешного действия — устраняет задержку активации/деактивации из-за кэша плана.
 
 ---
 
@@ -112,9 +108,13 @@ Alpine.js 3 требует `unsafe-eval`. Снижает защиту от XSS �
 | Удаление организации без аудита | ✅ Аудит-лог (веб + бот) | 2026-06-25 / 2026-06-26 |
 | Telegram-логин без consent_at | ✅ Все 3 пути записывают consent_at | 2026-06-26 |
 | Rate limiter fail-open (auth) | ✅ Persistent SQLite store | 2026-06-25 |
+| Auth rate limiter wrapper fail-open | ✅ `return False` при исключении | 2026-06-25 |
 | CSRF не проверялся в admin.py (8 маршрутов) | ✅ Исправлено (audit 2026-06) | 2026-06-17 |
 | Хранение подписки без идемпотентности | ✅ UNIQUE INDEX + pre-check | 2026-06-26 |
 | XSS в tasks/analytics (json.dumps + \| safe) | ✅ Исправлено на \| tojson | 2026-06-26 |
+| `unsafe-inline` в CSP | ✅ Заменён per-request nonce (93 script-блока) | 2026-06-25 |
+| JWT без server-side revocation | ✅ jti blacklist (память + shop_bot.db) | 2026-06-25 |
+| Расхождение billing grant/revoke (веб vs бот) | ✅ `invalidate_plan_cache` добавлен в веб | 2026-06-25 |
 
 ---
 
@@ -152,10 +152,11 @@ Alpine.js 3 требует `unsafe-eval`. Снижает защиту от XSS �
 5. ✅ XSS в tasks/analytics — `| tojson` вместо `json.dumps + | safe` _(2026-06-26)_
 
 ### Следующий уровень (приоритизированный)
-1. **[Средний]** Auth rate limiter outer wrapper → fail-closed (`return False` при исключении)
-2. **[Средний]** Унификация подтверждения оплаты: веб-путь должен дублировать side-effects бота
+1. ✅ Auth rate limiter outer wrapper → fail-closed _(2026-06-25)_
+2. ✅ Унификация подтверждения оплаты: `invalidate_plan_cache` в веб-маршрутах _(2026-06-25)_
 3. ✅ **API «удалить данные пользователя» (right-to-erasure) реализован** _(2026-06-25)_
-4. **[Низкий]** `unsafe-eval` → Alpine CSP-build или nonce-based CSP
+4. ✅ `unsafe-inline` заменён per-request nonce; `unsafe-eval` остаётся (Alpine.js) _(2026-06-25)_
+5. ✅ JWT server-side revocation через jti blacklist _(2026-06-25)_
 
 ### Полноценно (2–3 месяца, enterprise-уровень)
 - SQLCipher для шифрования баз данных at-rest

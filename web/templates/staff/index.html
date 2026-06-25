@@ -235,7 +235,7 @@
 {% block footer_info %}{{ total_count }} сотрудников · {{ month_name }} {{ year }}{% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* Persist staff sort preference in localStorage across page visits */
 (function () {
     var LS_COL = 'staff_sort_col';
@@ -260,7 +260,7 @@
     }
 })();
 </script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function () {
     const PAGE = 10;
     const rows = Array.from(document.querySelectorAll('#stf-tbody tr'));

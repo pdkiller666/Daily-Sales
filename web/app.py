@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 import os
+import secrets as _secrets
 import sqlite3
 import time as _time
 from pathlib import Path
@@ -138,13 +139,13 @@ class CurrencyMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-_CSP = (
+# CSP template — {nonce} заменяется per-request случайным значением из SecurityHeadersMiddleware.
+# 'unsafe-eval' обязателен для Alpine.js 3 (использует new Function() при вычислении x-* атрибутов).
+# 'nonce-{nonce}' заменяет 'unsafe-inline': браузеры с поддержкой нонсов игнорируют unsafe-inline
+# когда нонс присутствует в директиве, что ограничивает выполнение только тегированными <script>.
+_CSP_TEMPLATE = (
     "default-src 'self'; "
-    # 'unsafe-eval' is required by Alpine.js 3 which uses new Function() to
-    # evaluate x-* expressions.  Without it the browser blocks every directive
-    # evaluation, Alpine crashes silently, x-cloak is removed but x-show is
-    # never applied, and all event handlers are dead.
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
+    "script-src 'self' 'unsafe-eval' 'nonce-{{nonce}}' "
     "https://telegram.org; "
     "style-src 'self' 'unsafe-inline'; "
     "font-src 'self' data:; "
@@ -162,6 +163,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Attach security headers to every response."""
 
     async def dispatch(self, request: Request, call_next):
+        # Генерируем нонс ДО call_next — шаблоны Jinja2 читают его через csp_nonce(request)
+        nonce = _secrets.token_urlsafe(16)
+        try:
+            request.state.csp_nonce = nonce
+        except Exception:
+            pass
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
@@ -170,7 +177,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "camera=(self), microphone=(self), geolocation=(), payment=(self)"
         )
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Content-Security-Policy"] = _CSP
+        response.headers["Content-Security-Policy"] = _CSP_TEMPLATE.replace("{{nonce}}", nonce)
         # HSTS — only on HTTPS (Amvera/production serves via HTTPS)
         if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = (
@@ -457,6 +464,11 @@ def create_web_app() -> FastAPI:
             return True
 
     templates.env.globals['beta_mode'] = _is_beta_mode
+
+    # CSP nonce — per-request значение, выставляется SecurityHeadersMiddleware в request.state
+    templates.env.globals['csp_nonce'] = lambda request: getattr(
+        getattr(request, 'state', None), 'csp_nonce', ''
+    )
 
     def _is_chat_enabled(request=None) -> bool:
         """Return True if chat is not disabled (chat_min_plan != 'Отключён').

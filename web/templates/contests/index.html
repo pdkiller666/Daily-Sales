@@ -310,7 +310,7 @@
 {% block footer_info %}{{ contests|length }} конкурсов{% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function () {
     const PAGE = 10;
     const items = Array.from(document.querySelectorAll('#cst-grid > div'));

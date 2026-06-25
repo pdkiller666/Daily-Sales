@@ -192,7 +192,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 var _abcCol = 'revenue';
 var _abcDir = 'desc';
 var _ABC_LS_COL = 'abc_sort_col';
@@ -245,7 +245,7 @@ function _abcApply() {
 })();
 </script>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function(){
     const isDark = () => document.documentElement.classList.contains('dark');
     const ctx = document.getElementById('abcChart');

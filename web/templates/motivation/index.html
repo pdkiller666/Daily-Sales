@@ -438,7 +438,7 @@
                             </div>
                         </label>
                     </div>
-                    <script>
+                    <script nonce="{{ csp_nonce(request) }}">
                     document.addEventListener('DOMContentLoaded', function() {
                         var chk = document.getElementById('coeff-chk');
                         var cap = document.getElementById('coeff-cap-row');
@@ -566,7 +566,7 @@
     {% endif %}
 </div>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 // Карта установленных мотиваций: product_id → {type, value}
 const _motivMap = {
     {% for m in motivations %}

@@ -665,7 +665,7 @@ html.dark .ai-days-btn.active {
 }
 </style>
 <script src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function(){
     var fullData = {{ chart_data | tojson }};
     var activeDays = 30;
@@ -782,7 +782,7 @@ html.dark .ai-days-btn.active {
 
 {% set _cost_chart_js = cost_chart | selectattr("cost_usd", "gt", 0) | list | length > 0 %}
 {% if _cost_chart_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function(){
     var costData = {{ cost_chart | tojson }};
     var isDark = document.documentElement.classList.contains('dark');

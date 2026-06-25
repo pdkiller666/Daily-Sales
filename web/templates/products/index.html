@@ -787,7 +787,7 @@
 {% block footer_info %}{{ total_count }} товаров · стр. {{ page }}/{{ total_pages }}{% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* Persist products sort preference in localStorage across page visits */
 (function () {
     var LS_COL = 'products_sort_col';
@@ -814,7 +814,7 @@
 })();
 </script>
 {% if is_admin %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function(){
 const _csrf = '{{ csrf_token_for(request) }}';
 window.dsEditPrice = function(pid, curPrice, cell) {
@@ -935,7 +935,7 @@ window.dsSavePrice = async function(e, pid, form) {
 </script>
 {% endif %}
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 /* ── Live client-side search for product table ── */
 (function () {
     var inp   = document.getElementById('prod-search');

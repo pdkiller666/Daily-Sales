@@ -659,7 +659,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function posApp() {
     return {
         shop: '{{ default_shop }}',

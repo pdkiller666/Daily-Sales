@@ -277,7 +277,7 @@
 </div>
 
 {% if is_admin %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function openModal(modalId) {
     const m = document.getElementById(modalId);
     m.classList.remove('hidden');
@@ -325,7 +325,7 @@ document.addEventListener('keydown', function(e) {
 {% block footer_info %}{{ shops|length }} маг.{% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 (function () {
     const PAGE = 10;
     const rows = Array.from(document.querySelectorAll('#shp-tbody tr'));

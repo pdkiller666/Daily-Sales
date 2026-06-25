@@ -733,7 +733,7 @@
 
 </main>
 
-<script>
+<script nonce="{{ csp_nonce(request) }}">
 function aiInsights() {
     return {
         loading: false,
