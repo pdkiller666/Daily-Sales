@@ -5,6 +5,7 @@ import os
 import sqlite3
 import threading
 import urllib.request
+from datetime import date as _date
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
@@ -242,10 +243,24 @@ def _get_user_active_module_subs(telegram_id: int) -> dict:
             ).fetchall()
         finally:
             conn.close()
-        return {
-            r[0]: {"item_type": r[1], "end_date": str(r[2] or "")[:10] or "∞"}
-            for r in rows
-        }
+        today = _date.today()
+        result = {}
+        for r in rows:
+            end_str = str(r[2] or "")[:10]
+            days_remaining = None
+            if end_str:
+                try:
+                    from datetime import datetime as _dt
+                    end_d = _dt.strptime(end_str, "%Y-%m-%d").date()
+                    days_remaining = max(0, (end_d - today).days)
+                except Exception:
+                    pass
+            result[r[0]] = {
+                "item_type": r[1],
+                "end_date": end_str or "∞",
+                "days_remaining": days_remaining,
+            }
+        return result
     except Exception:
         return {}
 
@@ -499,6 +514,14 @@ def _get_tariff_plans(current_plan_name: str | None, user_id: int | None = None)
 def _get_item_price(plan_type: str) -> int | None:
     """Возвращает реальную цену из БД по plan_type (module_/bundle_/extension_).
     Используется вместо клиентского amount, чтобы пользователь не мог подделать сумму."""
+    # Addon prices are hardcoded (matching database.py confirm_payment_request logic)
+    _ADDON_PRICES: dict[str, int] = {
+        "addon_shops_1": 150,
+        "addon_products_1": 100,
+    }
+    if plan_type in _ADDON_PRICES:
+        return _ADDON_PRICES[plan_type]
+
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
         try:
@@ -541,6 +564,27 @@ def _get_item_price(plan_type: str) -> int | None:
         return price
     except Exception:
         return None
+
+
+def _get_addon_options() -> list[dict]:
+    """Доп. объёмные аддоны (+магазины, +товары) с реальными ценами из БД."""
+    candidates = [
+        ("addon_products_1", "+100 товаров", "🛍", "Увеличить лимит товаров на 100 единиц"),
+        ("addon_shops_1", "+1 магазин", "🏪", "Добавить ещё один магазин к тарифу"),
+    ]
+    opts = []
+    for plan_type, label, icon, desc in candidates:
+        price = _get_item_price(plan_type)
+        if price is not None and price > 0:
+            opts.append({
+                "plan_type": plan_type,
+                "label": label,
+                "icon": icon,
+                "description": desc,
+                "price": price,
+                "price_fmt": f"{price:,}".replace(",", "\u00a0") + "\u00a0₽",
+            })
+    return opts
 
 
 def _get_tariff_plan_by_name(name: str) -> dict | None:
@@ -620,6 +664,7 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
                 "tariff": None,
                 "tariff_plans": [],
                 "need_ext": need_ext,
+                "addon_options": [],
             },
         )
 
@@ -635,6 +680,9 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
         active_items = {k: list(v) for k, v in active_items.items()}
     except Exception:
         active_items = {"modules": [], "extensions": [], "bundles": []}
+
+    is_free_plan = not tariff or tariff.get("plan_name") in (None, "Бесплатный", "")
+    addon_options = [] if is_free_plan else _get_addon_options()
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -658,6 +706,7 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
             "tariff": tariff,
             "tariff_plans": tariff_plans,
             "need_ext": need_ext,
+            "addon_options": addon_options,
         },
     )
 
@@ -730,7 +779,7 @@ def subscription_module_request(
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(url="/subscription?msg=csrf_error", status_code=303)
 
-    valid_prefixes = ("module_", "bundle_", "extension_")
+    valid_prefixes = ("module_", "bundle_", "extension_", "addon_")
     if not any(plan_type.startswith(p) for p in valid_prefixes):
         return RedirectResponse(url="/subscription?msg=invalid_plan", status_code=303)
 
@@ -746,6 +795,19 @@ def subscription_module_request(
     user_id = _get_user_id_in_shop_bot(telegram_id)
     if not user_id:
         return RedirectResponse(url="/subscription?msg=user_not_found", status_code=303)
+
+    def _tab_for(pt: str) -> str:
+        if pt.startswith("bundle_"):
+            return "bundles"
+        if pt.startswith("extension_"):
+            return "extensions"
+        return "modules"
+
+    if _has_pending_request(user_id):
+        return RedirectResponse(
+            url=f"/subscription?tab={_tab_for(plan_type)}&msg=already_pending",
+            status_code=303,
+        )
 
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
@@ -763,7 +825,10 @@ def subscription_module_request(
             user.get("first_name", user.get("email", "—")),
             telegram_id,
         )
-        return RedirectResponse(url="/subscription?msg=module_request_sent", status_code=303)
+        return RedirectResponse(
+            url=f"/subscription?tab={_tab_for(plan_type)}&msg=module_request_sent",
+            status_code=303,
+        )
     except Exception as exc:
         logging.error("subscription_module_request error: %s", exc)
         return RedirectResponse(url="/subscription?msg=error", status_code=303)

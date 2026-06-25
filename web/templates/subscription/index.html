@@ -87,10 +87,11 @@
     white-space: nowrap;
     box-shadow: 0 2px 8px rgba(99,102,241,.35);
 }
-.btn-connect:hover {
+.btn-connect:hover:not(:disabled) {
     transform: translateY(-1px);
     box-shadow: 0 4px 16px rgba(99,102,241,.5);
 }
+.btn-connect:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .btn-renew {
     display: inline-flex; align-items: center;
     background: #ecfdf5;
@@ -103,7 +104,8 @@
     transition: all .2s;
     white-space: nowrap;
 }
-.btn-renew:hover { background: #d1fae5; }
+.btn-renew:hover:not(:disabled) { background: #d1fae5; }
+.btn-renew:disabled { opacity: .45; cursor: not-allowed; }
 .btn-cancel {
     display: inline-flex; align-items: center;
     background: transparent;
@@ -182,7 +184,7 @@
 {% if has_pending %}
 <div class="mb-5 flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-2xl text-sm text-amber-700">
     <span class="text-xl shrink-0">⏳</span>
-    <span>Есть <strong>ожидающая заявка</strong> — скоро рассмотрим.</span>
+    <span>Есть <strong>ожидающая заявка</strong> — скоро рассмотрим. Новые заявки заблокированы до её обработки.</span>
 </div>
 {% endif %}
 
@@ -208,8 +210,6 @@
             <p class="text-2xl font-extrabold leading-tight">Полный доступ<br>до {{ trial.end_date }}</p>
             <p class="text-sm text-blue-200 mt-1">Все функции открыты — оцените возможности</p>
         {% elif user_mod_subs %}
-            {% set mod_count = user_mod_subs.values() | selectattr('item_type', 'equalto', 'module') | list | length %}
-            {% set ext_count = user_mod_subs.values() | selectattr('item_type', 'equalto', 'extension') | list | length %}
             <div class="inline-flex items-center gap-1.5 bg-blue-400/20 border border-blue-300/40 rounded-full px-3 py-1 mb-3">
                 <span class="w-1.5 h-1.5 bg-blue-300 rounded-full animate-pulse"></span>
                 <span class="text-xs font-bold text-blue-200 uppercase tracking-wider">Активна</span>
@@ -227,6 +227,28 @@
         {% endif %}
     </div>
 </div>
+
+
+{# ══ ОНБОРДИНГ — только новым (без подписок и без trial) ══ #}
+{% if not user_mod_subs and not trial and not (active_items.modules and '*' in active_items.modules) and not (active_items.modules or active_items.extensions or active_items.bundles) %}
+<div class="mb-5 rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 p-4">
+    <p class="text-sm font-bold text-indigo-800 dark:text-indigo-200 mb-3">🚀 Как начать за 3 шага</p>
+    <div class="grid grid-cols-3 gap-3">
+        <div class="text-center">
+            <div class="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-800 flex items-center justify-center text-lg mx-auto mb-1.5">1️⃣</div>
+            <p class="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 leading-tight">Выберите пакет или модуль</p>
+        </div>
+        <div class="text-center">
+            <div class="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-800 flex items-center justify-center text-lg mx-auto mb-1.5">2️⃣</div>
+            <p class="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 leading-tight">Нажмите «Подключить»</p>
+        </div>
+        <div class="text-center">
+            <div class="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-800 flex items-center justify-center text-lg mx-auto mb-1.5">3️⃣</div>
+            <p class="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 leading-tight">Оплатите и пришлите скриншот в бот</p>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 
 {# ══ EXPLAINER: две оси монетизации ══ #}
@@ -293,6 +315,37 @@
     {% endif %}
     <div class="px-4 py-2.5 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-800/40">
         Нужно больше объёма? Выберите тариф ниже. Возможности (аналитика, команда и др.) подключаются модулями.
+    </div>
+</div>
+{% endif %}
+
+
+{# ══ ДОПОЛНИТЕЛЬНЫЙ ОБЪЁМ (АДДОНЫ) ══ #}
+{% if addon_options %}
+<div class="mb-6">
+    <div class="flex items-center gap-2 mb-3">
+        <span class="text-lg">➕</span>
+        <h2 class="text-base font-extrabold text-slate-800 dark:text-white">Дополнительный объём</h2>
+    </div>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Увеличьте лимиты сверх тарифа — без смены плана. Аддон добавляется на 30 дней.</p>
+    <div class="grid grid-cols-2 gap-3">
+        {% for opt in addon_options %}
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 flex flex-col gap-2">
+            <div class="flex items-center gap-2">
+                <span class="text-2xl">{{ opt.icon }}</span>
+                <p class="font-bold text-slate-800 dark:text-white text-sm">{{ opt.label }}</p>
+            </div>
+            <p class="text-xs text-slate-400 dark:text-slate-500">{{ opt.description }}</p>
+            <div class="flex items-center justify-between mt-auto pt-1">
+                <span class="text-lg font-black text-slate-800 dark:text-white">{{ opt.price_fmt }}</span>
+                <form method="POST" action="/subscription/module-request">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="plan_type" value="{{ opt.plan_type }}">
+                    <button type="submit" class="btn-connect" {{ 'disabled' if has_pending else '' }}>Заказать</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
     </div>
 </div>
 {% endif %}
@@ -383,27 +436,65 @@
 {% endif %}
 
 
-{# ══ STICKY TABS ══ #}
+{# ══ ALPINE TABS: ПАКЕТЫ / МОДУЛИ / РАСШИРЕНИЯ ══ #}
 {% set _qtab = request.query_params.get('tab', 'bundles' if bundles else 'modules') %}
+<div x-data="{
+    tab: '{{ _qtab }}',
+    period: 'monthly',
+    setTab(t) {
+        this.tab = t;
+        const p = new URLSearchParams(window.location.search);
+        p.set('tab', t);
+        history.replaceState({}, '', location.pathname + '?' + p.toString());
+    }
+}">
+
+{# ── Sticky: переключатель периода + вкладки ── #}
 <div class="sticky top-0 z-20 -mx-4 px-4 pt-1 pb-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 mb-6">
+
+    {# Переключатель Мес / Год — показывается только если есть модули или пакеты с годовой ценой #}
+    {% set _has_annual = modules|selectattr('has_annual')|list or bundles|selectattr('has_annual')|list %}
+    {% if _has_annual %}
+    <div class="flex justify-end mb-2">
+        <div class="inline-flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 text-xs">
+            <button type="button" @click="period = 'monthly'"
+                    :class="period === 'monthly' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400'"
+                    class="px-3 py-1 rounded-md font-semibold transition-all">
+                Мес.
+            </button>
+            <button type="button" @click="period = 'annual'"
+                    :class="period === 'annual' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400'"
+                    class="px-3 py-1 rounded-md font-semibold transition-all flex items-center gap-1">
+                Год
+                <span x-show="period !== 'annual'" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">−20%</span>
+                <span x-show="period === 'annual'" x-cloak class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">✓</span>
+            </button>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Вкладки #}
     <div class="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
         {% if bundles %}
-        <a href="/subscription?tab=bundles"
-           class="flex-1 text-center px-2 py-2 rounded-lg text-sm font-semibold transition-all {{ 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' if _qtab == 'bundles' else 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300' }}">
+        <button type="button" @click="setTab('bundles')"
+                :class="tab === 'bundles' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
+                class="flex-1 text-center px-2 py-2 rounded-lg text-sm font-semibold transition-all">
             📦 Пакеты
-        </a>
+        </button>
         {% endif %}
         {% if modules %}
-        <a href="/subscription?tab=modules"
-           class="flex-1 text-center px-2 py-2 rounded-lg text-sm font-semibold transition-all {{ 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' if _qtab == 'modules' else 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300' }}">
-            🧩 Модули{% if modules %} <span class="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-bold align-middle ml-0.5">{{ modules|length }}</span>{% endif %}
-        </a>
+        <button type="button" @click="setTab('modules')"
+                :class="tab === 'modules' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
+                class="flex-1 text-center px-2 py-2 rounded-lg text-sm font-semibold transition-all">
+            🧩 Модули{% if modules %} <span class="text-[10px] bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded-full font-bold align-middle ml-0.5">{{ modules|length }}</span>{% endif %}
+        </button>
         {% endif %}
         {% if extensions %}
-        <a href="/subscription?tab=extensions"
-           class="flex-1 text-center px-2 py-2 rounded-lg text-sm font-semibold transition-all {{ 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' if _qtab == 'extensions' else 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300' }}">
+        <button type="button" @click="setTab('extensions')"
+                :class="tab === 'extensions' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
+                class="flex-1 text-center px-2 py-2 rounded-lg text-sm font-semibold transition-all">
             🔌 Доп.
-        </a>
+        </button>
         {% endif %}
     </div>
 </div>
@@ -412,7 +503,7 @@
 {# ══════════════════════════════════════
    TAB: ПАКЕТЫ
 ══════════════════════════════════════ #}
-{% if _qtab == 'bundles' %}
+<div x-show="tab === 'bundles'" {% if _qtab != 'bundles' %}x-cloak{% endif %}>
 
 {% if bundles %}
 <div class="space-y-4 mb-6">
@@ -426,90 +517,99 @@
         {# Badge top-right #}
         {% if is_active %}
         <div class="absolute top-4 right-4 flex items-center gap-1.5 bg-emerald-500 text-white text-[11px] font-bold px-3 py-1 rounded-full">
-            <span class="w-1.5 h-1.5 bg-white rounded-full"></span> Активен
+            <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span> Активен
         </div>
-        {% elif is_popular %}
-        <div class="absolute top-4 right-4 bg-indigo-600 text-white text-[11px] font-bold px-3 py-1 rounded-full uppercase tracking-wide">
-            ★ Популярный
+        {% elif is_popular and not is_active %}
+        <div class="absolute top-4 right-4 flex items-center gap-1.5 bg-indigo-500 text-white text-[11px] font-bold px-3 py-1 rounded-full">
+            ⭐ Популярный
         </div>
         {% endif %}
 
         <div class="p-5 pt-6">
-            {# Icon + title #}
-            <div class="flex items-start gap-4 mb-4">
-                <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shrink-0
-                    {{ 'bg-emerald-100' if is_active else ('bg-indigo-100' if is_popular else 'bg-slate-100') }}">
-                    {{ bun.icon }}
-                </div>
-                <div class="flex-1 min-w-0 pt-1">
-                    <p class="text-lg font-extrabold text-slate-800 dark:text-white">{{ bun.name }}</p>
-                    <p class="text-sm text-slate-500 mt-0.5">{{ bun.description }}</p>
+            <div class="flex items-center gap-3 mb-4">
+                <span class="text-3xl">{{ bun.icon }}</span>
+                <div>
+                    <p class="text-xl font-extrabold text-slate-800 dark:text-white">{{ bun.name }}</p>
+                    {% if bun.description %}
+                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ bun.description }}</p>
+                    {% endif %}
                 </div>
             </div>
 
-            {# Included modules #}
+            {# Состав пакета #}
             {% if bun.includes.modules %}
             <div class="mb-4">
-                <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Что входит:</p>
-                <div class="flex flex-wrap gap-2">
-                    {% for mkey in bun.includes.modules %}
-                    {% set minfo = modules_map.get(mkey, {}) %}
-                    <span class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full
-                        {{ 'bg-emerald-100 text-emerald-700' if is_active else ('bg-indigo-100 text-indigo-700' if is_popular else 'bg-slate-100 text-slate-600') }}">
-                        {{ minfo.name if minfo.name else mkey }}
+                <p class="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">Включает модули:</p>
+                <div class="flex flex-wrap gap-1.5">
+                    {% for mk in bun.includes.modules %}
+                    {% set minfo = modules_map.get(mk, {}) %}
+                    <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg
+                        {{ 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' if (mk in active_items.modules or '*' in active_items.modules) else 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300' }}">
+                        {{ minfo.icon if minfo.icon else '🔧' }}
+                        {{ minfo.name_display if minfo.name_display else (minfo.name if minfo.name else mk) }}
+                    </span>
+                    {% endfor %}
+                    {% for ek in bun.includes.extensions %}
+                    {% set einfo = modules_map.get(ek, {}) %}
+                    <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg
+                        {{ 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800' if (ek in active_items.extensions or '*' in active_items.extensions) else 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300' }}">
+                        {{ einfo.icon if einfo.icon else '🔌' }}
+                        {{ einfo.name_display if einfo.name_display else (einfo.name if einfo.name else ek) }}
                     </span>
                     {% endfor %}
                 </div>
             </div>
             {% endif %}
 
-            {# Price + CTA #}
-            <div class="flex items-end justify-between gap-4 mt-2">
+            {# Срок и истекание #}
+            {% if bun_sub_info %}
+            <p class="text-[11px] font-semibold mb-3
+               {{ 'text-red-600 dark:text-red-400' if bun_sub_info.days_remaining is not none and bun_sub_info.days_remaining <= 3
+                  else ('text-amber-600 dark:text-amber-400' if bun_sub_info.days_remaining is not none and bun_sub_info.days_remaining <= 7
+                  else 'text-emerald-600 dark:text-emerald-400') }}">
+                {% if bun_sub_info.days_remaining is not none and bun_sub_info.days_remaining <= 7 %}
+                    ⚠ истекает через {{ bun_sub_info.days_remaining }} дн. ({{ bun_sub_info.end_date }})
+                {% else %}
+                    до {{ bun_sub_info.end_date }}
+                {% endif %}
+            </p>
+            {% endif %}
+
+            <div class="flex items-end justify-between gap-3">
                 <div>
-                    <div class="text-3xl font-black text-slate-800 dark:text-white leading-none">{{ bun.price_fmt }}</div>
+                    <div class="text-2xl font-black text-slate-800 dark:text-white leading-none"
+                         x-text="period === 'annual' && {{ 'true' if bun.has_annual else 'false' }} ? '{{ bun.annual_per_month_fmt }}' : '{{ bun.price_fmt }}'">
+                        {{ bun.price_fmt }}
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1">
+                        <span x-show="period !== 'annual' || !{{ 'true' if bun.has_annual else 'false' }}">в месяц</span>
+                        <span x-show="period === 'annual' && {{ 'true' if bun.has_annual else 'false' }}" x-cloak>в мес. ({{ bun.price_annual_fmt }}) <span class="text-emerald-600 font-bold">−{{ bun.annual_save_pct }}%</span></span>
+                    </p>
                     {% if bun.has_annual %}
-                    <p class="text-xs text-emerald-600 dark:text-emerald-400 font-semibold mt-1">или {{ bun.annual_per_month_fmt }} при оплате за год{% if bun.annual_save_pct %} · выгода −{{ bun.annual_save_pct }}%{% endif %}</p>
-                    {% endif %}
-                    {% if bun_sub_info and bun_sub_info.end_date and bun_sub_info.end_date != '∞' %}
-                    <p class="text-xs text-emerald-600 font-semibold mt-1">Активен до {{ bun_sub_info.end_date }}</p>
-                    {% elif bun.modules_count > 1 %}
-                    <p class="text-xs text-slate-400 mt-1">{{ bun.modules_count }} модул{{ 'ь' if bun.modules_count == 1 else ('я' if bun.modules_count in (2,3,4) else 'ей') }} в одном</p>
+                    <p x-show="period === 'monthly'" class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
+                        или {{ bun.annual_per_month_fmt }}/мес. при оплате за год · −{{ bun.annual_save_pct }}%
+                    </p>
                     {% endif %}
                 </div>
-                <div class="flex flex-col gap-2 items-end">
-                    {% if is_active and not bun_sub_info %}
-                    <span class="text-xs text-slate-400 italic">Включён</span>
-                    {% elif bun.price_monthly == 0 %}
-                    <span class="text-sm text-slate-400">Бесплатно</span>
-                    {% elif is_active %}
+
+                <div class="flex flex-col gap-1.5 items-end shrink-0">
+                    {% if not is_active %}
                     <form method="POST" action="/subscription/module-request">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="plan_type" value="bundle_{{ bun.key }}">
-                        <button type="submit" class="btn-renew">🔄 Продлить (мес.)</button>
+                        <input type="hidden" name="plan_type"
+                               :value="period === 'annual' && {{ 'true' if bun.has_annual else 'false' }} ? 'bundle_annual_{{ bun.key }}' : 'bundle_{{ bun.key }}'">
+                        <button type="submit" class="btn-connect" {{ 'disabled' if has_pending else '' }}>Подключить →</button>
                     </form>
-                    {% if bun.has_annual %}
-                    <form method="POST" action="/subscription/module-request">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="plan_type" value="bundle_annual_{{ bun.key }}">
-                        <button type="submit" class="btn-renew">🔄 Продлить (год)</button>
-                    </form>
-                    {% endif %}
-                    {% else %}
-                    <form method="POST" action="/subscription/module-request">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="plan_type" value="bundle_{{ bun.key }}">
-                        <button type="submit" class="btn-connect">Подключить →</button>
-                    </form>
-                    {% if bun.has_annual %}
-                    <form method="POST" action="/subscription/module-request">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="plan_type" value="bundle_annual_{{ bun.key }}">
-                        <button type="submit" class="btn-connect">Год — {{ bun.price_annual_fmt }}</button>
-                    </form>
-                    {% endif %}
                     {% endif %}
 
                     {% if is_active and bun_sub_info %}
+                    <form method="POST" action="/subscription/module-request">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="plan_type"
+                               :value="period === 'annual' && {{ 'true' if bun.has_annual else 'false' }} ? 'bundle_annual_{{ bun.key }}' : 'bundle_{{ bun.key }}'">
+                        <button type="submit" class="btn-renew" {{ 'disabled' if has_pending else '' }}>🔄 Продлить</button>
+                    </form>
+
                     <form method="POST" action="/subscription/cancel-request">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="plan_type" value="bundle_{{ bun.key }}">
@@ -525,7 +625,7 @@
 </div>
 
 <p class="text-center text-xs text-slate-400 mb-8">Нет подходящего пакета? Соберите свой из отдельных модулей →
-    <a href="/subscription?tab=modules" class="text-indigo-500 font-semibold">Модули</a>
+    <button type="button" @click="setTab('modules')" class="text-indigo-500 font-semibold hover:text-indigo-700">Модули</button>
 </p>
 
 {% else %}
@@ -535,13 +635,13 @@
 </div>
 {% endif %}
 
-{% endif %}{# end bundles #}
+</div>{# end bundles tab #}
 
 
 {# ══════════════════════════════════════
    TAB: МОДУЛИ
 ══════════════════════════════════════ #}
-{% if _qtab == 'modules' %}
+<div x-show="tab === 'modules'" {% if _qtab != 'modules' %}x-cloak{% endif %}>
 
 <div class="mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl text-sm text-blue-700 dark:text-blue-300 space-y-1">
     <p class="font-semibold">🧩 Как работают модули</p>
@@ -568,15 +668,30 @@
                 {% endif %}
             </div>
             <p class="text-xs text-slate-400 mt-0.5">{{ mod.description }}</p>
+            {# Срок действия с цветовой индикацией (пункт 4) #}
             {% if sub_info and sub_info.end_date and sub_info.end_date != '∞' %}
-            <p class="text-[11px] text-emerald-600 font-semibold mt-0.5">до {{ sub_info.end_date }}</p>
+            <p class="text-[11px] font-semibold mt-0.5
+               {{ 'text-red-600 dark:text-red-400' if sub_info.days_remaining is not none and sub_info.days_remaining <= 3
+                  else ('text-amber-600 dark:text-amber-400' if sub_info.days_remaining is not none and sub_info.days_remaining <= 7
+                  else 'text-emerald-600 dark:text-emerald-400') }}">
+                {% if sub_info.days_remaining is not none and sub_info.days_remaining <= 7 %}
+                    ⚠ истекает через {{ sub_info.days_remaining }} дн. ({{ sub_info.end_date }})
+                {% else %}
+                    до {{ sub_info.end_date }}
+                {% endif %}
+            </p>
             {% endif %}
         </div>
 
         <div class="shrink-0 flex flex-col items-end gap-1.5">
-            <span class="text-sm font-extrabold text-slate-700 dark:text-slate-200">{{ mod.price_fmt }}</span>
+            {# Цена с переключением период (пункт 5) #}
+            <span class="text-sm font-extrabold text-slate-700 dark:text-slate-200"
+                  x-text="period === 'annual' && {{ 'true' if mod.has_annual else 'false' }} ? '{{ mod.annual_per_month_fmt }}' : '{{ mod.price_fmt }}'">
+                {{ mod.price_fmt }}
+            </span>
             {% if mod.has_annual %}
-            <span class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">или {{ mod.annual_per_month_fmt }} при оплате за год{% if mod.annual_save_pct %} · −{{ mod.annual_save_pct }}%{% endif %}</span>
+            <span x-show="period !== 'annual'" class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">или {{ mod.annual_per_month_fmt }} за год · −{{ mod.annual_save_pct }}%</span>
+            <span x-show="period === 'annual'" x-cloak class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">{{ mod.price_annual_fmt }} · −{{ mod.annual_save_pct }}%</span>
             {% endif %}
 
             {% if is_active and not sub_info %}
@@ -584,31 +699,23 @@
             {% elif mod.price_monthly == 0 %}
             <span class="text-[11px] text-slate-400">Бесплатно</span>
             {% elif is_active %}
+            {# Кнопка Продлить: period-aware + disabled при pending (пункты 3, 5) #}
             <form method="POST" action="/subscription/module-request">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="plan_type" value="module_{{ mod.key }}">
-                <button type="submit" class="btn-renew">🔄 Продлить (мес.)</button>
+                <input type="hidden" name="plan_type"
+                       :value="period === 'annual' && {{ 'true' if mod.has_annual else 'false' }} ? 'module_annual_{{ mod.key }}' : 'module_{{ mod.key }}'">
+                <button type="submit" class="btn-renew" {{ 'disabled' if has_pending else '' }}>
+                    🔄 Продлить
+                </button>
             </form>
-            {% if mod.has_annual %}
-            <form method="POST" action="/subscription/module-request">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="plan_type" value="module_annual_{{ mod.key }}">
-                <button type="submit" class="btn-renew">🔄 Продлить (год)</button>
-            </form>
-            {% endif %}
             {% else %}
+            {# Кнопка Подключить: period-aware + disabled при pending (пункты 3, 5) #}
             <form method="POST" action="/subscription/module-request">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="plan_type" value="module_{{ mod.key }}">
-                <button type="submit" class="btn-connect">Подключить (мес.)</button>
+                <input type="hidden" name="plan_type"
+                       :value="period === 'annual' && {{ 'true' if mod.has_annual else 'false' }} ? 'module_annual_{{ mod.key }}' : 'module_{{ mod.key }}'">
+                <button type="submit" class="btn-connect" {{ 'disabled' if has_pending else '' }}>Подключить</button>
             </form>
-            {% if mod.has_annual %}
-            <form method="POST" action="/subscription/module-request">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="plan_type" value="module_annual_{{ mod.key }}">
-                <button type="submit" class="btn-connect">Год — {{ mod.price_annual_fmt }}</button>
-            </form>
-            {% endif %}
             {% endif %}
 
             {% if is_active and sub_info %}
@@ -644,13 +751,13 @@
 </div>
 {% endif %}
 
-{% endif %}{# end modules #}
+</div>{# end modules tab #}
 
 
 {# ══════════════════════════════════════
    TAB: РАСШИРЕНИЯ
 ══════════════════════════════════════ #}
-{% if _qtab == 'extensions' %}
+<div x-show="tab === 'extensions'" {% if _qtab != 'extensions' %}x-cloak{% endif %}>
 
 <div class="mb-4 px-4 py-3 bg-violet-50 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-800 rounded-xl text-sm text-violet-700 dark:text-violet-300 space-y-1">
     <p class="font-semibold">⚡ Как работают расширения</p>
@@ -689,7 +796,6 @@
         <span class="font-bold text-slate-700 dark:text-slate-200 text-sm flex-1 text-left">
             {{ parent_mod.name_display if parent_mod.name_display else (parent_mod.name if parent_mod.name else ext.module_key) }}
         </span>
-        {# Счётчик: x активных из total #}
         <span class="text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0
             {{ 'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300' if ns.active_in_group > 0 else ('bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300' if not parent_active else 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400') }}">
             {% if ns.active_in_group > 0 %}{{ ns.active_in_group }}/{{ ns.total_in_group }} активно
@@ -722,8 +828,18 @@
                     {% endif %}
                 </div>
                 <p class="text-xs text-slate-400 mt-0.5">{{ ext2.description }}</p>
+                {# Срок действия с цветовой индикацией (пункт 4) #}
                 {% if ext_sub_info and ext_sub_info.end_date and ext_sub_info.end_date != '∞' %}
-                <p class="text-[11px] text-violet-600 font-semibold mt-0.5">до {{ ext_sub_info.end_date }}</p>
+                <p class="text-[11px] font-semibold mt-0.5
+                   {{ 'text-red-600 dark:text-red-400' if ext_sub_info.days_remaining is not none and ext_sub_info.days_remaining <= 3
+                      else ('text-amber-600 dark:text-amber-400' if ext_sub_info.days_remaining is not none and ext_sub_info.days_remaining <= 7
+                      else 'text-violet-600 dark:text-violet-400') }}">
+                    {% if ext_sub_info.days_remaining is not none and ext_sub_info.days_remaining <= 7 %}
+                        ⚠ истекает через {{ ext_sub_info.days_remaining }} дн. ({{ ext_sub_info.end_date }})
+                    {% else %}
+                        до {{ ext_sub_info.end_date }}
+                    {% endif %}
+                </p>
                 {% endif %}
             </div>
             <div class="shrink-0 flex flex-col items-end gap-1.5">
@@ -739,13 +855,13 @@
                 <form method="POST" action="/subscription/module-request">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="plan_type" value="extension_{{ ext2.key }}">
-                    <button type="submit" class="btn-renew">🔄 Продлить</button>
+                    <button type="submit" class="btn-renew" {{ 'disabled' if has_pending else '' }}>🔄 Продлить</button>
                 </form>
                 {% else %}
                 <form method="POST" action="/subscription/module-request">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="plan_type" value="extension_{{ ext2.key }}">
-                    <button type="submit" class="btn-connect" {{ 'disabled style="opacity:.5;cursor:default;"' if not parent_active else '' }}>Подключить</button>
+                    <button type="submit" class="btn-connect" {{ 'disabled' if (has_pending or not parent_active) else '' }}>Подключить</button>
                 </form>
                 {% endif %}
 
@@ -772,7 +888,9 @@
 </div>
 {% endif %}
 
-{% endif %}{# end extensions #}
+</div>{# end extensions tab #}
+
+</div>{# end Alpine tabs wrapper #}
 
 
 {# ── История ── #}
