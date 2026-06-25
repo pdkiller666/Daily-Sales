@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.185.0"
+CURRENT_VERSION = "1.186.0"
 
 ENTRIES = [
+    {
+        "version": "1.186.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Update documentation with new AI features and APScheduler job count",
+        ],
+    },
     {
         "version": "1.185.0",
         "date": "25 июня 2026",
