@@ -751,3 +751,91 @@ class TenantManager:
 
 
 tenant_manager = TenantManager()
+
+
+def erase_user_globally(telegram_id: int) -> dict:
+    """Полное удаление ПДн конкретного пользователя из всех баз (ФЗ-152/GDPR).
+
+    Шаги:
+    1. Находит все org db_paths пользователя через main.db.
+    2. Запоминает путь к фото профиля (до стирания).
+    3. Вызывает Database.erase_user_pii() на каждой org DB.
+    4. Вызывает erase_user_pii() на shop_bot.db (web_credentials, login_ips).
+    5. Удаляет файл фото профиля с диска.
+
+    Returns: {"orgs_processed": int, "photo_deleted": bool, "errors": list[str]}
+    """
+    from database import Database
+
+    result: dict = {"orgs_processed": 0, "photo_deleted": False, "errors": []}
+
+    # 1. Все org db_paths из main.db
+    org_db_paths: list[str] = []
+    try:
+        conn = sqlite3.connect('data/main.db', timeout=10)
+        rows = conn.execute(
+            """SELECT o.db_path FROM organizations o
+               JOIN user_org_mapping m ON o.id = m.org_id
+               WHERE m.telegram_id = ?""",
+            (telegram_id,),
+        ).fetchall()
+        conn.close()
+        org_db_paths = [r[0] for r in rows if r[0]]
+    except Exception as e:
+        result["errors"].append(f"main.db lookup: {e}")
+
+    # 2. Запомнить URL профильного фото ДО стирания
+    photo_url: str | None = None
+    for db_path in org_db_paths:
+        if not os.path.exists(db_path):
+            continue
+        try:
+            c = sqlite3.connect(db_path, timeout=5)
+            row = c.execute(
+                "SELECT profile_photo FROM users WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+            c.close()
+            if row and row[0] and '/profile_photos/' in (row[0] or ''):
+                photo_url = row[0]
+                break
+        except Exception:
+            pass
+    if not photo_url:
+        try:
+            c = sqlite3.connect('data/shop_bot.db', timeout=5)
+            row = c.execute(
+                "SELECT profile_photo FROM users WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+            c.close()
+            if row and row[0] and '/profile_photos/' in (row[0] or ''):
+                photo_url = row[0]
+        except Exception:
+            pass
+
+    # 3. Стереть из каждой org DB
+    for db_path in org_db_paths:
+        if not os.path.exists(db_path):
+            continue
+        try:
+            Database(db_path).erase_user_pii(telegram_id)
+            result["orgs_processed"] += 1
+        except Exception as e:
+            result["errors"].append(f"{os.path.basename(db_path)}: {e}")
+
+    # 4. Стереть из shop_bot.db (web_credentials, login_ips, users row)
+    try:
+        Database('data/shop_bot.db').erase_user_pii(telegram_id)
+    except Exception as e:
+        result["errors"].append(f"shop_bot.db: {e}")
+
+    # 5. Удалить файл фото с диска
+    if photo_url:
+        try:
+            rel = photo_url.lstrip('/')
+            if os.path.isfile(rel):
+                os.remove(rel)
+                result["photo_deleted"] = True
+        except Exception as e:
+            result["errors"].append(f"photo_delete: {e}")
+
+    return result

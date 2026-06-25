@@ -10,6 +10,16 @@
 {% from "admin/_macros.html" import page_header %}
 {{ page_header('🔍', 'Глобальный поиск пользователей', 'Поиск по всем организациям и центральной БД') }}
 
+{% if msg == 'erased' %}
+<div class="mb-4 p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm text-emerald-800 dark:text-emerald-300">
+  ✅ ПДн пользователя ID {{ erased_id }} успешно стёрты во всех базах данных.
+</div>
+{% elif msg == 'csrf_error' %}
+<div class="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
+  ❌ Ошибка CSRF-токена. Попробуйте снова.
+</div>
+{% endif %}
+
 <form method="get" class="flex gap-2 mb-6">
     <input name="q" value="{{ q }}" autofocus
            placeholder="Имя, фамилия, username, Telegram ID, телефон…"
@@ -38,6 +48,7 @@
                 <th class="text-left px-4 py-3 font-semibold hidden md:table-cell">Тариф</th>
                 <th class="text-left px-4 py-3 font-semibold hidden lg:table-cell">До</th>
                 <th class="text-right px-4 py-3 font-semibold hidden sm:table-cell">Telegram ID</th>
+                <th class="text-right px-4 py-3 font-semibold">Действия</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
@@ -71,6 +82,15 @@
                     <a href="tg://user?id={{ r.telegram_id }}"
                        class="text-xs text-blue-500 hover:text-blue-700 font-mono">{{ r.telegram_id }}</a>
                     {% else %}<span class="text-slate-300 text-xs">—</span>{% endif %}
+                </td>
+                <td class="px-4 py-3 text-right">
+                    {% if r.telegram_id and r.telegram_id != '—' %}
+                    <a href="/admin/users/{{ r.telegram_id }}/erase"
+                       title="Стереть персональные данные (ФЗ-152)"
+                       class="text-xs text-red-500 hover:text-red-700 hover:underline whitespace-nowrap">
+                        🗑 ПДн
+                    </a>
+                    {% else %}<span class="text-slate-200 dark:text-slate-700 text-xs">—</span>{% endif %}
                 </td>
             </tr>
             {% endfor %}

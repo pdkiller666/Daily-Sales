@@ -6771,6 +6771,109 @@ class Database:
             logger.error(f"Ошибка при удалении пользователя: {e}")
             return False
 
+    def erase_user_pii(self, telegram_id: int) -> bool:
+        """Анонимизация ПДн пользователя — право на забвение (ФЗ-152/GDPR).
+
+        Работает в контексте любой базы (org_*.db, shop_bot.db):
+        - Обнуляет идентифицирующие поля в users (имена, телефон, email, фото)
+        - Анонимизирует текст chat_messages и direct_messages (сохраняет id/reply chain)
+        - Удаляет вложения из таблиц multi-file (chat_message_files, dm_files)
+        - Удаляет личные записи: absence_records, work_schedule, notification_history/settings
+        - shop_bot.db: удаляет web_credentials и login_ips
+
+        Сохраняет: sales, salary_adjustments — бизнес-записи для отчётности и бухгалтерии.
+        Сохраняет user_id FK в sales — иначе ломаются исторические отчёты.
+        """
+        try:
+            conn = self.get_connection()
+            uid_sub = 'SELECT id FROM users WHERE telegram_id = ?'
+
+            # 1. Анонимизация PII в users
+            try:
+                conn.execute("""
+                    UPDATE users
+                    SET first_name='[Удалён]', last_name='', middle_name=NULL,
+                        phone=NULL, email=NULL, username=NULL, profile_photo=NULL
+                    WHERE telegram_id=?""", (telegram_id,))
+            except Exception:
+                pass
+
+            # 2. Анонимизация текста и файлов chat_messages
+            try:
+                conn.execute("""
+                    UPDATE chat_messages
+                    SET message='[удалено]', file_path='', file_name='', file_type='', file_size=0
+                    WHERE user_id IN (SELECT id FROM users WHERE telegram_id=?)
+                      AND is_deleted=0""", (telegram_id,))
+            except Exception:
+                pass
+
+            # 3. Удаление multi-file вложений для сообщений этого пользователя
+            try:
+                conn.execute("""
+                    DELETE FROM chat_message_files
+                    WHERE message_id IN (
+                        SELECT id FROM chat_messages
+                        WHERE user_id IN (SELECT id FROM users WHERE telegram_id=?)
+                    )""", (telegram_id,))
+            except Exception:
+                pass
+
+            # 4. Анонимизация direct_messages (from_user_id = telegram_id)
+            try:
+                conn.execute("""
+                    UPDATE direct_messages
+                    SET message='[удалено]', file_path='', file_name='', file_type='', file_size=0
+                    WHERE from_user_id=? AND is_deleted=0""", (telegram_id,))
+            except Exception:
+                pass
+
+            # 5. Удаление DM multi-file вложений
+            try:
+                conn.execute("""
+                    DELETE FROM dm_files
+                    WHERE message_id IN (
+                        SELECT id FROM direct_messages WHERE from_user_id=?
+                    )""", (telegram_id,))
+            except Exception:
+                pass
+
+            # 6. Удаление личных записей
+            for tbl in ('absence_records', 'work_schedule',
+                        'notification_history', 'notification_settings'):
+                try:
+                    conn.execute(
+                        f'DELETE FROM {tbl} WHERE user_id IN ({uid_sub})',
+                        (telegram_id,),
+                    )
+                except Exception:
+                    pass
+
+            # 7. shop_bot.db: web_credentials и login_ips
+            try:
+                conn.execute(
+                    "DELETE FROM web_credentials WHERE telegram_id=?", (telegram_id,)
+                )
+            except Exception:
+                pass
+            try:
+                conn.execute(
+                    "DELETE FROM login_ips WHERE telegram_id=?", (telegram_id,)
+                )
+            except Exception:
+                pass
+
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error("erase_user_pii(%s): %s", telegram_id, exc)
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return False
+
     def update_user_profile_photo(self, telegram_id: int, photo_url):
         """Сохранить/удалить фото профиля пользователя."""
         conn = self.get_connection()

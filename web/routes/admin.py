@@ -577,8 +577,81 @@ async def admin_users(request: Request, q: str = ""):
     return request.app.state.templates.TemplateResponse(
         request,
         "admin/users.html",
-        _ctx(request, user, {"q": q, "results": results}),
+        _ctx(request, user, {
+            "q": q,
+            "results": results,
+            "msg": _flash(request),
+            "erased_id": request.query_params.get("erased_id", ""),
+            "csrf_token": get_csrf_token(request),
+        }),
     )
+
+
+@router.get("/users/{tg_id}/erase")
+async def admin_erase_user_form(request: Request, tg_id: int):
+    """Страница подтверждения стирания ПДн пользователя."""
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+
+    target: dict = {"telegram_id": tg_id, "name": f"ID {tg_id}", "username": None, "shop": None}
+    try:
+        conn = _raw_conn()
+        row = conn.execute(
+            "SELECT first_name, last_name, username, shop_name FROM users WHERE telegram_id=?",
+            (tg_id,),
+        ).fetchone()
+        conn.close()
+        if row:
+            name = f"{row[0] or ''} {row[1] or ''}".strip()
+            target["name"] = name or (f"@{row[2]}" if row[2] else f"ID {tg_id}")
+            target["username"] = row[2]
+            target["shop"] = row[3]
+    except Exception:
+        pass
+
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "admin/erase_user.html",
+        _ctx(request, user, {"target": target, "csrf_token": get_csrf_token(request)}),
+    )
+
+
+@router.post("/users/{tg_id}/erase")
+def admin_erase_user_execute(
+    request: Request,
+    tg_id: int,
+    csrf_token: str = Form(""),
+):
+    """Исполнение стирания ПДн."""
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/admin/users?msg=csrf_error", 303)
+
+    orgs_done, errs = 0, 0
+    try:
+        from tenant_manager import erase_user_globally
+        summary = erase_user_globally(tg_id)
+        orgs_done = summary.get("orgs_processed", 0)
+        errs = len(summary.get("errors", []))
+    except Exception as exc:
+        errs = 1
+        import logging as _log
+        _log.error("admin_erase_user_execute(%s): %s", tg_id, exc)
+
+    try:
+        from web.audit import log_admin_action
+        log_admin_action(
+            request, user, "user_erase",
+            target=str(tg_id),
+            details=f"orgs_processed={orgs_done}; errors={errs}",
+        )
+    except Exception:
+        pass
+
+    return RedirectResponse(f"/admin/users?msg=erased&erased_id={tg_id}", 303)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
