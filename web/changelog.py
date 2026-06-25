@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.196.0"
+CURRENT_VERSION = "1.197.0"
 
 ENTRIES = [
+    {
+        "version": "1.197.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Improve payment proof handling and security checks",
+            "Add a screenshot of the chat header user interface",
+        ],
+    },
     {
         "version": "1.196.0",
         "date": "25 июня 2026",
