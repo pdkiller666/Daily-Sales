@@ -131,6 +131,9 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         "profile": {},
         # web credentials
         "web_cred": None,
+        # currency
+        "org_currency": "RUB",
+        "currencies": {},
         # AI weekly digest prefs (owners with ai_network_insights)
         "has_network_insights": False,
         "digest_prefs": {"weekday": 0, "hour_msk": 12},
@@ -246,6 +249,15 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
                 ctx["notification_history"] = []
 
         # AI weekly digest prefs (owners with ai_network_insights extension)
+        if is_owner and org_db:
+            try:
+                from currency_utils import CURRENCIES as _CURRENCIES
+                _cur_db = get_web_db(telegram_id, org_db)
+                ctx["org_currency"] = _cur_db.get_org_currency()
+                ctx["currencies"] = _CURRENCIES
+            except Exception:
+                pass
+
         if is_owner:
             try:
                 from billing_utils import has_extension as _has_ext, has_module as _has_mod
@@ -773,6 +785,39 @@ async def settings_apk_notif(
             c.close()
     except Exception:
         pass
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
+
+
+@router.post("/settings/currency")
+async def settings_currency_save(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    currency: str = Form(default="RUB"),
+):
+    """Сохранить валюту организации. Только для владельца."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from web.app import _CURRENCY_SYMBOL_CACHE
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings", status_code=303)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url="/settings", status_code=303)
+
+    org_db = user.get("org_db")
+    telegram_id = int(user["sub"])
+    if org_db:
+        try:
+            db = get_web_db(telegram_id, org_db)
+            if db.set_org_currency(currency):
+                # Инвалидируем кэш символа для этой орг
+                _CURRENCY_SYMBOL_CACHE.pop(org_db, None)
+        except Exception as _e:
+            logger.warning("settings_currency_save: %s", _e)
+
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 

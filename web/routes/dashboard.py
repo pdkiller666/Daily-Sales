@@ -39,12 +39,12 @@ def _group_plans_dash(plans_dash: list, limit: int = 6) -> list:
     return result[:limit]
 
 
-def _fmt(amount) -> str:
+def _fmt(amount, symbol: str = '₽') -> str:
     try:
         v = int(float(amount or 0))
-        return f"{v:,}".replace(',', '\u00a0') + "\u00a0₽"
+        return f"{v:,}".replace(',', '\u00a0') + f"\u00a0{symbol}"
     except Exception:
-        return "0\u00a0₽"
+        return f"0\u00a0{symbol}"
 
 
 def _growth(cur, prev) -> str | None:
@@ -126,14 +126,15 @@ def dashboard(request: Request, msg: str = ""):
     except Exception:
         pass
 
+    _csym = getattr(request.state, 'currency_symbol', '₽')
     ctx: dict = {
         "request": request,
         "user": user,
         "is_admin": is_admin,
         "gate_title": gate_title,
         "gate_text": gate_text,
-        "today_sales": 0, "today_revenue": "0\u00a0₽",
-        "month_sales": 0, "month_revenue": "0\u00a0₽",
+        "today_sales": 0, "today_revenue": f"0\u00a0{_csym}",
+        "month_sales": 0, "month_revenue": f"0\u00a0{_csym}",
         "user_count": 0, "product_count": 0,
         "chart_labels": [], "chart_data": [], "chart_dates": [],
         "recent_sales": [], "shop_ranking": [],
@@ -179,9 +180,9 @@ def dashboard(request: Request, msg: str = ""):
         month_s = db.get_sales_summary(start_date=month_str, end_date=today_str) or (0, 0, 0, 0)
 
         ctx["today_sales"] = int(today_s[0] or 0)
-        ctx["today_revenue"] = _fmt(today_s[2])
+        ctx["today_revenue"] = _fmt(today_s[2], _csym)
         ctx["month_sales"] = int(month_s[0] or 0)
-        ctx["month_revenue"] = _fmt(month_s[2])
+        ctx["month_revenue"] = _fmt(month_s[2], _csym)
 
         # ── Period comparisons ──────────────────────────────────────────────
         try:

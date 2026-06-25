@@ -89,6 +89,8 @@ class TenantManager:
             cursor.execute("ALTER TABLE organizations ADD COLUMN invite_preset_role TEXT DEFAULT NULL")
         if 'invite_preset_shop' not in org_cols:
             cursor.execute("ALTER TABLE organizations ADD COLUMN invite_preset_shop TEXT DEFAULT NULL")
+        if 'currency' not in org_cols:
+            cursor.execute("ALTER TABLE organizations ADD COLUMN currency TEXT DEFAULT 'RUB'")
 
         conn.commit()
         conn.close()

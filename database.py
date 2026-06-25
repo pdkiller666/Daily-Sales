@@ -5282,6 +5282,41 @@ class Database:
         except Exception:
             return "Организация"
 
+    def get_org_currency(self) -> str:
+        """Валюта организации (код ISO-4217). По умолчанию RUB.
+        Читает из таблицы organizations в main.db по db_path == self.db_file."""
+        try:
+            import sqlite3 as _sqlite3
+            _conn = _sqlite3.connect('data/main.db')
+            _row = _conn.execute(
+                "SELECT currency FROM organizations WHERE db_path = ? LIMIT 1",
+                (self.db_file,)
+            ).fetchone()
+            _conn.close()
+            return (_row[0] or 'RUB') if _row else 'RUB'
+        except Exception:
+            return 'RUB'
+
+    def set_org_currency(self, currency: str) -> bool:
+        """Сохранить валюту организации в main.db. Возвращает True при успехе.
+        Принимает только коды из currency_utils.CURRENCIES."""
+        try:
+            from currency_utils import CURRENCIES as _CURRENCIES
+            if currency not in _CURRENCIES:
+                return False
+            import sqlite3 as _sqlite3
+            _conn = _sqlite3.connect('data/main.db')
+            _conn.execute(
+                "UPDATE organizations SET currency = ? WHERE db_path = ?",
+                (currency, self.db_file)
+            )
+            _conn.commit()
+            _conn.close()
+            return True
+        except Exception as _e:
+            logger.error('set_org_currency: %s', _e)
+            return False
+
     def get_sales_summary_today(self):
         """Сводка по продажам за сегодня: (кол-во, сумма)."""
         try:

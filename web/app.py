@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import json
 import logging
 import os
 import sqlite3
@@ -8,6 +10,7 @@ from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse, PlainTextResponse
+from jinja2 import pass_context
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
@@ -82,12 +85,57 @@ def _fmt_datetime(s: str) -> str:
         return str(s)
 
 
-def _fmt_currency(amount) -> str:
+@pass_context
+def _fmt_currency(ctx, amount) -> str:
+    """Форматирует сумму с символом валюты текущей организации.
+    Читает currency_symbol из request.state (устанавливается CurrencyMiddleware).
+    Graceful-fallback → ₽ при любой ошибке."""
+    try:
+        request = ctx.get('request')
+        symbol = getattr(request.state, 'currency_symbol', '₽') if request else '₽'
+    except Exception:
+        symbol = '₽'
     try:
         v = int(float(amount or 0))
-        return f"{v:,}".replace(',', '\u00a0') + "\u00a0₽"
+        return f"{v:,}".replace(',', '\u00a0') + f"\u00a0{symbol}"
     except Exception:
-        return "0\u00a0₽"
+        return f"0\u00a0{symbol}"
+
+
+# ── LRU-кэш символов валют: {org_db_path: symbol} ─────────────────────────
+_CURRENCY_SYMBOL_CACHE: dict[str, str] = {}
+
+
+class CurrencyMiddleware(BaseHTTPMiddleware):
+    """Определяет символ валюты для текущей сессии и кладёт его в request.state.
+    Читает JWT из сессионной куки (payload декодируется без проверки подписи —
+    только для кэш-поиска; подлинная аутентификация происходит в каждом роуте).
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        request.state.currency_symbol = '₽'  # default
+        try:
+            cookie = request.cookies.get('session')
+            if cookie:
+                parts = cookie.split('.')
+                if len(parts) == 3:
+                    padded = parts[1] + '=='
+                    payload = json.loads(base64.urlsafe_b64decode(padded))
+                    org_db = payload.get('org_db', '')
+                    if org_db:
+                        if org_db not in _CURRENCY_SYMBOL_CACHE:
+                            try:
+                                from database import Database as _DB
+                                from currency_utils import get_currency_symbol as _gcs
+                                _db = _DB(org_db)
+                                _code = _db.get_org_currency()
+                                _CURRENCY_SYMBOL_CACHE[org_db] = _gcs(_code)
+                            except Exception:
+                                _CURRENCY_SYMBOL_CACHE[org_db] = '₽'
+                        request.state.currency_symbol = _CURRENCY_SYMBOL_CACHE.get(org_db, '₽')
+        except Exception:
+            pass
+        return await call_next(request)
 
 
 _CSP = (
@@ -257,6 +305,7 @@ def create_web_app() -> FastAPI:
     )
 
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(CurrencyMiddleware)
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))

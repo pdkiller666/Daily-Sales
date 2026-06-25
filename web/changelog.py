@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.203.0"
+CURRENT_VERSION = "1.204.0"
 
 ENTRIES = [
+    {
+        "version": "1.204.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Implement chat message retention and update privacy policy",
+        ],
+    },
     {
         "version": "1.203.0",
         "date": "25 июня 2026",
