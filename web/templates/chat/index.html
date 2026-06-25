@@ -466,6 +466,16 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                           d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/>
                 </svg>
             </button>
+            <!-- Очистить тему — admin, не AI, только в режиме группового чата -->
+            <button x-show="!dmMode && isAdmin && !currentTopicIsAi" x-cloak type="button"
+                    @click="clearTopic()"
+                    class="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 transition-colors"
+                    title="Очистить тему — удалить все сообщения">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+            </button>
         </div>
     </div>
 
@@ -981,35 +991,43 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                           d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                 </svg>
             </button>
-            <!-- Кнопка «Очистить тему» — admin, не AI-тема -->
-            <button x-show="!currentTopicIsAi && isAdmin" x-cloak type="button"
-                    @click="clearTopic()"
-                    class="shrink-0 p-2 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 transition-colors"
-                    title="Очистить тему — удалить все сообщения">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                </svg>
-            </button>
-            <!-- Кнопка прикрепить файл — скрыта в AI-теме -->
-            <label x-show="!currentTopicIsAi"
-                   class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файлы (до 10)">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-                </svg>
-                <input type="file" class="hidden" multiple
-                       @change="onFileChange($event)">
-            </label>
-            <!-- Кнопка записи голосового — скрыта в AI-теме -->
-            <button x-show="!currentTopicIsAi && !(recActive && recField==='group')" type="button"
-                    @click="startRecording('group')"
-                    class="shrink-0 p-2 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 transition-colors" title="Записать голосовое">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M19 11a7 7 0 01-14 0m7 7v3m0-3a4 4 0 01-4-4V7a4 4 0 118 0v4a4 4 0 01-4 4z"/>
-                </svg>
-            </button>
+            <!-- Кнопка «+» с попапом — только в обычных темах (не AI) -->
+            <div x-show="!currentTopicIsAi" x-cloak
+                 class="relative shrink-0"
+                 @click.outside="groupPlusOpen = false">
+                <button type="button"
+                        @click="groupPlusOpen = !groupPlusOpen"
+                        :class="groupPlusOpen ? 'text-blue-500 bg-blue-50 dark:bg-slate-700' : 'text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700'"
+                        class="p-2 rounded-xl transition-colors"
+                        title="Прикрепить или записать">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                </button>
+                <!-- Попап над кнопкой -->
+                <div x-show="groupPlusOpen" x-cloak
+                     class="absolute bottom-full mb-2 left-0 z-30 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 p-1 flex flex-col gap-0.5 min-w-max">
+                    <label class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer transition-colors">
+                        <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                        </svg>
+                        <span>Прикрепить файл</span>
+                        <input type="file" class="hidden" multiple
+                               @change="onFileChange($event); groupPlusOpen = false">
+                    </label>
+                    <button type="button"
+                            x-show="!(recActive && recField==='group')"
+                            @click="startRecording('group'); groupPlusOpen = false"
+                            class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                        <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M19 11a7 7 0 01-14 0m7 7v3m0-3a4 4 0 01-4-4V7a4 4 0 118 0v4a4 4 0 01-4 4z"/>
+                        </svg>
+                        <span>Голосовое</span>
+                    </button>
+                </div>
+            </div>
             <!-- Полоса записи (группа) -->
             <template x-if="recActive && recField==='group'">
                 <div class="rec-bar">
@@ -1747,6 +1765,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         dmNewMode:         false,
         dmAttachedFiles:   [],
         dmPlusOpen:        false,
+        groupPlusOpen:     false,
         dmHasMore:         false,
         dmLoadingMore:     false,
         dmLoading:         false,
