@@ -14183,9 +14183,12 @@ class Database:
                 "UPDATE direct_messages SET is_deleted = 1 "
                 "WHERE is_deleted = 0 AND ("
                 "  (from_user_id = ? AND to_user_id = ?) OR "
-                "  (from_user_id = ? AND to_user_id = ?)"
+                "  (from_user_id = ? AND to_user_id = ?) OR "
+                "  (from_user_id = 0 AND to_user_id = ? AND ai_peer_id = ?) OR "
+                "  (from_user_id = 0 AND to_user_id = ? AND ai_peer_id = ?)"
                 ")",
-                (user1_id, user2_id, user2_id, user1_id)
+                (user1_id, user2_id, user2_id, user1_id,
+                 user1_id, user2_id, user2_id, user1_id)
             )
             affected = conn.execute('SELECT changes()').fetchone()[0]
             conn.commit()

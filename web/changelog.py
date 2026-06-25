@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.177.0"
+CURRENT_VERSION = "1.178.0"
 
 ENTRIES = [
+    {
+        "version": "1.178.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Add functionality to clear chat conversations and topics",
+            "Fix issue with old AI messages persisting and improve message sending",
+        ],
+    },
     {
         "version": "1.177.0",
         "date": "25 июня 2026",

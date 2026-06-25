@@ -2530,6 +2530,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 : null;
             this._dmScrollBottom(true);
             this._dmMarkRead(contact.id);
+            this.$nextTick(() => { document.querySelector('#dm-panel textarea')?.focus(); });
         },
         /* Отметка диалога прочитанным: WS (мгновенно собеседнику) + HTTP (надёжно
            на сервере, даже если WS ещё не открыт) */
