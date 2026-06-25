@@ -145,6 +145,10 @@
 <div class="mb-5 px-4 py-3 rounded-2xl bg-amber-50 text-amber-700 border border-amber-200 text-sm font-medium">
     ⏳ У вас уже есть ожидающая заявка — дождитесь её рассмотрения.
 </div>
+{% elif msg == 'request_withdrawn' %}
+<div class="mb-5 px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-700 text-sm font-medium">
+    🚫 Заявка отозвана.
+</div>
 {% elif msg in ('csrf_error', 'user_not_found', 'invalid_plan') %}
 <div class="mb-5 px-4 py-3 rounded-2xl bg-red-50 text-red-700 border border-red-200 text-sm font-medium">
     {% if msg == 'csrf_error' %}⚠️ Ошибка безопасности. Повторите действие.
@@ -935,6 +939,17 @@
             <div class="shrink-0 flex flex-col items-end gap-1">
                 <span class="text-sm font-bold text-slate-700 dark:text-slate-200">{{ h.amount }}&nbsp;₽</span>
                 <span class="text-xs px-2 py-0.5 rounded-full font-bold {{ h.status_css }}">{{ h.status_label }}</span>
+                {% if h.status == 'pending' %}
+                <form method="post" action="/subscription/withdraw-request"
+                      onsubmit="return confirm('Отозвать заявку?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="request_id" value="{{ h.id }}">
+                    <button type="submit"
+                            class="text-xs text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 font-semibold mt-0.5 transition-colors">
+                        Отозвать
+                    </button>
+                </form>
+                {% endif %}
             </div>
         </div>
         {% endfor %}

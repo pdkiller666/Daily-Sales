@@ -976,8 +976,10 @@ def subscription_cancel_request(
                 data=payload,
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=10):
+            with urllib.request.urlopen(req, timeout=4):
                 pass
+        except TimeoutError as exc:
+            logging.warning("subscription_cancel_request notify timeout: %s", exc)
         except Exception as exc:
             logging.warning("subscription_cancel_request notify: %s", exc)
 
@@ -987,6 +989,81 @@ def subscription_cancel_request(
     elif plan_type.startswith("extension_"):
         tab = "extensions"
     return RedirectResponse(url=f"/subscription?tab={tab}&msg=cancel_request_sent", status_code=303)
+
+
+@router.post("/subscription/withdraw-request")
+def subscription_withdraw_request(
+    request: Request,
+    request_id: int = Form(...),
+    csrf_token: str = Form(default=""),
+):
+    """Отзыв pending-заявки владельцем из вкладки История."""
+    from web.auth import get_session_user, verify_csrf_token
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/subscription?tab=history&msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    user_id = _get_user_id_in_shop_bot(telegram_id)
+    if not user_id:
+        return RedirectResponse(url="/subscription?tab=history&msg=user_not_found", status_code=303)
+
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        try:
+            row = conn.execute(
+                "SELECT id, plan_type, user_id FROM payment_requests WHERE id = ? AND status = 'pending'",
+                (request_id,),
+            ).fetchone()
+            if not row or row[2] != user_id:
+                return RedirectResponse(url="/subscription?tab=history&msg=not_found", status_code=303)
+            plan_type = row[1] or ""
+            conn.execute(
+                "UPDATE payment_requests SET status = 'cancelled' WHERE id = ?",
+                (request_id,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logging.error("subscription_withdraw_request error: %s", exc)
+        return RedirectResponse(url="/subscription?tab=history&msg=error", status_code=303)
+
+    # Notify admin
+    token = os.environ.get("BOT_TOKEN", "")
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "")
+    if token and admin_id:
+        label = _plan_type_label(plan_type)
+        user_display = user.get("first_name", user.get("email", "—"))
+        text = (
+            "🚫 <b>Заявка отозвана владельцем</b>\n\n"
+            f"👤 <b>Пользователь:</b> {_html.escape(str(user_display))}\n"
+            f"🆔 <b>Telegram ID:</b> {telegram_id}\n"
+            f"📦 <b>Позиция:</b> {_html.escape(label)}\n\n"
+            "Заявка больше не требует рассмотрения."
+        )
+        payload = json.dumps({"chat_id": admin_id, "text": text, "parse_mode": "HTML"}).encode()
+
+        def _send() -> None:
+            try:
+                req = urllib.request.Request(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=4):
+                    pass
+            except Exception as exc2:
+                logging.warning("subscription_withdraw_request notify: %s", exc2)
+
+        threading.Thread(target=_send, daemon=True).start()
+
+    return RedirectResponse(url="/subscription?tab=history&msg=request_withdrawn", status_code=303)
 
 
 @router.post("/subscription/module-request")

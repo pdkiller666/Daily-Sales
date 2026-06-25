@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.188.0"
+CURRENT_VERSION = "1.189.0"
 
 ENTRIES = [
+    {
+        "version": "1.189.0",
+        "date": "25 июня 2026",
+        "items": [
+            "subscription page UX improvements 8–14 (Task #37)",
+            "Fix 10-second freeze when cancelling a module subscription",
+            "Let owners withdraw a pending subscription request from the History tab",
+        ],
+    },
     {
         "version": "1.188.0",
         "date": "25 июня 2026",
