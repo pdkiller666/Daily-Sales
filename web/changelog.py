@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.191.0"
+CURRENT_VERSION = "1.192.0"
 
 ENTRIES = [
+    {
+        "version": "1.192.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Update deployment status and fix withdrawn request processing time",
+        ],
+    },
     {
         "version": "1.191.0",
         "date": "25 июня 2026",

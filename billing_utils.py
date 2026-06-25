@@ -350,6 +350,20 @@ def get_active_billing_items(tg_id: int) -> Dict[str, Set[str]]:
                 modules.update(inc["modules"])
                 extensions.update(inc["extensions"])
 
+        # Free modules (price_monthly=0) are always active — add them so the
+        # UI can display parent_active=True for their extension groups without
+        # requiring an explicit billing_module_subs record.
+        try:
+            _fdb = _conn()
+            _free_rows = _fdb.execute(
+                "SELECT key FROM billing_modules WHERE price_monthly=0 AND is_active=1"
+            ).fetchall()
+            _fdb.close()
+            for (fk,) in _free_rows:
+                modules.add(fk)
+        except Exception:
+            modules.add('pos_retail')  # hardcoded fallback
+
         return {"modules": modules, "extensions": extensions, "bundles": bundles}
     except Exception as e:
         logging.error(f"get_active_billing_items({tg_id}): {e}")
