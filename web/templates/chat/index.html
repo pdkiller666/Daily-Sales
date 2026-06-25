@@ -1870,6 +1870,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             this.dmWsConnect();
             /* WS живой доставки групповых тем — мгновенные сообщения без 4-сек задержки */
             this.topicWsConnect();
+            /* ── Мобильный свайп: групповой ↔ ЛС ── */
+            this._chatSwipeSetup();
             this.markTopicRead(this.currentTopicId, this.latestId);
             /* Возврат фокуса на вкладку → помечаем текущую тему прочитанной
                и сразу опрашиваем + сбрасываем backoff-интервал на быстрый. */
@@ -2542,6 +2544,67 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             this.startPolling();
             const suffix = this.currentTopicId !== 1 ? '?topic=' + this.currentTopicId : '';
             history.replaceState(null, '', '/chat' + suffix);
+        },
+
+        /* ── Свайп группа↔ЛС на мобильном ──────────────────────────────────
+           Вешается на #chat-wrapper, перехватывает до base.html:
+           • группа + свайп вправо  → switchToDm()
+           • ЛС    + свайп влево   → switchToGroup()
+           • ЛС    + свайп вправо  → заблокировать (ничего)
+           • группа + свайп влево  → пропускаем (base.html → prev module)
+           Порог: ≥60px горизонтально, <40px вертикально (чтобы не мешать скроллу).
+           Не срабатывает внутри input/textarea и горизонтально-скроллируемых зон.
+        ─────────────────────────────────────────────────────────────────────── */
+        _chatSwipeSetup() {
+            const wrapper = document.getElementById('chat-wrapper');
+            if (!wrapper) return;
+
+            const MIN_DX   = 60;   /* минимальный горизонтальный сдвиг px */
+            const MAX_DY   = 40;   /* максимальный вертикальный сдвиг px */
+            let ts = null;
+
+            wrapper.addEventListener('touchstart', e => {
+                const t = e.touches[0];
+                ts = { x: t.clientX, y: t.clientY };
+            }, { passive: true });
+
+            wrapper.addEventListener('touchend', e => {
+                if (!ts) return;
+                const t  = e.changedTouches[0];
+                const dx = t.clientX - ts.x;
+                const dy = t.clientY - ts.y;
+                ts = null;
+
+                if (Math.abs(dx) < MIN_DX || Math.abs(dy) > MAX_DY) return;
+
+                /* Не мешаем input/textarea */
+                const tgt = e.target;
+                if (tgt.closest('input,textarea,select,[contenteditable]')) return;
+
+                /* Не мешаем горизонтальному скроллу (список тем и т.п.) */
+                let el = tgt;
+                while (el && el !== wrapper) {
+                    const s = getComputedStyle(el);
+                    if ((s.overflowX === 'auto' || s.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 4) return;
+                    el = el.parentElement;
+                }
+
+                const dir = dx > 0 ? 'right' : 'left';
+
+                if (!this.dmMode && dir === 'right') {
+                    /* Группа → ЛС */
+                    e.stopImmediatePropagation();
+                    this.switchToDm();
+                } else if (this.dmMode && dir === 'left') {
+                    /* ЛС → Группа */
+                    e.stopImmediatePropagation();
+                    this.switchToGroup();
+                } else if (this.dmMode && dir === 'right') {
+                    /* ЛС + вправо — блокируем, чтобы base.html не ушёл в другой модуль */
+                    e.stopImmediatePropagation();
+                }
+                /* группа + влево — пропускаем на base.html (переход в предыдущий модуль) */
+            }, { passive: true });
         },
 
         /* ── Load contacts ── */

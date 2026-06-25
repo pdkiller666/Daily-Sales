@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.197.0"
+CURRENT_VERSION = "1.198.0"
 
 ENTRIES = [
+    {
+        "version": "1.198.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Organize chat header options into a dropdown menu",
+        ],
+    },
     {
         "version": "1.197.0",
         "date": "25 июня 2026",
