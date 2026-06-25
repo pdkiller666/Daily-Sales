@@ -75,6 +75,7 @@
 - [AI prompt engineering conventions](ai-prompt-conventions.md) — температура по задаче, anti-hallucination clause, min-length retry, адаптивный max_tokens для отчётов
 - [Label design presets](label-presets.md) — пресеты ценников = отдельная библиотека поверх активного singleton; apply копирует в singleton; поля не из формы (logo_path) мёржить из активных настроек иначе apply обнулит
 - [Label drag-on-preview](label-drag-preview.md) — перетаскивание блоков ценника на макете; elemOrder=единый источник, sync с панелью; свободный холст отклонён; drag-affordance скрывать в @media print
+- [Multi-currency implementation](multi-currency.md) — CurrencyMiddleware+@pass_context на fmt_currency; 12 валют; currency в organizations; настройка owner в /settings
 - [Product network variants](product-network-variants.md) — один товар → разные артикул/штрихкод по сети; lookup variants→fallback на products.*; barcode-конфликт проверять и vs products.barcode; FSM set_state(None) не clear
 - [APK private-repo download](apk-private-repo-download.md) — приватный репо: browser_download_url=404 даже с токеном; качать API-URL ассета + Accept:octet-stream; _APK_MIN_SIZE<555KB
 - [TWA/web open-app buttons](twa-open-app-buttons.md) — Telegram-кнопки не принимают intent:// → промежуточная /open-app HTTPS-страница; TWA делит cookie с Chrome (web→app без кода); json.dumps НЕ экранирует </script> (XSS — санировать код до цифр)
