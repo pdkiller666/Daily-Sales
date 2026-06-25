@@ -72,6 +72,23 @@ def _get_owner_orgs(tg_id: int) -> list[dict]:
     return result
 
 
+def _get_shops_for_org(org_db: str) -> list[str]:
+    """Return list of shop names from the org DB (non-empty, non-system names)."""
+    try:
+        from database import Database
+        db = Database(org_db)
+        shops = db.get_all_shops(include_system=False)
+        names = []
+        for row in (shops or []):
+            name = row[0] if isinstance(row, (list, tuple)) else row
+            if name and str(name).strip():
+                names.append(str(name).strip())
+        return names
+    except Exception as exc:
+        logger.error("_get_shops_for_org error for %s: %s", org_db, exc)
+        return []
+
+
 def _get_org_summary(org_db: str) -> dict:
     """Aggregate current + prev month revenue, top category, plan %, seller count for one org."""
     try:
@@ -134,6 +151,96 @@ def _get_org_summary(org_db: str) -> dict:
         }
     except Exception as exc:
         logger.error("_get_org_summary error for %s: %s", org_db, exc)
+        return {
+            "revenue_month": 0,
+            "revenue_prev": 0,
+            "top_category": "—",
+            "plan_pct": 0,
+            "seller_count": 0,
+        }
+
+
+def _get_shop_summary(org_db: str, shop_name: str) -> dict:
+    """Aggregate revenue, top category, plan %, seller count for one shop within an org."""
+    try:
+        from database import Database
+        db = Database(org_db)
+        today = _dt.date.today()
+        month_start = today.replace(day=1).isoformat()
+        today_str = today.isoformat()
+
+        prev_end = (today.replace(day=1) - _dt.timedelta(days=1))
+        prev_start = prev_end.replace(day=1).isoformat()
+        prev_end_str = prev_end.isoformat()
+
+        top_category = "—"
+        seller_count = 0
+        plan_pct = 0
+        revenue_month = 0.0
+        revenue_prev = 0.0
+
+        try:
+            conn = db.get_connection()
+            try:
+                rev_row = conn.execute(
+                    """SELECT SUM(s.quantity_sold * s.sale_price)
+                       FROM sales s
+                       WHERE s.shop_name = ? AND s.sale_date >= ? AND s.sale_date <= ?""",
+                    (shop_name, month_start, today_str)
+                ).fetchone()
+                revenue_month = float(rev_row[0] or 0) if rev_row else 0.0
+
+                rev_prev_row = conn.execute(
+                    """SELECT SUM(s.quantity_sold * s.sale_price)
+                       FROM sales s
+                       WHERE s.shop_name = ? AND s.sale_date >= ? AND s.sale_date <= ?""",
+                    (shop_name, prev_start, prev_end_str)
+                ).fetchone()
+                revenue_prev = float(rev_prev_row[0] or 0) if rev_prev_row else 0.0
+
+                cat_row = conn.execute(
+                    """SELECT p.category, SUM(s.quantity_sold * s.sale_price) as rev
+                       FROM sales s JOIN products p ON p.id = s.product_id
+                       WHERE s.shop_name = ? AND s.sale_date >= ? AND s.sale_date <= ?
+                       GROUP BY p.category ORDER BY rev DESC LIMIT 1""",
+                    (shop_name, month_start, today_str)
+                ).fetchone()
+                if cat_row and cat_row[0]:
+                    top_category = str(cat_row[0])
+
+                sc_row = conn.execute(
+                    "SELECT COUNT(DISTINCT telegram_id) FROM users WHERE shop_name = ? AND is_active = 1",
+                    (shop_name,)
+                ).fetchone()
+                seller_count = int(sc_row[0] or 0) if sc_row else 0
+
+                if revenue_month > 0:
+                    plan_row = conn.execute(
+                        """SELECT SUM(target_amount) FROM sales_plans
+                           WHERE target_type = 'shop' AND scope_value = ? AND is_active = 1""",
+                        (shop_name,)
+                    ).fetchone()
+                    if not (plan_row and plan_row[0] and float(plan_row[0]) > 0):
+                        plan_row = conn.execute(
+                            """SELECT SUM(target_amount) FROM sales_plans
+                               WHERE target_type = 'global' AND is_active = 1"""
+                        ).fetchone()
+                    if plan_row and plan_row[0] and float(plan_row[0]) > 0:
+                        plan_pct = round(revenue_month / float(plan_row[0]) * 100, 1)
+            finally:
+                conn.close()
+        except Exception:
+            pass
+
+        return {
+            "revenue_month": revenue_month,
+            "revenue_prev": revenue_prev,
+            "top_category": top_category,
+            "plan_pct": plan_pct,
+            "seller_count": seller_count,
+        }
+    except Exception as exc:
+        logger.error("_get_shop_summary error for %s/%s: %s", org_db, shop_name, exc)
         return {
             "revenue_month": 0,
             "revenue_prev": 0,
@@ -274,6 +381,31 @@ def _get_ai_alert_history(org_db: str) -> list[dict]:
         return []
 
 
+def _resolve_network_units(tg_id: int, user_orgs: list[dict]) -> tuple[list[dict], str, int]:
+    """Determine comparison units (multi-org or intra-org shops).
+
+    Returns (units, mode, shop_count) where:
+      - units: list of dicts with 'name' and 'org_db' (and optionally 'shop_name')
+      - mode: 'network' (multi-org) or 'intra_org' (shops within one org)
+      - shop_count: total number of comparable units
+    """
+    if len(user_orgs) >= 2:
+        return user_orgs, "network", len(user_orgs)
+
+    if len(user_orgs) == 1:
+        org = user_orgs[0]
+        shops = _get_shops_for_org(org["org_db"])
+        if len(shops) >= 2:
+            units = [
+                {"name": s, "org_db": org["org_db"], "shop_name": s}
+                for s in shops
+            ]
+            return units, "intra_org", len(shops)
+        return [], "intra_org", len(shops)
+
+    return [], "network", 0
+
+
 @router.get("/ai-insights")
 def ai_insights_page(request: Request, saved: str = ""):
     from web.auth import get_session_user, get_csrf_token
@@ -292,9 +424,27 @@ def ai_insights_page(request: Request, saved: str = ""):
     is_admin = role in ("owner", "admin", "super_admin")
 
     user_orgs = _get_owner_orgs(tg_id)
-    is_network = len(user_orgs) >= 2
+    units, mode, shop_count = _resolve_network_units(tg_id, user_orgs)
+    is_network = shop_count >= 2
 
     cached = _get_cached_insights(tg_id) if has_ext_ok and is_network else None
+
+    # Collect per-unit summaries for the breakdown table (eager, no AI call needed)
+    unit_summaries: list[dict] = []
+    if is_network:
+        for unit in units:
+            if mode == "intra_org":
+                s = _get_shop_summary(unit["org_db"], unit["shop_name"])
+            else:
+                s = _get_org_summary(unit["org_db"])
+            s["name"] = unit["name"]
+            rev_prev = s.get("revenue_prev", 0)
+            rev_cur = s.get("revenue_month", 0)
+            if rev_prev > 0:
+                s["delta_pct"] = round((rev_cur - rev_prev) / rev_prev * 100, 1)
+            else:
+                s["delta_pct"] = None
+            unit_summaries.append(s)
 
     # Fetch weekly digests for all owner orgs (available to any ai_assistant user)
     weekly_digests: list[dict] = []
@@ -350,6 +500,9 @@ def ai_insights_page(request: Request, saved: str = ""):
         "has_alerts_ext": has_alerts_ext,
         "is_network": is_network,
         "org_count": len(user_orgs),
+        "shop_count": shop_count,
+        "mode": mode,
+        "unit_summaries": unit_summaries,
         "last_report": cached,
         "weekly_digests": weekly_digests,
         "alert_history": alert_history,
@@ -439,7 +592,9 @@ async def generate_network_insights(request: Request):
         return JSONResponse({"ok": False, "error": "AI не настроен на сервере"}, status_code=503)
 
     user_orgs = _get_owner_orgs(tg_id)
-    if len(user_orgs) < 2:
+    units, mode, shop_count = _resolve_network_units(tg_id, user_orgs)
+
+    if shop_count < 2:
         return JSONResponse({"ok": False, "error": "single_org"}, status_code=400)
 
     limit, _ = _get_limits(tg_id)
@@ -450,13 +605,16 @@ async def generate_network_insights(request: Request):
             "message": f"Превышен дневной лимит запросов ({limit}/день). Сброс в полночь UTC."
         }, status_code=429)
 
-    org_summaries = []
-    for org in user_orgs:
-        summary = _get_org_summary(org["org_db"])
-        summary["name"] = org["name"]
-        org_summaries.append(summary)
+    unit_summaries = []
+    for unit in units:
+        if mode == "intra_org":
+            summary = _get_shop_summary(unit["org_db"], unit["shop_name"])
+        else:
+            summary = _get_org_summary(unit["org_db"])
+        summary["name"] = unit["name"]
+        unit_summaries.append(summary)
 
-    prompt = _build_network_prompt(org_summaries)
+    prompt = _build_network_prompt(unit_summaries)
     system = (
         "Ты — бизнес-аналитик розничной сети магазинов. "
         "Пиши по-русски, структурированно. Без markdown. "

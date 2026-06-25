@@ -63,8 +63,12 @@
         <div class="text-4xl">🏪</div>
         <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Доступно при наличии 2+ магазинов</h2>
         <p class="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-            У вас {% if org_count == 1 %}только один магазин{% else %}нет магазинов{% endif %} в сети.
-            AI-инсайты сравнивают магазины между собой — добавьте второй магазин, чтобы разблокировать анализ.
+            {% if shop_count == 0 %}
+                У вас нет магазинов.
+            {% else %}
+                У вас только один магазин — добавьте второй, чтобы разблокировать анализ.
+            {% endif %}
+            AI-инсайты сравнивают магазины между собой.
         </p>
         <a href="/shops" class="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl transition-colors">
             🏬 Мои магазины
@@ -73,6 +77,65 @@
 
     {% else %}
     {# ── Основной контент: есть расширение + ≥2 орг ── #}
+
+    {# ── Сводная таблица по магазинам/организациям ── #}
+    {% if unit_summaries %}
+    <div class="card p-0 overflow-hidden">
+        <div class="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-slate-100 dark:border-slate-700">
+            <span class="text-base">🏪</span>
+            <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                {% if mode == "intra_org" %}Разбивка по магазинам{% else %}Разбивка по организациям{% endif %}
+            </span>
+            <span class="ml-auto text-xs text-slate-400 dark:text-slate-500">текущий месяц</span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50">
+                        <th class="text-left px-4 py-2.5 font-semibold">
+                            {% if mode == "intra_org" %}Магазин{% else %}Организация{% endif %}
+                        </th>
+                        <th class="text-right px-4 py-2.5 font-semibold whitespace-nowrap">Выручка, ₽</th>
+                        <th class="text-right px-4 py-2.5 font-semibold whitespace-nowrap">к пред. мес.</th>
+                        <th class="text-right px-4 py-2.5 font-semibold whitespace-nowrap">План, %</th>
+                        <th class="text-right px-4 py-2.5 font-semibold whitespace-nowrap">Продавцы</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+                    {% for u in unit_summaries %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                        <td class="px-4 py-3 font-medium text-slate-800 dark:text-slate-100 max-w-[10rem] truncate" title="{{ u.name }}">{{ u.name }}</td>
+                        <td class="px-4 py-3 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                            {{ "{:,.0f}".format(u.revenue_month).replace(",", " ") }}
+                        </td>
+                        <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap">
+                            {% if u.delta_pct is none %}
+                                <span class="text-slate-400 dark:text-slate-500">—</span>
+                            {% elif u.delta_pct > 0 %}
+                                <span class="text-emerald-600 dark:text-emerald-400 font-medium">+{{ u.delta_pct }}%</span>
+                            {% elif u.delta_pct < 0 %}
+                                <span class="text-red-500 dark:text-red-400 font-medium">{{ u.delta_pct }}%</span>
+                            {% else %}
+                                <span class="text-slate-400 dark:text-slate-500">0%</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right tabular-nums">
+                            {% if u.plan_pct > 0 %}
+                                <span class="{% if u.plan_pct >= 100 %}text-emerald-600 dark:text-emerald-400{% elif u.plan_pct >= 50 %}text-amber-600 dark:text-amber-400{% else %}text-red-500 dark:text-red-400{% endif %} font-medium">
+                                    {{ u.plan_pct }}%
+                                </span>
+                            {% else %}
+                                <span class="text-slate-400 dark:text-slate-500">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right tabular-nums text-slate-600 dark:text-slate-300">{{ u.seller_count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
 
     {% if last_report %}
     {# ── Карточка последнего отчёта ── #}
@@ -96,7 +159,7 @@
                     {% if last_report %}Обновить анализ{% else %}Сформировать анализ{% endif %}
                 </p>
                 <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    AI проанализирует {{ org_count }} магазина(-ов) и создаст сравнительный отчёт.
+                    AI проанализирует {{ shop_count }} магазина(-ов) и создаст сравнительный отчёт.
                     Расходует 1 AI-запрос из дневного лимита.
                 </p>
             </div>

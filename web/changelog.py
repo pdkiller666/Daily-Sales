@@ -1,6 +1,16 @@
-CURRENT_VERSION = "1.180.0"
+CURRENT_VERSION = "1.181.0"
 
 ENTRIES = [
+    {
+        "version": "1.181.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Update group chat interface to match direct message layout",
+            "AI-инсайты — сравнение магазинов внутри одной орг (intra-org mode)",
+            "Git commit prior to merge",
+            "Add per-shop breakdown table to AI insights page (Task #3)",
+        ],
+    },
     {
         "version": "1.180.0",
         "date": "25 июня 2026",

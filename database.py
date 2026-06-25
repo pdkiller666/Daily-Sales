@@ -5259,7 +5259,22 @@ class Database:
                     scope = shop_name
                 period_ru = {"daily": "день", "weekly": "неделю", "monthly": "месяц"}.get(plan_type, plan_type)
                 metric_ru = "выручка" if metric_type == "turnover" else "шт."
-                label = f"{'на ' + scope + ': ' if scope else ''}{metric_ru} за {period_ru}"
+                # Include filter qualifier so plans for the same shop/seller
+                # are distinguishable in AI context (prevents "second shop" hallucination)
+                filter_suffix = ""
+                if filter_type == "category" and filter_value:
+                    try:
+                        _cats = _json2.loads(filter_value)
+                        if isinstance(_cats, list) and _cats:
+                            filter_suffix = f" [{', '.join(str(c) for c in _cats)}]"
+                        elif filter_value:
+                            filter_suffix = f" [{filter_value}]"
+                    except Exception:
+                        if filter_value:
+                            filter_suffix = f" [{filter_value}]"
+                elif filter_type == "product" and filter_value:
+                    filter_suffix = " [по товарам]"
+                label = f"{'на ' + scope + ': ' if scope else ''}{metric_ru} за {period_ru}{filter_suffix}"
                 entry: dict = {
                     "label":   label,
                     "target":  target_val,
