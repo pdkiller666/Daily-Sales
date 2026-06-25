@@ -1592,8 +1592,8 @@ def tasks_analytics(request: Request):
         "request": request, "user": user, "is_admin": is_admin,
         "stats": {}, "error": None,
         "chart_status": "{}",
-        "chart_topics_labels": "[]", "chart_topics_data": "[]",
-        "chart_assignee_labels": "[]", "chart_assignee_data": "[]",
+        "chart_topics_labels": [], "chart_topics_data": "[]",
+        "chart_assignee_labels": [], "chart_assignee_data": "[]",
         "chart_priority_labels": "[]", "chart_priority_data": "[]",
         "chart_trend_labels": "[]",
         "chart_created_data": "[]", "chart_completed_data": "[]",
@@ -1613,11 +1613,11 @@ def tasks_analytics(request: Request):
         )
 
         by_topic = stats.get('by_topic', [])
-        ctx["chart_topics_labels"] = _json.dumps([r[0] for r in by_topic])
+        ctx["chart_topics_labels"] = [r[0] for r in by_topic]
         ctx["chart_topics_data"] = _json.dumps([r[1] for r in by_topic])
 
         by_assignee = stats.get('by_assignee', [])
-        ctx["chart_assignee_labels"] = _json.dumps([r[0] for r in by_assignee])
+        ctx["chart_assignee_labels"] = [r[0] for r in by_assignee]
         ctx["chart_assignee_data"] = _json.dumps([r[1] for r in by_assignee])
 
         PRIORITY_RU = {'urgent': '🔴 Критичный', 'high': '🟠 Высокий',

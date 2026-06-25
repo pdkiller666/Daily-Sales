@@ -177,7 +177,7 @@
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
   });
 
-  const topicLabels = {{ chart_topics_labels | safe }};
+  const topicLabels = {{ chart_topics_labels | tojson }};
   const topicData = {{ chart_topics_data | safe }};
   if (topicLabels.length && document.getElementById('chartTopics')) {
     new Chart(document.getElementById('chartTopics'), {
@@ -191,7 +191,7 @@
     });
   }
 
-  const assigneeLabels = {{ chart_assignee_labels | safe }};
+  const assigneeLabels = {{ chart_assignee_labels | tojson }};
   const assigneeData = {{ chart_assignee_data | safe }};
   if (assigneeLabels.length && document.getElementById('chartAssignee')) {
     const palette = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6','#14b8a6','#f97316','#84cc16','#06b6d4'];

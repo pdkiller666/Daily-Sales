@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.208.0"
+CURRENT_VERSION = "1.209.0"
 
 ENTRIES = [
+    {
+        "version": "1.209.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Add audit logging for organization deletion via bot",
+        ],
+    },
     {
         "version": "1.208.0",
         "date": "25 июня 2026",
