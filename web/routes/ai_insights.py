@@ -406,6 +406,64 @@ def _resolve_network_units(tg_id: int, user_orgs: list[dict]) -> tuple[list[dict
     return [], "network", 0
 
 
+def _compute_unit_summaries_for_orgs(user_orgs: list[dict]) -> tuple[str, list[dict]]:
+    """Compute (mode, unit_summaries) for the given owner-orgs list.
+
+    unit_summaries dicts include 'org_db', 'name', 'delta_pct', and all metric fields.
+    """
+    units, mode, _ = _resolve_network_units(0, user_orgs)
+    summaries: list[dict] = []
+    for unit in units:
+        if mode == "intra_org":
+            s = _get_shop_summary(unit["org_db"], unit["shop_name"])
+        else:
+            s = _get_org_summary(unit["org_db"])
+        s["name"] = unit["name"]
+        s["org_db"] = unit["org_db"]
+        rev_prev = s.get("revenue_prev", 0)
+        rev_cur = s.get("revenue_month", 0)
+        s["delta_pct"] = round((rev_cur - rev_prev) / rev_prev * 100, 1) if rev_prev > 0 else None
+        summaries.append(s)
+    return mode, summaries
+
+
+def _digest_metrics(org_db: str, mode: str, unit_summaries: list[dict], user_orgs: list[dict]) -> tuple[list[dict], str]:
+    """Return (metrics_list, metrics_mode) for a single digest entry.
+
+    For intra_org mode: returns per-shop summaries for that org.
+    For network mode: returns the single org-level summary that matches org_db.
+    Falls back to computing fresh summaries when unit_summaries is empty (e.g. owner
+    has only one org/shop so the main network table was skipped).
+    """
+    if mode == "intra_org":
+        metrics = [u for u in unit_summaries if u.get("org_db") == org_db]
+        if not metrics and user_orgs:
+            # unit_summaries may be empty if <2 shops were found at page load; recompute
+            shops = _get_shops_for_org(org_db)
+            for shop_name in shops:
+                s = _get_shop_summary(org_db, shop_name)
+                s["name"] = shop_name
+                s["org_db"] = org_db
+                rev_prev = s.get("revenue_prev", 0)
+                rev_cur = s.get("revenue_month", 0)
+                s["delta_pct"] = round((rev_cur - rev_prev) / rev_prev * 100, 1) if rev_prev > 0 else None
+                metrics.append(s)
+        return metrics, "intra_org"
+    else:
+        org_sum = next((u for u in unit_summaries if u.get("org_db") == org_db), None)
+        if org_sum is None:
+            # Digest org not in unit_summaries (e.g. single-org owner) — compute on demand
+            s = _get_org_summary(org_db)
+            org_name = next((o["name"] for o in user_orgs if o["org_db"] == org_db), "")
+            s["name"] = org_name
+            s["org_db"] = org_db
+            rev_prev = s.get("revenue_prev", 0)
+            rev_cur = s.get("revenue_month", 0)
+            s["delta_pct"] = round((rev_cur - rev_prev) / rev_prev * 100, 1) if rev_prev > 0 else None
+            org_sum = s
+        return [org_sum], "network"
+
+
 @router.get("/ai-insights")
 def ai_insights_page(request: Request, saved: str = ""):
     from web.auth import get_session_user, get_csrf_token
@@ -438,6 +496,7 @@ def ai_insights_page(request: Request, saved: str = ""):
             else:
                 s = _get_org_summary(unit["org_db"])
             s["name"] = unit["name"]
+            s["org_db"] = unit["org_db"]
             rev_prev = s.get("revenue_prev", 0)
             rev_cur = s.get("revenue_month", 0)
             if rev_prev > 0:
@@ -445,6 +504,8 @@ def ai_insights_page(request: Request, saved: str = ""):
             else:
                 s["delta_pct"] = None
             unit_summaries.append(s)
+
+    unit_summaries.sort(key=lambda x: x.get("revenue_month", 0), reverse=True)
 
     # Fetch weekly digests for all owner orgs (available to any ai_assistant user)
     weekly_digests: list[dict] = []
@@ -456,10 +517,13 @@ def ai_insights_page(request: Request, saved: str = ""):
             org_dbs.append(session_org_db)
         if org_dbs:
             raw = _get_digests_for_orgs(org_dbs)
-            # Annotate with org name
+            # Annotate with org name and per-unit metrics
             db_to_name = {o["org_db"]: o["name"] for o in user_orgs}
             for d in raw:
                 d["org_name"] = db_to_name.get(d["org_db"], "")
+                d["metrics"], d["metrics_mode"] = _digest_metrics(
+                    d["org_db"], mode, unit_summaries, user_orgs
+                )
             weekly_digests = raw
 
     # Alert history from org DB (for ai_smart_alerts users)
@@ -541,8 +605,15 @@ def get_weekly_digest(request: Request):
 
     raw = _get_digests_for_orgs(org_dbs)
     db_to_name = {o["org_db"]: o["name"] for o in user_orgs}
+
+    # Compute unit summaries once for metrics annotation
+    mode, unit_summaries = _compute_unit_summaries_for_orgs(user_orgs)
+
     for d in raw:
         d["org_name"] = db_to_name.get(d["org_db"], "")
+        metrics, metrics_mode = _digest_metrics(d["org_db"], mode, unit_summaries, user_orgs)
+        d["metrics"] = metrics
+        d["metrics_mode"] = metrics_mode
 
     return JSONResponse({"ok": True, "digests": raw})
 

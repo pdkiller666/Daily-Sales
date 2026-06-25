@@ -1532,6 +1532,43 @@ def register_inline_jobs(
                     if week_rev == 0:
                         continue
 
+                    # Разбивка по точкам продаж внутри орги (если ≥2 магазинов)
+                    _shop_breakdown: list[dict] = []
+                    try:
+                        _shops_raw = db.get_all_shops(include_system=False)
+                        _shop_names = []
+                        for _sr in (_shops_raw or []):
+                            _sn = _sr[0] if isinstance(_sr, (list, tuple)) else _sr
+                            if _sn and str(_sn).strip():
+                                _shop_names.append(str(_sn).strip())
+                        if len(_shop_names) >= 2:
+                            _shop_conn = db.get_connection()
+                            try:
+                                for _shop_name in _shop_names:
+                                    _sw_row = _shop_conn.execute(
+                                        """SELECT SUM(quantity_sold * sale_price)
+                                           FROM sales
+                                           WHERE shop_name = ? AND sale_date >= ? AND sale_date <= ?""",
+                                        (_shop_name, week_start, week_end),
+                                    ).fetchone()
+                                    _sp_row = _shop_conn.execute(
+                                        """SELECT SUM(quantity_sold * sale_price)
+                                           FROM sales
+                                           WHERE shop_name = ? AND sale_date >= ? AND sale_date <= ?""",
+                                        (_shop_name, prev_start, prev_end),
+                                    ).fetchone()
+                                    _shop_breakdown.append({
+                                        "name": _shop_name,
+                                        "week_revenue": float(_sw_row[0] or 0) if _sw_row else 0.0,
+                                        "prev_revenue": float(_sp_row[0] or 0) if _sp_row else 0.0,
+                                    })
+                            finally:
+                                _shop_conn.close()
+                            # Sort by current week revenue descending
+                            _shop_breakdown.sort(key=lambda x: x["week_revenue"], reverse=True)
+                    except Exception as _shop_err:
+                        logging.debug(f"ai_weekly_digest shop_breakdown: {_shop_err}")
+
                     # Топ товары, продавцы, планы за прошедшую неделю
                     try:
                         _top_products = db.get_top_products_month(3)
@@ -1576,6 +1613,7 @@ def register_inline_jobs(
                                 plans=_plans,
                                 category_breakdown=_category_breakdown or None,
                                 daily_revenues=_daily_revenues or None,
+                                shop_breakdown=_shop_breakdown or None,
                             )
                             ai_text = await ask_llm(prompt, max_tokens=400, feature="digest")
                         except Exception as _ai_err:
@@ -1604,6 +1642,18 @@ def register_inline_jobs(
                         if _daily_revenues and len(_daily_revenues) == 7 and max(_daily_revenues) > 0:
                             _best = _daily_revenues.index(max(_daily_revenues))
                             lines.append(f"📅 Лучший день: {_DOW_RU[_best]} ({int(max(_daily_revenues)):,} ₽)")
+                        if _shop_breakdown and len(_shop_breakdown) >= 2:
+                            _sb_parts = []
+                            for _sb in _shop_breakdown[:5]:
+                                _sb_rev = _sb.get("week_revenue", 0)
+                                _sb_prev = _sb.get("prev_revenue", 0)
+                                if _sb_prev > 0:
+                                    _sb_diff = (_sb_rev - _sb_prev) / _sb_prev * 100
+                                    _sb_arrow = "▲" if _sb_diff >= 0 else "▼"
+                                    _sb_parts.append(f"{_sb['name']}: {int(_sb_rev):,} ₽ ({_sb_arrow}{abs(_sb_diff):.0f}%)")
+                                else:
+                                    _sb_parts.append(f"{_sb['name']}: {int(_sb_rev):,} ₽")
+                            lines.append("🏪 По точкам: " + "; ".join(_sb_parts))
                         msg = "\n".join(lines)
 
                     # Strip HTML tags for plain-text push body

@@ -95,7 +95,7 @@
                         <th class="text-left px-4 py-2.5 font-semibold">
                             {% if mode == "intra_org" %}Магазин{% else %}Организация{% endif %}
                         </th>
-                        <th class="text-right px-4 py-2.5 font-semibold whitespace-nowrap">Выручка, ₽</th>
+                        <th class="text-right px-4 py-2.5 font-semibold whitespace-nowrap">Выручка, ₽ ↓</th>
                         <th class="text-right px-4 py-2.5 font-semibold whitespace-nowrap">к пред. мес.</th>
                         <th class="text-right px-4 py-2.5 font-semibold whitespace-nowrap">План, %</th>
                         <th class="text-right px-4 py-2.5 font-semibold whitespace-nowrap">Продавцы</th>
@@ -232,6 +232,43 @@
                     {% else %}
                     <div class="text-xs text-slate-400 text-right">{{ d.generated_at }}</div>
                     {% endif %}
+                    {% if d.metrics %}
+                    <div class="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-700/60">
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="text-slate-400 dark:text-slate-500 uppercase tracking-wide bg-slate-50 dark:bg-slate-800/50">
+                                    <th class="text-left px-3 py-1.5 font-semibold">
+                                        {% if d.metrics_mode == "intra_org" %}Магазин{% else %}Организация{% endif %}
+                                    </th>
+                                    <th class="text-right px-3 py-1.5 font-semibold whitespace-nowrap">Выручка, ₽</th>
+                                    <th class="text-right px-3 py-1.5 font-semibold whitespace-nowrap">Δ мес.</th>
+                                    <th class="text-right px-3 py-1.5 font-semibold whitespace-nowrap">План</th>
+                                    <th class="text-right px-3 py-1.5 font-semibold whitespace-nowrap">Прод.</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                                {% for m in d.metrics %}
+                                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                    <td class="px-3 py-1.5 font-medium text-slate-700 dark:text-slate-200 max-w-[9rem] truncate" title="{{ m.name }}">{{ m.name }}</td>
+                                    <td class="px-3 py-1.5 text-right tabular-nums text-slate-600 dark:text-slate-300">{{ "{:,.0f}".format(m.revenue_month).replace(",", " ") }}</td>
+                                    <td class="px-3 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                        {% if m.delta_pct is none %}<span class="text-slate-400 dark:text-slate-500">—</span>
+                                        {% elif m.delta_pct > 0 %}<span class="text-emerald-600 dark:text-emerald-400 font-medium">+{{ m.delta_pct }}%</span>
+                                        {% elif m.delta_pct < 0 %}<span class="text-red-500 dark:text-red-400 font-medium">{{ m.delta_pct }}%</span>
+                                        {% else %}<span class="text-slate-400 dark:text-slate-500">0%</span>{% endif %}
+                                    </td>
+                                    <td class="px-3 py-1.5 text-right tabular-nums">
+                                        {% if m.plan_pct > 0 %}
+                                        <span class="font-medium {% if m.plan_pct >= 100 %}text-emerald-600 dark:text-emerald-400{% elif m.plan_pct >= 50 %}text-amber-600 dark:text-amber-400{% else %}text-red-500 dark:text-red-400{% endif %}">{{ m.plan_pct }}%</span>
+                                        {% else %}<span class="text-slate-400 dark:text-slate-500">—</span>{% endif %}
+                                    </td>
+                                    <td class="px-3 py-1.5 text-right tabular-nums text-slate-500 dark:text-slate-400">{{ m.seller_count }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
                     <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-100 dark:border-slate-700">{{ d.digest_text }}</div>
                 </div>
                 {% endfor %}
@@ -254,6 +291,36 @@
                             <span class="text-xs font-semibold text-slate-600 dark:text-slate-300" x-text="d.org_name || ''"></span>
                             <span class="text-xs text-slate-400" x-text="d.generated_at"></span>
                         </div>
+                        <template x-if="d.metrics && d.metrics.length">
+                            <div class="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-700/60">
+                                <table class="w-full text-xs">
+                                    <thead>
+                                        <tr class="text-slate-400 dark:text-slate-500 uppercase tracking-wide bg-slate-50 dark:bg-slate-800/50">
+                                            <th class="text-left px-3 py-1.5 font-semibold" x-text="d.metrics_mode === 'intra_org' ? 'Магазин' : 'Организация'"></th>
+                                            <th class="text-right px-3 py-1.5 font-semibold whitespace-nowrap">Выручка, ₽</th>
+                                            <th class="text-right px-3 py-1.5 font-semibold whitespace-nowrap">Δ мес.</th>
+                                            <th class="text-right px-3 py-1.5 font-semibold whitespace-nowrap">План</th>
+                                            <th class="text-right px-3 py-1.5 font-semibold whitespace-nowrap">Прод.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                                        <template x-for="m in d.metrics" :key="m.name">
+                                            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                                <td class="px-3 py-1.5 font-medium text-slate-700 dark:text-slate-200 max-w-[9rem] truncate" :title="m.name" x-text="m.name"></td>
+                                                <td class="px-3 py-1.5 text-right tabular-nums text-slate-600 dark:text-slate-300" x-text="Math.round(m.revenue_month).toLocaleString('ru-RU')"></td>
+                                                <td class="px-3 py-1.5 text-right tabular-nums whitespace-nowrap"
+                                                    :class="m.delta_pct === null || m.delta_pct === undefined ? 'text-slate-400 dark:text-slate-500' : (m.delta_pct > 0 ? 'text-emerald-600 dark:text-emerald-400 font-medium' : (m.delta_pct < 0 ? 'text-red-500 dark:text-red-400 font-medium' : 'text-slate-400 dark:text-slate-500'))"
+                                                    x-text="m.delta_pct === null || m.delta_pct === undefined ? '—' : (m.delta_pct > 0 ? '+' + m.delta_pct + '%' : m.delta_pct + '%')"></td>
+                                                <td class="px-3 py-1.5 text-right tabular-nums"
+                                                    :class="m.plan_pct > 0 ? (m.plan_pct >= 100 ? 'text-emerald-600 dark:text-emerald-400 font-medium' : (m.plan_pct >= 50 ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-red-500 dark:text-red-400 font-medium')) : 'text-slate-400 dark:text-slate-500'"
+                                                    x-text="m.plan_pct > 0 ? m.plan_pct + '%' : '—'"></td>
+                                                <td class="px-3 py-1.5 text-right tabular-nums text-slate-500 dark:text-slate-400" x-text="m.seller_count"></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </template>
                         <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-100 dark:border-slate-700" x-text="d.digest_text"></div>
                     </div>
                 </template>

@@ -1030,6 +1030,7 @@ def build_weekly_digest_prompt(
     plans: list | None = None,
     category_breakdown: list | None = None,
     daily_revenues: list | None = None,
+    shop_breakdown: list | None = None,
 ) -> str:
     """Промпт для еженедельного позитивного дайджеста (понедельник 09:00 МСК).
 
@@ -1040,6 +1041,8 @@ def build_weekly_digest_prompt(
         category_breakdown: list of dicts {"category", "revenue"} or (category, revenue) tuples,
             sorted by revenue desc.
         daily_revenues: list of 7 floats (Mon=0 … Sun=6), 0.0 for days with no sales.
+        shop_breakdown: list of dicts {"name", "week_revenue", "prev_revenue"} sorted by
+            week_revenue desc — присутствует когда в орг ≥2 точек продаж.
     """
     _DOW_RU = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
 
@@ -1096,15 +1099,37 @@ def build_weekly_digest_prompt(
             trend_str += f", слабый — {_DOW_RU[worst_idx]} ({int(min(daily_revenues)):,} ₽)"
         lines.append(trend_str + ".")
 
+    shop_block = ""
+    if shop_breakdown and len(shop_breakdown) >= 2:
+        shop_parts = []
+        for s in shop_breakdown:
+            s_name = s.get("name", "—")
+            s_rev = s.get("week_revenue", 0)
+            s_prev = s.get("prev_revenue", 0)
+            if s_prev > 0:
+                s_diff = (s_rev - s_prev) / s_prev * 100
+                s_dir = "▲" if s_diff >= 0 else "▼"
+                shop_parts.append(f"{s_name}: {int(s_rev):,} ₽ ({s_dir}{abs(s_diff):.0f}%)")
+            else:
+                shop_parts.append(f"{s_name}: {int(s_rev):,} ₽")
+        shop_block = "\nРазбивка по точкам продаж: " + "; ".join(shop_parts) + "."
+
     data_block = " ".join(lines)
 
+    shop_instruction = ""
+    if shop_breakdown and len(shop_breakdown) >= 2:
+        shop_instruction = (
+            " Обязательно упомяни лидирующую точку продаж и отстающую (если есть разница), "
+            "ссылаясь на их названия из разбивки."
+        )
+
     return (
-        f"{data_block}\n\n"
+        f"{data_block}{shop_block}\n\n"
         "Напиши короткий позитивный дайджест для владельца магазина (3–4 предложения): "
         "отметь, что продавалось хорошо и какая категория лидировала, "
         "кто из продавцов отличился, в какой день была лучшая динамика, "
         "и дай 1 конкретный совет по развитию на следующую неделю. "
-        "Тон — дружелюбный, поддерживающий, без паники даже если есть небольшое снижение. "
+        f"Тон — дружелюбный, поддерживающий, без паники даже если есть небольшое снижение.{shop_instruction} "
         "Опирайся только на данные выше — не упоминай продавцов или товары, "
         "если они не приведены в контексте. Не придумывай цифры."
     )

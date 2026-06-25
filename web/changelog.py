@@ -1,6 +1,16 @@
-CURRENT_VERSION = "1.181.0"
+CURRENT_VERSION = "1.182.0"
 
 ENTRIES = [
+    {
+        "version": "1.182.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Improve plan reporting to accurately differentiate sales categories",
+            "Sort per-shop AI insights table by revenue descending",
+            "Include intra-org shop breakdown in weekly AI digest",
+            "Show per-shop metrics table inside weekly AI digest cards",
+        ],
+    },
     {
         "version": "1.181.0",
         "date": "25 июня 2026",
