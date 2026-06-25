@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.176.0"
+CURRENT_VERSION = "1.177.0"
 
 ENTRIES = [
+    {
+        "version": "1.177.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Fix error preventing users from accessing the price tag editor",
+        ],
+    },
     {
         "version": "1.176.0",
         "date": "24 июня 2026",

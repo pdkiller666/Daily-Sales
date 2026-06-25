@@ -12838,6 +12838,23 @@ class Database:
         conn.close()
         return affected > 0
 
+    def clear_topic_messages(self, topic_id: int) -> int:
+        """Мягкое удаление всех сообщений темы (admin/owner). Возвращает кол-во удалённых."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE chat_messages SET is_deleted = 1, deleted_at = datetime('now') "
+                "WHERE topic_id = ? AND is_deleted = 0",
+                (topic_id,)
+            )
+            affected = conn.execute('SELECT changes()').fetchone()[0]
+            conn.commit()
+            conn.close()
+            return affected
+        except Exception as e:
+            logger.error("clear_topic_messages: %s", e)
+            return 0
+
     def edit_chat_message(self, msg_id: int, user_id: int, new_text: str) -> bool:
         """Редактировать своё сообщение (только автор, не удалённое). Ставит edited_at."""
         conn = self.get_connection()
@@ -14157,6 +14174,26 @@ class Database:
         except Exception as e:
             logger.error("soft_delete_dm: %s", e)
             return False
+
+    def clear_dm_conversation(self, user1_id: int, user2_id: int) -> int:
+        """Мягкое удаление всех ЛС между двумя участниками. Возвращает кол-во удалённых."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE direct_messages SET is_deleted = 1 "
+                "WHERE is_deleted = 0 AND ("
+                "  (from_user_id = ? AND to_user_id = ?) OR "
+                "  (from_user_id = ? AND to_user_id = ?)"
+                ")",
+                (user1_id, user2_id, user2_id, user1_id)
+            )
+            affected = conn.execute('SELECT changes()').fetchone()[0]
+            conn.commit()
+            conn.close()
+            return affected
+        except Exception as e:
+            logger.error("clear_dm_conversation: %s", e)
+            return 0
 
     def edit_dm(self, msg_id: int, user_id: int, new_text: str) -> bool:
         """Редактировать своё личное сообщение (только автор, не удалённое)."""

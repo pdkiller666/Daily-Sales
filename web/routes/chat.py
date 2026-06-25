@@ -1631,6 +1631,69 @@ def chat_delete_message(
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)
 
 
+@router.post("/chat/topic/clear")
+async def chat_clear_topic(request: Request):
+    """Очистить тему: soft-delete всех сообщений. Только admin/owner."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    form = await request.form()
+    if not verify_csrf_token(request, form.get("csrf_token", "")):
+        return JSONResponse({"ok": False, "error": "csrf"}, status_code=403)
+    try:
+        topic_id = int(form.get("topic_id", 0))
+    except (TypeError, ValueError):
+        topic_id = 0
+    if not topic_id:
+        return JSONResponse({"ok": False, "error": "missing topic_id"})
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    try:
+        db = get_web_db(telegram_id, org_db)
+        count = db.clear_topic_messages(topic_id)
+        return JSONResponse({"ok": True, "deleted": count})
+    except Exception as exc:
+        logger.error("chat_clear_topic: %s", exc)
+        return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+
+
+@router.post("/chat/dm/clear")
+async def chat_clear_dm(request: Request):
+    """Очистить ЛС-переписку между текущим пользователем и peer_id (user_db_id)."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+    form = await request.form()
+    if not verify_csrf_token(request, form.get("csrf_token", "")):
+        return JSONResponse({"ok": False, "error": "csrf"}, status_code=403)
+    try:
+        peer_id = int(form.get("peer_id", 0))
+    except (TypeError, ValueError):
+        peer_id = 0
+    if peer_id <= 0:
+        return JSONResponse({"ok": False, "error": "invalid peer"})
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    try:
+        db = get_web_db(telegram_id, org_db)
+        user_db_id = _get_user_db_id(db, telegram_id)
+        if not user_db_id:
+            return JSONResponse({"ok": False, "error": "user not found"})
+        count = db.clear_dm_conversation(user_db_id, peer_id)
+        return JSONResponse({"ok": True, "deleted": count})
+    except Exception as exc:
+        logger.error("chat_clear_dm: %s", exc)
+        return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+
+
 @router.post("/chat/message/{msg_id}/edit")
 def chat_edit_message(
     request: Request,
