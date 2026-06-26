@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.213.0"
+CURRENT_VERSION = "1.214.0"
 
 ENTRIES = [
+    {
+        "version": "1.214.0",
+        "date": "26 июня 2026",
+        "items": [
+            "show real subscription renewal date on regular subscription receipts",
+        ],
+    },
     {
         "version": "1.213.0",
         "date": "26 июня 2026",

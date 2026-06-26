@@ -374,6 +374,18 @@ async def confirm_payment_request(callback: CallbackQuery):
                             _erow = _ecur.fetchone()
                             if _erow:
                                 _raw_end = _erow[0]
+                        if _raw_end is None:
+                            # Обычная подписка — читаем реальную дату из subscriptions
+                            _ecur.execute(
+                                "SELECT end_date FROM subscriptions "
+                                "WHERE user_id = ("
+                                "  SELECT id FROM users WHERE telegram_id = ? LIMIT 1"
+                                ") ORDER BY end_date DESC LIMIT 1",
+                                (user_telegram_id,)
+                            )
+                            _srow = _ecur.fetchone()
+                            if _srow:
+                                _raw_end = _srow[0]
                         _ec.close()
                         if _raw_end:
                             _ds = str(_raw_end).replace('T', ' ')[:10]
@@ -438,7 +450,7 @@ async def confirm_payment_request(callback: CallbackQuery):
                             f"✅ <b>{_fname}, подписка активирована!</b>\n\n"
                             f"📋 <b>Тариф:</b> {he(plan_name)}\n"
                             f"{_plan_price_str}"
-                            f"{_end_str}"
+                            f"{_grant_end_str or _end_str}"
                             f"\n🎉 Спасибо за покупку! Все возможности тарифа "
                             f"доступны прямо сейчас."
                         )
