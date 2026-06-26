@@ -61,6 +61,7 @@ def check_and_record_ip(telegram_id: int, ip: str) -> bool:
 async def notify_new_ip(bot, telegram_id: int, ip: str, first_name: str) -> None:
     """Send a Telegram notification about a new login IP. Never raises."""
     try:
+        from notif_utils import add_read_btn as _arb
         name_esc = first_name.replace("<", "&lt;").replace(">", "&gt;") if first_name else "пользователь"
         text = (
             f"🔐 <b>Вход с нового устройства</b>\n\n"
@@ -69,6 +70,6 @@ async def notify_new_ip(bot, telegram_id: int, ip: str, first_name: str) -> None
             f"Если это были вы — всё в порядке.\n"
             f"Если нет — немедленно смените пароль в разделе «⚙️ Настройки»."
         )
-        await bot.send_message(telegram_id, text, parse_mode="HTML")
+        await bot.send_message(telegram_id, text, parse_mode="HTML", reply_markup=_arb())
     except Exception as exc:
         _logger.debug("login_notif.notify_new_ip tg_id=%s: %s", telegram_id, exc)

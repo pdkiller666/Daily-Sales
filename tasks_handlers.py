@@ -26,6 +26,7 @@ from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 from utils import he
 from states import TaskCreateStates, AiTaskCreateStates
+from notif_utils import add_read_btn as _add_read_btn_tasks
 
 tasks_router = Router()
 logger = logging.getLogger(__name__)
@@ -643,7 +644,8 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
                             await callback.bot.send_message(
                                 _r_tg,
                                 f"🔁 <b>Создана следующая задача</b>\n\n<b>{he(task['title'])}</b>",
-                                parse_mode="HTML"
+                                parse_mode="HTML",
+                                reply_markup=_add_read_btn_tasks()
                             )
                             try:
                                 from web.push_utils import send_web_push
@@ -1017,7 +1019,8 @@ async def task_reopen_cb(callback: CallbackQuery, state: FSMContext):
                             f"↩️ <b>Задача возвращена в работу</b>\n\n"
                             f"<b>{he(task['title'])}</b>\n\n"
                             f"🌐 Откройте веб-кабинет для деталей.",
-                            parse_mode="HTML"
+                            parse_mode="HTML",
+                            reply_markup=_add_read_btn_tasks()
                         )
                     except Exception:
                         pass
@@ -1615,7 +1618,8 @@ async def tsk_c_ok(callback: CallbackQuery, state: FSMContext):
             if _tgid and _tgid != tg_id:
                 try:
                     await callback.bot.send_message(
-                        _tgid, notify_text, parse_mode="HTML"
+                        _tgid, notify_text, parse_mode="HTML",
+                        reply_markup=_add_read_btn_tasks()
                     )
                 except Exception:
                     pass

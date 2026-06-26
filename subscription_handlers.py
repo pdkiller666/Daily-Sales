@@ -1311,6 +1311,7 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
                         f"🆔 <b>Payment ID:</b> {yk_payment_id}"
                     ),
                     parse_mode="HTML",
+                    reply_markup=add_read_btn(),
                 )
         except Exception:
             pass

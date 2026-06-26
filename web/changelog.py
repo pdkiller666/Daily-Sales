@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.225.0"
+CURRENT_VERSION = "1.226.0"
 
 ENTRIES = [
+    {
+        "version": "1.226.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Fix subscription, payment, and task handling errors",
+        ],
+    },
     {
         "version": "1.225.0",
         "date": "26 июня 2026",
