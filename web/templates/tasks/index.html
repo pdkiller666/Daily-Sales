@@ -303,6 +303,28 @@
             </div>
           </a>
 
+          {% if is_admin and t.status == 'done' %}
+          <div class="shrink-0 self-center"
+               x-data="inlineRating({{ t.id }}, {{ t.get('rating') or 0 }}, '{{ csrf_token }}')"
+               @click.stop>
+            <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                 :class="rated ? 'opacity-100' : ''"
+                 title="Оценить задачу">
+              <template x-for="s in [1,2,3,4,5]" :key="s">
+                <button type="button"
+                        @click="submitRating(s)"
+                        @mouseenter="hovered = s"
+                        @mouseleave="hovered = 0"
+                        :disabled="saving"
+                        class="text-base leading-none focus:outline-none disabled:opacity-50 transition-colors"
+                        :class="(hovered || current) >= s ? 'text-amber-400' : 'text-slate-300 dark:text-slate-600'">★</button>
+              </template>
+              <span x-show="saved" x-transition class="ml-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">✓</span>
+              <span x-show="err" x-transition class="ml-1 text-[10px] text-red-500 font-medium" x-text="err"></span>
+            </div>
+          </div>
+          {% endif %}
+
           <svg class="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0 mt-0.5 group-hover:text-indigo-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
           </svg>
@@ -353,6 +375,55 @@ function bulkTasks() {
         if (!confirm('Удалить ' + this.selected.size + ' задач? Это нельзя отменить.')) return;
       }
       document.getElementById('bulk-form').submit();
+    }
+  };
+}
+
+function inlineRating(taskId, initialRating, csrfToken) {
+  return {
+    taskId,
+    current: initialRating || 0,
+    hovered: 0,
+    saving: false,
+    saved: false,
+    err: '',
+    get rated() { return this.current > 0; },
+    async submitRating(star) {
+      if (this.saving) return;
+      this.saving = true;
+      this.err = '';
+      this.saved = false;
+      try {
+        const body = new URLSearchParams({
+          csrf_token: csrfToken,
+          rating: star
+        });
+        const resp = await fetch('/tasks/' + this.taskId + '/rate-inline', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString()
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          this.current = data.rating;
+          this.saved = true;
+          setTimeout(() => { this.saved = false; }, 2000);
+        } else {
+          const msgs = {
+            cannot_rate_own: 'Нельзя оценить свою задачу',
+            csrf: 'Ошибка безопасности',
+            forbidden: 'Нет доступа',
+            invalid_rating: 'Некорректная оценка',
+          };
+          this.err = msgs[data.error] || 'Ошибка';
+          setTimeout(() => { this.err = ''; }, 3000);
+        }
+      } catch (e) {
+        this.err = 'Ошибка сети';
+        setTimeout(() => { this.err = ''; }, 3000);
+      } finally {
+        this.saving = false;
+      }
     }
   };
 }

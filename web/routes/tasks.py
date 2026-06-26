@@ -2547,6 +2547,57 @@ def task_rate(request: Request, task_id: int,
         return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
 
 
+@router.post("/tasks/{task_id}/rate-inline")
+def task_rate_inline(request: Request, task_id: int,
+                     csrf_token: str = Form(""),
+                     rating: int = Form(0)):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from fastapi.responses import JSONResponse
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "csrf"}, status_code=403)
+    if rating < 1 or rating > 5:
+        return JSONResponse({"ok": False, "error": "invalid_rating"}, status_code=400)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        task = db.get_task(task_id)
+        if not task:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else None
+
+        if my_db_id and task.get('created_by') == my_db_id:
+            return JSONResponse({"ok": False, "error": "cannot_rate_own"}, status_code=400)
+
+        db.rate_task(task_id, rating)
+        try:
+            db.add_task_history(task_id, my_db_id, 'rated', None,
+                                f"{'⭐' * rating} ({rating}/5) — из списка задач")
+        except Exception:
+            pass
+        return JSONResponse({"ok": True, "rating": rating})
+    except Exception as e:
+        logger.error("task_rate_inline: %s", e)
+        return JSONResponse({"ok": False, "error": "server_error"}, status_code=500)
+
+
 @router.post("/tasks/{task_id}/remind")
 def task_set_reminder(request: Request, task_id: int,
                       csrf_token: str = Form(""),

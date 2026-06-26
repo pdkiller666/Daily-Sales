@@ -402,6 +402,17 @@ async def task_take_cb(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Нет активной org")
         return
 
+    _has_tasks_pro = False
+    try:
+        from billing_utils import has_module as _hm
+        _has_tasks_pro = bool(_hm(tg_id, 'tasks_pro'))
+    except Exception as _be:
+        logger.error("task_take_cb billing check: %s", _be)
+    if not _has_tasks_pro:
+        await callback.answer(
+            "Пул задач доступен в модуле «Задачи Pro».", show_alert=True)
+        return
+
     try:
         conn = db.get_connection()
         my_row = conn.execute(
@@ -418,8 +429,8 @@ async def task_take_cb(callback: CallbackQuery, state: FSMContext):
         if ok:
             try:
                 db.add_task_history(task_id, my_db_id, 'assigned', None, f"Взял в работу: {_display}")
-            except Exception:
-                pass
+            except Exception as _he:
+                logger.error("task_take_cb add_task_history: %s", _he)
             await callback.answer("✅ Задача взята в работу!", show_alert=True)
             await _show_tasks_list(callback, state, page=0)
         else:
@@ -530,6 +541,12 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         logger.error("task_view_cb: %s", e)
         await callback.answer("Ошибка загрузки задачи")
+
+
+@tasks_router.callback_query(F.data.startswith("task_open_"))
+async def task_open_cb(callback: CallbackQuery, state: FSMContext):
+    """Открыть задачу из напоминания (callback_data = task_open_{task_id})."""
+    await task_view_cb(callback, state)
 
 
 # ── Смена статуса ─────────────────────────────────────────────────────────────

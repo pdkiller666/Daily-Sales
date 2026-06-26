@@ -14752,7 +14752,7 @@ class Database:
                        t.assigned_shop, t.assign_all,
                        (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id) AS cl_total,
                        (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id AND cl.is_done = 1) AS cl_done,
-                       t.recurrence
+                       t.recurrence, t.rating
                 FROM tasks t
                 LEFT JOIN task_topics tt ON tt.id = t.topic_id
                 LEFT JOIN users ua ON ua.id = t.assigned_to
@@ -14784,6 +14784,7 @@ class Database:
                     "assigned_shop": r[21], "assign_all": bool(r[22]),
                     "checklist_total": r[23], "checklist_done": r[24],
                     "recurrence": r[25] or "none",
+                    "rating": r[26],
                 })
             return result
         except Exception as e:
@@ -14967,7 +14968,7 @@ class Database:
                 rows = conn.execute(
                     """
                     SELECT r.id, r.task_id, r.user_id, r.remind_at,
-                           t.title,
+                           t.title, t.status,
                            u.telegram_id
                     FROM task_reminders r
                     JOIN tasks t ON t.id = r.task_id
@@ -14981,7 +14982,7 @@ class Database:
                 conn.close()
             return [
                 {"id": r[0], "task_id": r[1], "user_id": r[2],
-                 "remind_at": r[3], "title": r[4], "telegram_id": r[5]}
+                 "remind_at": r[3], "title": r[4], "status": r[5], "telegram_id": r[6]}
                 for r in rows
             ]
         except Exception as e:
@@ -15789,7 +15790,7 @@ class Database:
                     FROM tasks t
                     LEFT JOIN users ua ON ua.id = t.assigned_to
                     LEFT JOIN users uc ON uc.id = t.created_by
-                    WHERE t.deadline = ?
+                    WHERE substr(t.deadline, 1, 10) = ?
                       AND t.status NOT IN ('done', 'cancelled')
                     """,
                     (local_date,)
@@ -15804,7 +15805,7 @@ class Database:
                     FROM tasks t
                     LEFT JOIN users ua ON ua.id = t.assigned_to
                     LEFT JOIN users uc ON uc.id = t.created_by
-                    WHERE t.deadline = date('now')
+                    WHERE substr(t.deadline, 1, 10) = date('now')
                       AND t.status NOT IN ('done', 'cancelled')
                     """
                 ).fetchall()
@@ -15834,7 +15835,7 @@ class Database:
                     FROM tasks t
                     LEFT JOIN users ua ON ua.id = t.assigned_to
                     LEFT JOIN users uc ON uc.id = t.created_by
-                    WHERE t.deadline < ?
+                    WHERE substr(t.deadline, 1, 10) < ?
                       AND t.status NOT IN ('done', 'cancelled')
                     """,
                     (local_date,)
@@ -15849,7 +15850,7 @@ class Database:
                     FROM tasks t
                     LEFT JOIN users ua ON ua.id = t.assigned_to
                     LEFT JOIN users uc ON uc.id = t.created_by
-                    WHERE t.deadline < date('now')
+                    WHERE substr(t.deadline, 1, 10) < date('now')
                       AND t.status NOT IN ('done', 'cancelled')
                     """
                 ).fetchall()

@@ -703,6 +703,10 @@ def register_inline_jobs(
                         _tg_id = rem['telegram_id']
                         _task_id = rem['task_id']
                         _user_id = rem['user_id']
+                        _task_status = rem.get('status', '')
+                        if _task_status in ('done', 'cancelled'):
+                            _db.mark_task_reminder_sent(rem['id'])
+                            continue
                         msg = (
                             f"⏰ <b>Напоминание о задаче</b>\n\n"
                             f"📋 {_title}\n\n"

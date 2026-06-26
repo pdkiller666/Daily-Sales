@@ -1,6 +1,17 @@
-CURRENT_VERSION = "1.220.0"
+CURRENT_VERSION = "1.221.0"
 
 ENTRIES = [
+    {
+        "version": "1.221.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Update application with new features and version number",
+            "критические баги задач — мёртвый callback и дедлайн с временем",
+            "важные баги задач — billing guard, напоминания, логирование",
+            "важные баги задач — billing guard (fail-closed), напоминания, логирование",
+            "Let admins rate a task directly from the task list without opening the detail page",
+        ],
+    },
     {
         "version": "1.220.0",
         "date": "26 июня 2026",
