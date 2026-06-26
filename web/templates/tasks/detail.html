@@ -374,7 +374,7 @@
     <div class="card p-4 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
       <p class="text-sm font-medium text-emerald-700 dark:text-emerald-300">✅ Вы отметили задачу выполненной</p>
       {% if my_completion and my_completion.completed_at %}
-      <p class="text-xs text-slate-400 mt-0.5">{{ my_completion.completed_at[:16] }}</p>
+      <p class="text-xs text-slate-400 mt-0.5">{{ fmt_user_dt(my_completion.completed_at) }}</p>
       {% endif %}
     </div>
     {% endif %}
@@ -414,7 +414,7 @@
       {% if my_reminders %}
       <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Активные напоминания:</p>
       {% for r in my_reminders %}
-      <p class="text-xs text-indigo-600 dark:text-indigo-400 mb-1">📅 {{ r.remind_at[:16] }} UTC</p>
+      <p class="text-xs text-indigo-600 dark:text-indigo-400 mb-1">📅 {{ fmt_user_dt(r.remind_at) }}</p>
       {% endfor %}
       {% endif %}
       <form method="POST" action="/tasks/{{ task.id }}/remind" class="flex items-center gap-2">

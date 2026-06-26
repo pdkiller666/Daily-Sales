@@ -25,6 +25,7 @@
     'no_title':   '⚠️ Укажите название задачи.',
     'csrf_error': '⚠️ Ошибка безопасности. Попробуйте снова.',
     'error':      '⚠️ Произошла ошибка. Попробуйте снова.',
+    'bad_assign': '⚠️ При редактировании задачи выберите одного исполнителя или один магазин.',
   } %}
   {% if msg and msg in msg_map %}
   <div class="mb-4 flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-300">
@@ -251,7 +252,8 @@
         <p x-show="!srchQ && recips.length === 0"
            class="text-xs text-slate-400 mt-1.5">Начните вводить имя или название магазина</p>
 
-        <!-- Multi-recipient note -->
+        <!-- Multi-recipient note (only on task creation, not edit) -->
+        {% if not edit_task %}
         <div x-show="recips.length > 1" style="display:none"
              class="mt-2 flex items-center gap-2 px-3 py-2
                     bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg">
@@ -259,6 +261,15 @@
             ⚡ Будет создана отдельная задача для каждого (<span x-text="recips.length" class="font-semibold"></span>)
           </span>
         </div>
+        {% else %}
+        <div x-show="recips.length > 1" style="display:none"
+             class="mt-2 flex items-center gap-2 px-3 py-2
+                    bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
+          <span class="text-xs text-red-700 dark:text-red-300">
+            ⚠️ При редактировании выберите только одного исполнителя или один магазин.
+          </span>
+        </div>
+        {% endif %}
       </div>
 
       <!-- All-team banner -->

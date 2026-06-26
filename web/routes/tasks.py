@@ -133,26 +133,14 @@ def _get_user_tg_id(db, user_db_id: int) -> int | None:
         conn = db.get_connection()
         try:
             row = conn.execute(
-                "SELECT id, telegram_id FROM users WHERE id = ?", (user_db_id,)
+                "SELECT telegram_id FROM users WHERE id = ?", (user_db_id,)
             ).fetchone()
         finally:
             conn.close()
-        logger.info("_get_user_tg_id: uid=%s row=%s", user_db_id, row)
-        if row and row[1] is not None:
-            return row[1]
-        # Фоллбэк: возможно id не совпадает, пробуем поиск среди всех пользователей
-        # (защита на случай несоответствия id в staff_list и users table)
-        logger.warning("_get_user_tg_id: tg_id is None for uid=%s, fallback to all-users scan",
-                       user_db_id)
-        conn2 = db.get_connection()
-        try:
-            all_rows = conn2.execute(
-                "SELECT id, telegram_id FROM users WHERE telegram_id IS NOT NULL"
-            ).fetchall()
-        finally:
-            conn2.close()
-        logger.warning("_get_user_tg_id: all users with tg_id: %s",
-                       [(r[0], r[1]) for r in all_rows])
+        if row and row[0] is not None:
+            return row[0]
+        # telegram_id не задан (email-only пользователь или пустой профиль)
+        logger.debug("_get_user_tg_id: no telegram_id for uid=%s", user_db_id)
         return None
     except Exception as e:
         logger.error("_get_user_tg_id error uid=%s: %s", user_db_id, e)
@@ -1010,12 +998,8 @@ async def tasks_new_post(
             except Exception as _ne:
                 logger.warning("tasks: add_notification_to_history uid=%s: %s", uid, _ne)
 
-        logger.info("tasks notify: mode=%s assigned_to=%s my_db_id=%s",
-                    assign_mode, _assigned_to, my_db_id)
         if assign_mode == "person" and _assigned_to:
             tg_id = _get_user_tg_id(db, _assigned_to)
-            logger.info("tasks notify: person uid=%s tg_id=%s type=%s",
-                        _assigned_to, tg_id, type(tg_id).__name__)
             _safe_add_notif(_assigned_to, "task_assigned", notif_msg)
             if tg_id:
                 _send_tg_task_notify(tg_id, notify_text)
@@ -1024,19 +1008,6 @@ async def tasks_new_post(
                     await apush(tg_id, "📋 Новая задача", notif_msg, "/tasks")
                 except Exception:
                     pass
-            else:
-                logger.warning("tasks notify: no tg_id for uid=%s — checking DB directly",
-                               _assigned_to)
-                try:
-                    _c = db.get_connection()
-                    try:
-                        _r = _c.execute("SELECT id, telegram_id FROM users WHERE id=?",
-                                        (_assigned_to,)).fetchone()
-                    finally:
-                        _c.close()
-                    logger.warning("tasks notify: raw DB row for uid=%s → %s", _assigned_to, _r)
-                except Exception as _de:
-                    logger.error("tasks notify: DB check failed: %s", _de)
             # Уведомление создателю в историю (если он не тот же, кто исполнитель)
             if my_db_id and my_db_id != _assigned_to:
                 assignee_name = next(
@@ -1047,7 +1018,6 @@ async def tasks_new_post(
                 _safe_add_notif(my_db_id, "task_assigned", creator_msg)
         elif assign_mode == "shop" and _assigned_shop:
             members = _get_shop_members_tg_ids(db, _assigned_shop)
-            logger.info("tasks notify: shop=%s members=%s", _assigned_shop, len(members))
             for uid, tg_id in members:
                 _safe_add_notif(uid, "task_assigned", notif_msg)
                 if tg_id:
@@ -1063,7 +1033,6 @@ async def tasks_new_post(
                                 f"📋 Задача создана: «{title}» → магазин {_assigned_shop}")
         elif assign_mode == "all":
             members = _get_all_members_tg_ids(db)
-            logger.info("tasks notify: all members=%s", len(members))
             for uid, tg_id in members:
                 _safe_add_notif(uid, "task_assigned", notif_msg)
                 if tg_id:
@@ -1098,8 +1067,11 @@ async def tasks_new_post(
                     mime = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
                     uid = uuid.uuid4().hex[:12]
                     dest = os.path.join(month_path, f"{uid}_{safe_name}")
-                    with open(dest, "wb") as fout:
-                        fout.write(raw_data)
+                    import anyio as _anyio
+                    _dest_cap, _data_cap = dest, raw_data
+                    await _anyio.to_thread.run_sync(
+                        lambda: open(_dest_cap, "wb").write(_data_cap)
+                    )
                     saved.append({
                         "file_path": dest, "file_name": f.filename[:255],
                         "file_type": mime, "file_size": len(raw_data),
@@ -1724,6 +1696,7 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     from billing_utils import has_module as _has_module, has_extension as _has_ext
+    from timezone_utils import format_user_datetime as _fmt_user_dt, DEFAULT_TZ as _DEFAULT_TZ
     tasks_pro = _has_module(telegram_id, 'tasks_pro')
     tasks_ai = tasks_pro and _has_ext(telegram_id, 'tasks_ai')
 
@@ -1746,6 +1719,7 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         "is_watching": False, "watcher_count": 0,
         "time_total_minutes": 0, "time_logs": [],
         "mention_users": [],
+        "fmt_user_dt": lambda dt: _fmt_user_dt(dt, _DEFAULT_TZ),
     }
 
     try:
@@ -1753,14 +1727,17 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         conn = db.get_connection()
         try:
             my_row = conn.execute(
-                "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
+                "SELECT id, shop_name, timezone FROM users WHERE telegram_id = ?", (telegram_id,)
             ).fetchone()
         finally:
             conn.close()
         my_db_id = my_row[0] if my_row else 0
         my_shop = (my_row[1] or "") if my_row else ""
+        _user_tz = (my_row[2] or _DEFAULT_TZ) if my_row else _DEFAULT_TZ
         ctx["my_db_id"] = my_db_id
         ctx["fmt_filesize"] = _fmt_filesize
+        # Перезаписываем fmt_user_dt с реальной таймзоной пользователя
+        ctx["fmt_user_dt"] = lambda dt: _fmt_user_dt(dt, _user_tz)
 
         task = db.get_task(task_id)
         if not task:
@@ -2014,15 +1991,18 @@ async def task_upload_attachment(
                 mime = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
                 uid = uuid.uuid4().hex[:12]
                 dest = os.path.join(month_path, f"{uid}_{safe_name}")
-                with open(dest, "wb") as fout:
-                    fout.write(raw_data)
+                import anyio as _anyio
+                _dest_cap2, _data_cap2 = dest, raw_data
+                await _anyio.to_thread.run_sync(
+                    lambda: open(_dest_cap2, "wb").write(_data_cap2)
+                )
                 saved.append({
                     "file_path": dest, "file_name": f.filename[:255],
                     "file_type": mime, "file_size": len(raw_data),
                     "uploaded_by": my_db_id,
                 })
             except Exception as exc:
-                logger.warning(f"task_upload skip: {exc}")
+                logger.warning("task_upload skip: %s", exc)
 
         if saved:
             db.add_task_attachments(task_id, my_db_id, saved)
@@ -2850,6 +2830,8 @@ def task_edit_post(
     title = title.strip()
     if not title:
         return RedirectResponse(url=f"/tasks/{task_id}/edit?msg=no_title", status_code=303)
+    if assign_mode == "multi":
+        return RedirectResponse(url=f"/tasks/{task_id}/edit?msg=bad_assign", status_code=303)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
