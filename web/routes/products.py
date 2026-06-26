@@ -1934,7 +1934,7 @@ def _save_user_label_size(telegram_id: int, size: str) -> None:
 @router.post("/api/label-size")
 async def api_save_label_size(request: Request):
     """Save user's preferred label size to server. Fire-and-forget from JS."""
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
     user = get_session_user(request)
     if not user:
         from fastapi.responses import JSONResponse
@@ -1942,9 +1942,13 @@ async def api_save_label_size(request: Request):
     try:
         form = await request.form()
         size = str(form.get("size", "58x40")).strip()
+        csrf = str(form.get("csrf_token", ""))
     except Exception:
         from fastapi.responses import JSONResponse
         return JSONResponse({"ok": False}, status_code=400)
+    if not verify_csrf_token(request, csrf):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": False}, status_code=403)
     _save_user_label_size(int(user["sub"]), size)
     from fastapi.responses import JSONResponse
     return JSONResponse({"ok": True, "size": size})

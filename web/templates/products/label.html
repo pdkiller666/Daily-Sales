@@ -757,7 +757,7 @@ function labelDesigner() {
         el.className = el.className.replace(/\bsize-\S+/g, '').trim();
         el.classList.add('size-'+sz);
       });
-      const fd = new FormData(); fd.append('size', sz);
+      const fd = new FormData(); fd.append('size', sz); fd.append('csrf_token', '{{ csrf_token }}');
       fetch('/api/label-size', {method:'POST', body:fd}).catch(()=>{});
     },
 

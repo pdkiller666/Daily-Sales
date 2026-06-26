@@ -930,8 +930,8 @@ async def _save_uploaded_files(files_list, uploads_dir: str) -> list:
             fsize = len(raw_data)
             if fsize == 0 or fsize > MAX_FILE_SIZE:
                 continue
-            mime = f.content_type or mimetypes.guess_type(f.filename)[0] or "application/octet-stream"
             safe_name = _safe_filename(f.filename)
+            mime = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
             uid = uuid.uuid4().hex[:12]
             dest = os.path.join(month_path, f"{uid}_{safe_name}")
             with open(dest, "wb") as fout:

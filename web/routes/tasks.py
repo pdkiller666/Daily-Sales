@@ -853,6 +853,14 @@ async def tasks_new_post(
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    if any(f and f.filename for f in files):
+        try:
+            from web.rate_store import check_rate_limit
+            if not check_rate_limit(f"task_upload:{telegram_id}", max_requests=20, window_seconds=60):
+                return RedirectResponse(url="/tasks/new?msg=rate_limit", status_code=303)
+        except Exception:
+            pass
+
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
@@ -1086,8 +1094,8 @@ async def tasks_new_post(
                     raw_data = await f.read()
                     if len(raw_data) == 0 or len(raw_data) > MAX_TASK_FILE_SIZE:
                         continue
-                    mime = f.content_type or mimetypes.guess_type(f.filename)[0] or "application/octet-stream"
                     safe_name = _safe_filename_tasks(f.filename)
+                    mime = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
                     uid = uuid.uuid4().hex[:12]
                     dest = os.path.join(month_path, f"{uid}_{safe_name}")
                     with open(dest, "wb") as fout:
@@ -1958,6 +1966,14 @@ async def task_upload_attachment(
     org_db = user.get("org_db") or ""
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
+    if any(f and f.filename for f in files):
+        try:
+            from web.rate_store import check_rate_limit
+            if not check_rate_limit(f"task_upload:{telegram_id}", max_requests=20, window_seconds=60):
+                return RedirectResponse(url=f"/tasks/{task_id}?msg=rate_limit", status_code=303)
+        except Exception:
+            pass
+
     try:
         db = get_web_db(telegram_id, org_db)
         task = db.get_task(task_id)
@@ -1994,8 +2010,8 @@ async def task_upload_attachment(
                 raw_data = await f.read()
                 if len(raw_data) == 0 or len(raw_data) > MAX_TASK_FILE_SIZE:
                     continue
-                mime = f.content_type or mimetypes.guess_type(f.filename)[0] or "application/octet-stream"
                 safe_name = _safe_filename_tasks(f.filename)
+                mime = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
                 uid = uuid.uuid4().hex[:12]
                 dest = os.path.join(month_path, f"{uid}_{safe_name}")
                 with open(dest, "wb") as fout:
