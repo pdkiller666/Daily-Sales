@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.240.0"
+CURRENT_VERSION = "1.241.0"
 
 ENTRIES = [
+    {
+        "version": "1.241.0",
+        "date": "26 июня 2026",
+        "items": [
+            "4 critical bugs in web tasks module (Task #93)",
+        ],
+    },
     {
         "version": "1.240.0",
         "date": "26 июня 2026",

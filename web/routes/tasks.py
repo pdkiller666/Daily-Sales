@@ -127,6 +127,22 @@ def _send_tg_task_notify(telegram_id: int, text: str) -> None:
         logger.error("task web notify setup: %s", e)
 
 
+def _fmt_dt_with_offset(dt, user_tz: str) -> str:
+    """Format datetime string with user timezone and UTC offset label (e.g. '26.06.2026 14:30 (UTC+3)')."""
+    from timezone_utils import get_user_time as _gut
+    try:
+        user_dt = _gut(dt, user_tz)
+        if user_dt is None:
+            return "Неизвестно"
+        offset = user_dt.utcoffset()
+        total_secs = int(offset.total_seconds())
+        hours = total_secs // 3600
+        sign = '+' if hours >= 0 else '-'
+        return user_dt.strftime('%d.%m.%Y %H:%M') + f" (UTC{sign}{abs(hours)})"
+    except Exception:
+        return "Неизвестно"
+
+
 def _get_user_tg_id(db, user_db_id: int) -> int | None:
     """Получить telegram_id сотрудника по его users.id."""
     try:
@@ -837,6 +853,9 @@ async def tasks_new_post(
     title = title.strip()
     if not title:
         return RedirectResponse(url="/tasks/new?msg=no_title", status_code=303)
+    _VALID_ASSIGN_MODES = ('person', 'shop', 'all', 'none', '')
+    if assign_mode not in _VALID_ASSIGN_MODES:
+        return RedirectResponse(url="/tasks/new?msg=bad_assign", status_code=303)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
@@ -1719,7 +1738,7 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         "is_watching": False, "watcher_count": 0,
         "time_total_minutes": 0, "time_logs": [],
         "mention_users": [],
-        "fmt_user_dt": lambda dt: _fmt_user_dt(dt, _DEFAULT_TZ),
+        "fmt_user_dt": lambda dt: _fmt_dt_with_offset(dt, _DEFAULT_TZ),
     }
 
     try:
@@ -1736,8 +1755,8 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         _user_tz = (my_row[2] or _DEFAULT_TZ) if my_row else _DEFAULT_TZ
         ctx["my_db_id"] = my_db_id
         ctx["fmt_filesize"] = _fmt_filesize
-        # Перезаписываем fmt_user_dt с реальной таймзоной пользователя
-        ctx["fmt_user_dt"] = lambda dt: _fmt_user_dt(dt, _user_tz)
+        # Перезаписываем fmt_user_dt с реальной таймзоной пользователя (с UTC-меткой)
+        ctx["fmt_user_dt"] = lambda dt: _fmt_dt_with_offset(dt, _user_tz)
 
         task = db.get_task(task_id)
         if not task:
@@ -2830,7 +2849,8 @@ def task_edit_post(
     title = title.strip()
     if not title:
         return RedirectResponse(url=f"/tasks/{task_id}/edit?msg=no_title", status_code=303)
-    if assign_mode == "multi":
+    _VALID_ASSIGN_MODES = ('person', 'shop', 'all', 'none', '')
+    if assign_mode not in _VALID_ASSIGN_MODES:
         return RedirectResponse(url=f"/tasks/{task_id}/edit?msg=bad_assign", status_code=303)
 
     telegram_id = int(user["sub"])
