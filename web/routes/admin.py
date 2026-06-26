@@ -670,6 +670,10 @@ async def admin_backups(request: Request):
         backups = bm.get_backup_list()
     except Exception:
         backups = []
+    try:
+        download_history = _db().get_audit_by_action("backup_download", limit=20)
+    except Exception:
+        download_history = []
     return request.app.state.templates.TemplateResponse(
         request,
         "admin/backups.html",
@@ -678,6 +682,7 @@ async def admin_backups(request: Request):
             "csrf_token": get_csrf_token(request),
             "msg": _flash(request),
             "restore_detail": request.query_params.get("detail", ""),
+            "download_history": download_history,
         }),
     )
 

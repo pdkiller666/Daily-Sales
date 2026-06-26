@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.256.0"
+CURRENT_VERSION = "1.257.0"
 
 ENTRIES = [
+    {
+        "version": "1.257.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Update project to fix login and add new tests",
+            "Show backup download history on the admin backups page",
+        ],
+    },
     {
         "version": "1.256.0",
         "date": "26 июня 2026",

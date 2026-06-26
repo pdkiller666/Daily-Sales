@@ -16176,6 +16176,22 @@ class Database:
             logger.error("get_admin_audit: %s", exc)
             return []
 
+    def get_audit_by_action(self, action: str, limit: int = 20) -> list:
+        """Вернуть последние N записей аудит-лога с заданным action."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                "SELECT id, actor_tg_id, actor_name, action, target, details, ip, created_at "
+                "FROM admin_audit_log WHERE action=? ORDER BY id DESC LIMIT ?",
+                (action, int(limit))
+            ).fetchall()
+            return [dict(zip(
+                ('id', 'actor_tg_id', 'actor_name', 'action', 'target',
+                 'details', 'ip', 'created_at'), r)) for r in rows]
+        except Exception as exc:
+            logger.error("get_audit_by_action: %s", exc)
+            return []
+
     def get_latest_audit_by_action(self, action: str) -> dict | None:
         """Вернуть последнюю запись аудит-лога с заданным action, или None."""
         try:

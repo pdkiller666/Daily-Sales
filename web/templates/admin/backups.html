@@ -157,6 +157,41 @@
 </div>
 {% endif %}
 
+{% if download_history %}
+<div class="mt-6">
+    <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 px-1">📋 История скачиваний</h2>
+    <div class="card overflow-hidden">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                    <th class="text-left px-4 py-3 font-semibold">Кто</th>
+                    <th class="text-left px-4 py-3 font-semibold">Файл</th>
+                    <th class="text-right px-4 py-3 font-semibold hidden sm:table-cell">IP</th>
+                    <th class="text-right px-4 py-3 font-semibold">Когда</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
+                {% for entry in download_history %}
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                    <td class="px-4 py-2.5">
+                        <span class="text-xs text-slate-700 dark:text-slate-300 font-medium">{{ entry.actor_name or '—' }}</span>
+                        {% if entry.actor_tg_id %}
+                        <span class="text-xs text-slate-400 ml-1">#{{ entry.actor_tg_id }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-2.5">
+                        <span class="font-mono text-xs text-slate-600 dark:text-slate-400 break-all">{{ entry.target or '—' }}</span>
+                    </td>
+                    <td class="px-4 py-2.5 text-right hidden sm:table-cell text-xs text-slate-400">{{ entry.ip or '—' }}</td>
+                    <td class="px-4 py-2.5 text-right text-xs text-slate-500 whitespace-nowrap">{{ entry.created_at[:16] if entry.created_at else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 <script nonce="{{ csp_nonce(request) }}">
 function confirmDel(filename) {
     document.getElementById('del-filename').textContent = filename;
