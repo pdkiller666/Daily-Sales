@@ -536,7 +536,7 @@
 
     <!-- Rating block (Pro) -->
     {% if tasks_pro and task.status == 'done' %}
-    <div class="card p-4 dark:bg-slate-900">
+    <div id="rating-card" class="card p-4 dark:bg-slate-900">
       <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">⭐ Оценка выполнения</p>
       {% if task.get('rating') %}
       <div class="flex items-center gap-1 mb-2">
@@ -549,7 +549,7 @@
       <p class="text-xs text-slate-500 dark:text-slate-400 italic">{{ task.rating_comment }}</p>
       {% endif %}
       {% if is_admin %}
-      <details class="mt-2">
+      <details id="rating-edit-details" class="mt-2">
         <summary class="text-xs text-indigo-600 cursor-pointer hover:underline">Изменить оценку</summary>
         <form method="POST" action="/tasks/{{ task.id }}/rate" class="mt-2 space-y-2">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -595,18 +595,51 @@
       <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">История изменений</p>
       <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
         {% for h in task_history %}
-        {% set action_icon = {'status': '🔄', 'created': '✨', 'comment': '💬', 'edit': '✏️', 'assigned': '👤', 'priority': '⭐'}.get(h.action, '📝') %}
-        {% set action_label = {'status': 'Статус изменён', 'created': 'Создана', 'comment': 'Комментарий', 'edit': 'Отредактирована', 'assigned': 'Назначена', 'priority': 'Приоритет'}.get(h.action, h.action) %}
-        <div class="flex items-start gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-0">
+        {% set action_icon = {'status': '🔄', 'created': '✨', 'comment': '💬', 'edit': '✏️', 'assigned': '👤', 'priority': '🎯', 'rated': '⭐', 'self_assign': '🙋'}.get(h.action, '📝') %}
+        {% set action_label = {'status': 'Статус изменён', 'created': 'Создана', 'comment': 'Комментарий', 'edit': 'Отредактирована', 'assigned': 'Назначена', 'priority': 'Приоритет изменён', 'rated': 'Оценка выставлена', 'self_assign': 'Взята в работу'}.get(h.action, h.action) %}
+        {% set is_rated = h.action == 'rated' %}
+        <div class="flex items-start gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-0
+          {{ 'rounded-lg px-2 bg-amber-50 dark:bg-amber-950/40 border-amber-100 dark:border-amber-900/50' if is_rated else '' }}">
           <span class="text-base shrink-0 mt-0.5">{{ action_icon }}</span>
           <div class="flex-1 min-w-0">
             <div class="flex items-center justify-between gap-2">
-              <span class="text-xs font-medium text-slate-700 dark:text-slate-200">{{ action_label }}</span>
+              <span class="flex items-center gap-1.5">
+                <span class="text-xs font-medium {{ 'text-amber-700 dark:text-amber-300' if is_rated else 'text-slate-700 dark:text-slate-200' }}">{{ action_label }}</span>
+                {% if is_rated and is_admin %}
+                <button type="button"
+                        onclick="(function(){var d=document.getElementById('rating-edit-details');if(d){d.open=true;}var c=document.getElementById('rating-card');if(c){c.scrollIntoView({behavior:'smooth',block:'center'});}})();"
+                        title="Изменить оценку"
+                        class="inline-flex items-center justify-center w-5 h-5 rounded text-amber-500 hover:text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3 h-3">
+                    <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L4.75 8.774a2.75 2.75 0 0 0-.596 1.02L3.5 12a.75.75 0 0 0 .75.75l2.166-.651a2.75 2.75 0 0 0 1.02-.595l6.262-6.263a1.75 1.75 0 0 0 0-2.475ZM12.073 3.573a.25.25 0 0 1 .354 0l.354.354a.25.25 0 0 1 0 .354L11.5 5.561l-.707-.707ZM10.086 5.56 5.811 9.834a1.25 1.25 0 0 1-.464.27l-1.132.34.34-1.132a1.25 1.25 0 0 1 .27-.463L9.379 4.853Z"/>
+                  </svg>
+                </button>
+                {% endif %}
+              </span>
               <span class="text-[11px] text-slate-400 shrink-0">{{ h.created_at[:16] | replace('T', ' ') if h.created_at else '' }}</span>
             </div>
             <div class="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
               <span>{{ h.actor_name }}</span>
-              {% if h.old_val and h.new_val %}
+              {% if is_rated and h.new_val %}
+              {% set _ps = h.new_val.find('(') %}
+              {% set _pe = h.new_val.find(')') %}
+              {% if _ps != -1 and _pe != -1 %}
+                {% set _score = h.new_val[_ps+1:_pe].split('/')[0] | int(default=0) %}
+                {% set _cp = h.new_val.find(': ') %}
+                {% set _comment = h.new_val[_cp+2:] if _cp != -1 else '' %}
+                <span class="flex items-center gap-0.5">
+                  {% for _s in range(1, 6) %}
+                  <span class="text-sm {{ 'text-amber-400' if _s <= _score else 'text-slate-300 dark:text-slate-600' }}">★</span>
+                  {% endfor %}
+                  <span class="ml-1 text-amber-600 dark:text-amber-400 font-medium">{{ _score }}/5</span>
+                </span>
+                {% if _comment %}
+                <span class="italic text-slate-500 dark:text-slate-400">{{ _comment }}</span>
+                {% endif %}
+              {% else %}
+              <span class="font-medium text-amber-600 dark:text-amber-400">{{ h.new_val }}</span>
+              {% endif %}
+              {% elif h.old_val and h.new_val %}
               <span class="line-through text-slate-300 dark:text-slate-600">{{ h.old_val }}</span>
               <span class="text-slate-300">→</span>
               <span class="font-medium text-slate-600 dark:text-slate-300">{{ h.new_val }}</span>

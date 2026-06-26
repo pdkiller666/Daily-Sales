@@ -1,6 +1,17 @@
-CURRENT_VERSION = "1.219.0"
+CURRENT_VERSION = "1.220.0"
 
 ENTRIES = [
+    {
+        "version": "1.220.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Fix critical task assignment bugs and improve system stability",
+            "Добавить пул задач в боте (аналог веб-раздела /tasks/pool)",
+            "Показывать историю оценок задачи в журнале изменений",
+            "Show rating stars visually in task history instead of plain text",
+            "Let admins edit a task rating directly from the history entry",
+        ],
+    },
     {
         "version": "1.219.0",
         "date": "26 июня 2026",

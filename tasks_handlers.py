@@ -103,6 +103,13 @@ def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0, tg_id: int = 0) 
             row_btns.append(InlineKeyboardButton(text="✨ AI-задача", callback_data="tsk_ai_create"))
         kb.row(*row_btns)
     try:
+        from billing_utils import has_module as _hm_pool
+        _pool_ok = bool(tg_id and _hm_pool(tg_id, 'tasks_pro'))
+    except Exception:
+        _pool_ok = False
+    if _pool_ok:
+        kb.row(InlineKeyboardButton(text="📬 Пул задач", callback_data="task_pool"))
+    try:
         from bot_holder import get_username as _get_uname
         _un = _get_uname() or ""
         _web_url = f"https://t.me/{_un}" if _un else None
@@ -223,6 +230,204 @@ async def tasks_page_cb(callback: CallbackQuery, state: FSMContext):
     page = int(callback.data.split("_")[-1])
     await callback.answer()
     await _show_tasks_list(callback, state, page=page)
+
+
+# ── Пул задач ────────────────────────────────────────────────────────────────
+
+def _pool_tasks_keyboard(tasks: list, page: int = 0) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    page_size = 5
+    start = page * page_size
+    end = min(start + page_size, len(tasks))
+    for t in tasks[start:end]:
+        task_id = t.get('id', 0)
+        priority_icon = {'urgent': '🔴', 'high': '🟡', 'normal': '🔵', 'low': '🟢'}.get(t.get('priority', ''), '🔵')
+        title = t.get('title', '—')[:38]
+        deadline = t.get('deadline', '')
+        dl = ""
+        if deadline:
+            try:
+                from datetime import date as _d
+                dl = f" · {_d.fromisoformat(deadline[:10]).strftime('%d.%m')}"
+            except Exception:
+                pass
+        kb.row(InlineKeyboardButton(
+            text=f"{priority_icon} {title}{dl}",
+            callback_data=f"tsk_pool_view_{task_id}"
+        ))
+    _total_pages = max(1, -(-len(tasks) // page_size))
+    nav_row = page_nav_row("tsk_pool_p_", page, page > 0, end < len(tasks), _total_pages)
+    if nav_row:
+        kb.row(*nav_row)
+    kb.row(back_button("tsk_list_0", "⬅️ Мои задачи"))
+    kb.row(home_button())
+    return kb.as_markup()
+
+
+async def _show_pool_list(target, state: FSMContext, page: int = 0):
+    from aiogram.types import Message as Msg
+    tg_id = target.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        text = "⚠️ Нет активной организации."
+        if isinstance(target, Msg):
+            await target.answer(text)
+        else:
+            await target.answer()
+            await target.message.edit_text(text)
+        return
+
+    try:
+        from billing_utils import has_module as _hm
+        if not _hm(tg_id, 'tasks_pro'):
+            await target.answer("Пул задач доступен в модуле «Задачи Pro».", show_alert=True)
+            return
+    except Exception:
+        pass
+
+    try:
+        tasks = db.get_unassigned_tasks()
+        if not tasks:
+            text = "📬 <b>Пул задач</b>\n\nСвободных задач нет."
+        else:
+            text = f"📬 <b>Пул задач</b>\n<i>Задачи без исполнителя: {len(tasks)}</i>"
+        kb = _pool_tasks_keyboard(tasks, page)
+        await state.update_data(tsk_pool_list=tasks, tsk_pool_page=page)
+        if isinstance(target, Msg):
+            await fsm_edit(state, target, text, kb)
+        else:
+            await target.answer()
+            await target.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception as e:
+        logger.error("_show_pool_list: %s", e)
+        error_text = "⚠️ Ошибка загрузки пула задач."
+        if isinstance(target, Msg):
+            await target.answer(error_text)
+        else:
+            await target.answer()
+            await target.message.edit_text(error_text)
+
+
+@tasks_router.callback_query(F.data == "task_pool")
+async def task_pool_cb(callback: CallbackQuery, state: FSMContext):
+    await _show_pool_list(callback, state, page=0)
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_pool_p_"))
+async def task_pool_page_cb(callback: CallbackQuery, state: FSMContext):
+    page = int(callback.data.split("_")[-1])
+    await _show_pool_list(callback, state, page=page)
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_pool_view_"))
+async def task_pool_view_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+
+    try:
+        task = db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена или уже взята")
+            return
+
+        if task.get('assigned_to') or task.get('assign_all') or task.get('assigned_shop'):
+            await callback.answer("Задача уже назначена и недоступна в пуле", show_alert=True)
+            await _show_pool_list(callback, state)
+            return
+
+        title = task.get('title', '—')
+        desc = task.get('description', '')
+        priority = PRIORITY_LABELS.get(task.get('priority', ''), task.get('priority', ''))
+        deadline = task.get('deadline', '')
+        dl_str = ""
+        if deadline:
+            try:
+                from datetime import date as _date, datetime as _dt
+                has_time = len(deadline) >= 13 and ("T" in deadline or " " in deadline[10:])
+                if has_time:
+                    dl_dt = _dt.fromisoformat(deadline[:16].replace("T", " "))
+                    overdue_flag = dl_dt < _dt.now() and task.get('status') not in ('done', 'cancelled')
+                    dl_str = f"\n📅 Срок: {dl_dt.strftime('%d.%m.%Y %H:%M')}"
+                else:
+                    d = _date.fromisoformat(deadline[:10])
+                    overdue_flag = d < _date.today()
+                    dl_str = f"\n📅 Срок: {d.strftime('%d.%m.%Y')}"
+                if overdue_flag:
+                    dl_str += " ⚠️ Просрочена"
+            except Exception:
+                dl_str = f"\n📅 Срок: {deadline}"
+
+        topic_name = task.get('topic_name', '')
+        creator_name = task.get('creator_name', '')
+
+        checklist = task.get('checklist', [])
+        cl_str = ""
+        if checklist:
+            lines = [f"  {'✅' if item.get('is_done') else '☐'} {he(item.get('text', ''))}" for item in checklist]
+            cl_str = "\n\nЧеклист:\n" + "\n".join(lines)
+
+        text = f"📬 <b>{he(title)}</b>\n{priority}\n"
+        if topic_name:
+            text += f"🏷 {he(topic_name)}\n"
+        if creator_name:
+            text += f"✍️ Автор: {he(creator_name)}\n"
+        text += dl_str
+        if desc:
+            text += f"\n\n{he(desc)}"
+        text += cl_str
+        text += "\n\n<i>Задача свободна — нажмите «Взять задачу», чтобы назначить её себе.</i>"
+
+        kb = InlineKeyboardBuilder()
+        kb.row(InlineKeyboardButton(text="✋ Взять задачу", callback_data=f"tsk_take_{task_id}"))
+        kb.row(back_button("task_pool", "⬅️ Пул задач"))
+        kb.row(home_button())
+
+        await callback.answer()
+        await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception as e:
+        logger.error("task_pool_view_cb: %s", e)
+        await callback.answer("Ошибка загрузки задачи")
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_take_"))
+async def task_take_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+
+    try:
+        conn = db.get_connection()
+        my_row = conn.execute(
+            "SELECT id, first_name, last_name, username FROM users WHERE telegram_id = ?", (tg_id,)
+        ).fetchone()
+        conn.close()
+        if not my_row:
+            await callback.answer("Пользователь не найден")
+            return
+        my_db_id = my_row[0]
+        _display = f"{my_row[1] or ''} {my_row[2] or ''}".strip() or my_row[3] or str(my_db_id)
+
+        ok = db.self_assign_task(task_id, my_db_id)
+        if ok:
+            try:
+                db.add_task_history(task_id, my_db_id, 'assigned', None, f"Взял в работу: {_display}")
+            except Exception:
+                pass
+            await callback.answer("✅ Задача взята в работу!", show_alert=True)
+            await _show_tasks_list(callback, state, page=0)
+        else:
+            await callback.answer("⚠️ Задача уже занята другим сотрудником.", show_alert=True)
+            await _show_pool_list(callback, state, page=0)
+    except Exception as e:
+        logger.error("task_take_cb: %s", e)
+        await callback.answer("Ошибка назначения задачи")
 
 
 # ── Просмотр задачи ──────────────────────────────────────────────────────────
