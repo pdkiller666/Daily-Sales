@@ -12443,8 +12443,8 @@ class Database:
                 if u_row:
                     end_dt2 = (_dt.now() + _td(days=days)).isoformat()
                     cursor.execute('''
-                        INSERT INTO subscriptions (user_id, plan_type, start_date, end_date, is_active)
-                        VALUES (?, 'referral_bonus', date('now'), ?, 1)
+                        INSERT INTO subscriptions (user_id, plan_type, start_date, end_date)
+                        VALUES (?, 'referral_bonus', date('now'), ?)
                     ''', (u_row[0], end_dt2))
             conn.commit()
             return True
@@ -14026,7 +14026,7 @@ class Database:
         """Список контактов: последнее сообщение + непрочитанные.
 
         Возвращает строки:
-        (peer_id, first_name, last_name, username, last_msg, last_from, last_file_name, last_at, unread_count)
+        (peer_id, first_name, last_name, username, profile_photo, last_msg, last_from, last_file_name, last_at, unread_count)
         Сортировка: DESC по id последнего сообщения.
         """
         try:

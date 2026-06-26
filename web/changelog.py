@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.224.0"
+CURRENT_VERSION = "1.225.0"
 
 ENTRIES = [
+    {
+        "version": "1.225.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Improve file upload security and add rate limiting to tasks",
+        ],
+    },
     {
         "version": "1.224.0",
         "date": "26 июня 2026",

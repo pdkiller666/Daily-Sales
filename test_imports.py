@@ -409,7 +409,7 @@ try:
     _conn10.close()
     assert _db10.get_dm_unread_count(_me) == 4, f"ожидалось 4 непрочитанных ЛС (2 + AI + AI peer2), получено {_db10.get_dm_unread_count(_me)}"
     # Непрочитанное AI-ответа должно быть привязано к строке контакта _peer
-    _contacts10 = {c[0]: c[8] for c in _db10.get_dm_contacts(_me)}
+    _contacts10 = {c[0]: c[9] for c in _db10.get_dm_contacts(_me)}
     assert _contacts10.get(_peer, 0) == 3, f"контакт _peer должен показывать 3 непрочитанных (incl AI), получено {_contacts10}"
     # После mark_dm_read(_peer) закрываются только сообщения переписки с _peer (incl AI),
     # AI-ответ переписки с _peer2 остаётся непрочитанным → счётчик 1.

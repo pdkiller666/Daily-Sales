@@ -264,7 +264,7 @@ def _pool_tasks_keyboard(tasks: list, page: int = 0) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-async def _show_pool_list(target, state: FSMContext, page: int = 0):
+async def _show_pool_list(target, state: FSMContext, page: int = 0, already_answered: bool = False):
     from aiogram.types import Message as Msg
     tg_id = target.from_user.id
     db = await get_db(tg_id, state)
@@ -273,7 +273,8 @@ async def _show_pool_list(target, state: FSMContext, page: int = 0):
         if isinstance(target, Msg):
             await target.answer(text)
         else:
-            await target.answer()
+            if not already_answered:
+                await target.answer()
             await target.message.edit_text(text)
         return
 
@@ -296,7 +297,8 @@ async def _show_pool_list(target, state: FSMContext, page: int = 0):
         if isinstance(target, Msg):
             await fsm_edit(state, target, text, kb)
         else:
-            await target.answer()
+            if not already_answered:
+                await target.answer()
             await target.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception as e:
         logger.error("_show_pool_list: %s", e)
@@ -304,19 +306,22 @@ async def _show_pool_list(target, state: FSMContext, page: int = 0):
         if isinstance(target, Msg):
             await target.answer(error_text)
         else:
-            await target.answer()
+            if not already_answered:
+                await target.answer()
             await target.message.edit_text(error_text)
 
 
 @tasks_router.callback_query(F.data == "task_pool")
 async def task_pool_cb(callback: CallbackQuery, state: FSMContext):
-    await _show_pool_list(callback, state, page=0)
+    await callback.answer()
+    await _show_pool_list(callback, state, page=0, already_answered=True)
 
 
 @tasks_router.callback_query(F.data.startswith("tsk_pool_p_"))
 async def task_pool_page_cb(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     page = int(callback.data.split("_")[-1])
-    await _show_pool_list(callback, state, page=page)
+    await _show_pool_list(callback, state, page=page, already_answered=True)
 
 
 @tasks_router.callback_query(F.data.startswith("tsk_pool_view_"))

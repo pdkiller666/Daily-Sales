@@ -642,7 +642,6 @@ async def view_cancelled_payment(callback: CallbackQuery):
         await callback.answer("❌ Заявка не найдена", show_alert=True)
         return
 
-    await callback.answer()
     req_id = request_info[0]
     plan_type = request_info[2]
     amount = request_info[3]
@@ -656,6 +655,8 @@ async def view_cancelled_payment(callback: CallbackQuery):
     if status != 'cancelled':
         await callback.answer("⚠️ Статус заявки изменился", show_alert=True)
         return
+
+    await callback.answer()
 
     withdrawn_at = (processed_at or "")[:19] or "неизвестно"
 
