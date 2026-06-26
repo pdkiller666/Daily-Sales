@@ -16,7 +16,11 @@ test_web_smoke.py — браузерные smoke-тесты ключевых д�
   6. Кнопки push-уведомлений присутствуют и их обработчики определены.
   7. Скачивание PDF ценника отдаёт настоящий application/pdf.
   8. Вход по email/паролю устанавливает сессию и ведёт в /dashboard.
-  9. POS-корзина: Alpine работает, товар добавляется, итог пересчитывается,
+  9. Регистрация нового аккаунта (/register): форма видна, заполнение +
+     отправка с инвайт-кодом создаёт аккаунт и ведёт в /dashboard.
+ 10. Форма сброса пароля (/auth/reset): страница открывается, поля и кнопка
+     присутствуют, рендер не порождает JS-ошибок (pageerror).
+ 11. POS-корзина: Alpine работает, товар добавляется, итог пересчитывается,
      кнопка «Оформить» активна и продажа записывается.
 
 Изоляция: тест работает в собственном временном каталоге (свежие SQLite-БД),
@@ -47,6 +51,8 @@ WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
 _SMOKE_EMAIL = "smoke@test.local"
 _SMOKE_PASSWORD = "smoke-test-1234"
 _SMOKE_SHOP = "SmokeMag"
+_SMOKE_REG_EMAIL = "smoke_new@test.local"
+_SMOKE_REG_PASSWORD = "newpass-smoke-1234"
 
 
 def _find_chromium() -> str:
@@ -445,6 +451,107 @@ def check_cyrillic_content_disposition(page, base_url, product_id):
     )
 
 
+def check_register_flow(browser, base_url, console_errors):
+    """Регистрация нового аккаунта: форма /register видна, заполнение + отправка создаёт аккаунт.
+
+    Проверяет:
+    - Страница /register открывается (неаутентифицированный контекст).
+    - Все поля формы (first_name, email, password, password2, invite_code, consent) присутствуют.
+    - Отправка корректных данных создаёт аккаунт и перенаправляет на /dashboard.
+    """
+    import sqlite3 as _sl3
+
+    conn = _sl3.connect("data/main.db")
+    try:
+        row = conn.execute(
+            "SELECT invite_code FROM organizations LIMIT 1"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row, "Нет организаций в data/main.db — инвайт-код недоступен"
+    invite_code = row[0]
+
+    ctx = browser.new_context()
+    ctx.on("console", lambda m: console_errors.append(m.text)
+           if m.type == "error" else None)
+    page = ctx.new_page()
+    try:
+        page.goto(f"{base_url}/register", wait_until="networkidle")
+        assert "/register" in page.url, \
+            f"Страница /register не открылась, URL={page.url}"
+
+        form = page.locator("form[action='/register']")
+        assert form.count() >= 1, "Форма регистрации не найдена на /register"
+
+        for field in ("first_name", "email", "password", "password2",
+                      "invite_code", "consent"):
+            assert page.locator(f"input[name='{field}']").count() >= 1, \
+                f"Поле {field!r} не найдено в форме регистрации"
+
+        page.locator("input[name='first_name']").fill("Тест Тест")
+        page.locator("input[name='email']").fill(_SMOKE_REG_EMAIL)
+        page.locator("input[name='password']").fill(_SMOKE_REG_PASSWORD)
+        page.locator("input[name='password2']").fill(_SMOKE_REG_PASSWORD)
+        page.locator("input[name='invite_code']").fill(invite_code)
+        page.locator("input[name='consent']").check()
+
+        form.evaluate("f => f.submit()")
+        page.wait_for_url("**/dashboard", timeout=10000)
+
+        assert "/dashboard" in page.url, \
+            f"После регистрации ожидался /dashboard, получен {page.url}"
+    finally:
+        page.close()
+        ctx.close()
+
+
+def check_password_reset_form(browser, base_url, console_errors):
+    """Страница /auth/reset открывается, форма присутствует, нет JS-ошибок при рендере.
+
+    Проверяет:
+    - GET /auth/reset возвращает страницу с формой.
+    - Поля email и кнопка submit присутствуют в DOM.
+    - Страница не генерирует pageerror (JS-ошибки / CSP-блок).
+    - Отправка формы (любой email) не роняет сервер — получаем /auth/reset?sent=1
+      или остаёмся на /auth/reset (если SMTP не настроен — сервер возвращает ошибку
+      в шаблоне, но это не JS-проблема).
+    """
+    ctx = browser.new_context()
+    ctx.on("console", lambda m: console_errors.append(m.text)
+           if m.type == "error" else None)
+    page_errors: list[str] = []
+    page = ctx.new_page()
+    page.on("pageerror", lambda e: page_errors.append(f"pageerror: {e}"))
+    try:
+        page.goto(f"{base_url}/auth/reset", wait_until="networkidle")
+        assert "/auth/reset" in page.url, \
+            f"/auth/reset не открылась, URL={page.url}"
+
+        form = page.locator("form[action='/auth/reset']")
+        assert form.count() >= 1, "Форма сброса пароля не найдена на /auth/reset"
+
+        email_input = page.locator("input[name='email']")
+        assert email_input.count() >= 1, \
+            "Поле email не найдено в форме сброса пароля"
+
+        submit_btn = page.locator("button[type='submit']")
+        assert submit_btn.count() >= 1, \
+            "Кнопка отправки не найдена в форме сброса пароля"
+
+        assert not page_errors, \
+            f"JS-ошибки на /auth/reset при загрузке: {page_errors}"
+
+        email_input.fill("nonexistent@test.local")
+        form.evaluate("f => f.submit()")
+        page.wait_for_url(f"{base_url}/auth/reset*", timeout=8000)
+
+        assert "/auth/reset" in page.url, \
+            f"Неожиданный URL после отправки формы сброса: {page.url}"
+    finally:
+        page.close()
+        ctx.close()
+
+
 def _run_checks(page, base_url, product_id, browser, console_errors):
     """Запустить все проверки, вернуть список (name, ok, error)."""
     checks = [
@@ -457,6 +564,8 @@ def _run_checks(page, base_url, product_id, browser, console_errors):
         ("push buttons present", lambda: check_push_buttons_present(page, base_url)),
         ("PDF label download", lambda: check_pdf_download(page, base_url, product_id)),
         ("login — email/password flow", lambda: check_login_email_flow(browser, base_url, console_errors)),
+        ("register — new account flow", lambda: check_register_flow(browser, base_url, console_errors)),
+        ("password reset form", lambda: check_password_reset_form(browser, base_url, console_errors)),
         ("POS cart — add item + checkout", lambda: check_pos_cart(page, base_url, product_id)),
         ("Cyrillic filename → RFC 5987 Content-Disposition",
          lambda: check_cyrillic_content_disposition(page, base_url, product_id)),
