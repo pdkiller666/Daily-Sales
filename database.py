@@ -14847,6 +14847,23 @@ class Database:
             logger.error("get_task: %s", e)
             return None
 
+    def update_task_estimated_hours(self, task_id: int, hours: float | None) -> bool:
+        """Обновить оценочное время выполнения задачи (hours=None — сброс)."""
+        try:
+            conn = self.get_connection()
+            try:
+                conn.execute(
+                    "UPDATE tasks SET estimated_hours = ? WHERE id = ?",
+                    (hours if hours and hours > 0 else None, task_id)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            return True
+        except Exception as e:
+            logger.error("update_task_estimated_hours: %s", e)
+            return False
+
     def rate_task(self, task_id: int, rating: int, comment: str = "") -> bool:
         """Сохранить оценку выполнения задачи (1-5 звёзд)."""
         try:

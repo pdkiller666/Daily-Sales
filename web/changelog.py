@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.217.0"
+CURRENT_VERSION = "1.218.0"
 
 ENTRIES = [
+    {
+        "version": "1.218.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Task #56 — task reminders, bot history, AI button, team deadlines, UTC offset, recurring notify",
+        ],
+    },
     {
         "version": "1.217.0",
         "date": "26 июня 2026",

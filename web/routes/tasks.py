@@ -544,8 +544,21 @@ def task_self_assign(request: Request, task_id: int, csrf_token: str = Form(""))
             conn.close()
         if not my_row:
             return RedirectResponse(url="/tasks/pool?msg=error", status_code=303)
-        ok = db.self_assign_task(task_id, my_row[0])
+        my_db_id = my_row[0]
+        ok = db.self_assign_task(task_id, my_db_id)
         if ok:
+            try:
+                conn2 = db.get_connection()
+                try:
+                    _urow = conn2.execute(
+                        "SELECT first_name, last_name, username FROM users WHERE id = ?", (my_db_id,)
+                    ).fetchone()
+                finally:
+                    conn2.close()
+                _display = (f"{_urow[0] or ''} {_urow[1] or ''}".strip() or _urow[2] or str(my_db_id)) if _urow else str(my_db_id)
+                db.add_task_history(task_id, my_db_id, 'assigned', None, f"Взял в работу: {_display}")
+            except Exception:
+                pass
             return RedirectResponse(url=f"/tasks/{task_id}?msg=status_updated", status_code=303)
         else:
             return RedirectResponse(url="/tasks/pool?msg=already_taken", status_code=303)
@@ -1812,12 +1825,47 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
             ctx["time_logs"] = []
 
         # Build org user list for @mention autocomplete (4.1)
+        # Admin: full list (up to 100); non-admin: only users related to this task
         try:
             _mention_conn = db.get_connection()
             try:
-                _mention_rows = _mention_conn.execute(
-                    "SELECT id, first_name, last_name, username FROM users WHERE telegram_id>0 LIMIT 200"
-                ).fetchall()
+                if is_admin:
+                    _mention_rows = _mention_conn.execute(
+                        "SELECT id, first_name, last_name, username FROM users WHERE telegram_id>0 ORDER BY first_name LIMIT 100"
+                    ).fetchall()
+                else:
+                    # Collect related user ids: assigned_to, created_by, watchers, shop members
+                    _related_ids = set()
+                    if task.get("assigned_to"):
+                        _related_ids.add(task["assigned_to"])
+                    if task.get("created_by"):
+                        _related_ids.add(task["created_by"])
+                    _w_rows = _mention_conn.execute(
+                        "SELECT user_id FROM task_watchers WHERE task_id = ?", (task_id,)
+                    ).fetchall()
+                    for _wr in _w_rows:
+                        _related_ids.add(_wr[0])
+                    if task.get("assigned_shop"):
+                        _sh_rows = _mention_conn.execute(
+                            "SELECT id FROM users WHERE shop_name = ? AND telegram_id > 0",
+                            (task["assigned_shop"],)
+                        ).fetchall()
+                        for _sr in _sh_rows:
+                            _related_ids.add(_sr[0])
+                    if task.get("assign_all"):
+                        _all_rows = _mention_conn.execute(
+                            "SELECT id FROM users WHERE telegram_id > 0 LIMIT 100"
+                        ).fetchall()
+                        for _ar in _all_rows:
+                            _related_ids.add(_ar[0])
+                    if _related_ids:
+                        _ph = ",".join("?" * len(_related_ids))
+                        _mention_rows = _mention_conn.execute(
+                            f"SELECT id, first_name, last_name, username FROM users WHERE id IN ({_ph})",
+                            list(_related_ids)
+                        ).fetchall()
+                    else:
+                        _mention_rows = []
             finally:
                 _mention_conn.close()
             ctx["mention_users"] = [
@@ -2473,7 +2521,6 @@ def task_rate(request: Request, task_id: int,
         task = db.get_task(task_id)
         if not task:
             return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
-        db.rate_task(task_id, rating, rating_comment)
 
         conn = db.get_connection()
         try:
@@ -2483,6 +2530,12 @@ def task_rate(request: Request, task_id: int,
         finally:
             conn.close()
         my_db_id = my_row[0] if my_row else None
+
+        # Запретить само-оценку: создатель не может оценить свою задачу
+        if my_db_id and task.get('created_by') == my_db_id:
+            return RedirectResponse(url=f"/tasks/{task_id}?msg=cannot_rate_own", status_code=303)
+
+        db.rate_task(task_id, rating, rating_comment)
         try:
             db.add_task_history(task_id, my_db_id, 'rated', None,
                                 f"{'⭐' * rating} ({rating}/5)" + (f": {rating_comment}" if rating_comment.strip() else ""))
@@ -2713,13 +2766,7 @@ def task_edit_post(
         # Phase 4.3: estimated_hours
         try:
             _eh_e = float(estimated_hours.strip().replace(',', '.')) if estimated_hours.strip() else None
-            _c_eh = db.get_connection()
-            try:
-                _c_eh.execute("UPDATE tasks SET estimated_hours=? WHERE id=?",
-                               (_eh_e if _eh_e and _eh_e > 0 else None, task_id))
-                _c_eh.commit()
-            finally:
-                _c_eh.close()
+            db.update_task_estimated_hours(task_id, _eh_e)
         except Exception:
             pass
         try:
