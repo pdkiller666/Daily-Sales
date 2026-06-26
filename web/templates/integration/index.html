@@ -470,7 +470,13 @@
                 <div class="mb-3 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5 text-[11px] text-slate-500 space-y-1">
                     <div>🏷 Сети: {% if c.motiv_preview.chains %}{% for ch in c.motiv_preview.chains %}<span class="inline-block bg-white border border-slate-200 rounded px-1.5 py-0.5 font-medium text-slate-600">{{ ch }}</span>{% endfor %}{% else %}<span class="text-slate-400">— ещё не синхронизировано</span>{% endif %}</div>
                     <div>🔢 Моделей в кэше: <strong class="text-slate-600">{{ c.motiv_preview.model_count }}</strong>{% if c.motiv_preview.alias_count %} · 🔁 псевдонимов: <strong class="text-slate-600">{{ c.motiv_preview.alias_count }}</strong>{% endif %}</div>
-                    <div>🕒 Обновлено: <strong class="text-slate-600">{{ c.motiv_preview.last_synced or '—' }}</strong></div>
+                    {% if c.motiv_preview.rules_written is not none %}
+                    <div>💾 Правил записано: <strong class="{% if c.motiv_preview.rules_written == 0 %}text-amber-600{% else %}text-emerald-600{% endif %}">{{ c.motiv_preview.rules_written }}</strong>{% if c.motiv_preview.matched_models is not none %} · сопоставлено товаров: <strong class="text-slate-600">{{ c.motiv_preview.matched_models }}</strong>{% endif %}{% if c.motiv_preview.unmatched_count %} · <span class="text-amber-600">⚠️ не найдено: {{ c.motiv_preview.unmatched_count }}</span>{% endif %}</div>
+                    {% endif %}
+                    <div class="flex items-center justify-between">
+                        <span>🕒 Обновлено: <strong class="text-slate-600">{{ c.motiv_preview.last_synced or '—' }}</strong></span>
+                        {% if c.motiv_preview.auto_sync %}<span class="text-emerald-600 font-medium">🔔 Автосинк ВКЛ</span>{% else %}<span class="text-slate-400">🔕 Автосинк ВЫКЛ</span>{% endif %}
+                    </div>
                 </div>
                 {% endif %}
 
@@ -500,10 +506,10 @@
                     </div>
                     <div class="mb-2">
                         <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Колонки бонусов (через запятую)</label>
-                        <input type="text" name="bonus_cols" placeholder="2, 3, 4  или  B, C, D"
+                        <input type="text" name="bonus_cols" placeholder="2:DNS, 3:МВМ  или  B:DNS, C:МВМ"
                                value="{{ c.motiv_bonus_cols }}"
                                class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <p class="text-[10px] text-slate-400 mt-0.5">Каждая колонка соответствует одной торговой сети (цепочке). Шапка = название сети.</p>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Формат: <code class="bg-slate-100 px-1 rounded">номер:Название сети</code>, например <code class="bg-slate-100 px-1 rounded">2:DNS, 3:МВМ</code>. Название сети должно совпадать с профилями сотрудников. Один Spreadsheet ID = одно подключение.</p>
                     </div>
                     <button type="submit" class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
                         💾 Сохранить настройки
@@ -511,36 +517,48 @@
                 </form>
 
                 {% if c.has_motiv_config %}
-                <form method="post" action="/integration/{{ c.id }}/sync-motiv" class="mt-2">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit" class="text-xs px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-medium transition-colors">
-                        ⚡ Синхронизировать сейчас
-                    </button>
-                </form>
+                <div class="flex flex-wrap gap-2 mt-2">
+                    <form method="post" action="/integration/{{ c.id }}/sync-motiv">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="text-xs px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-medium transition-colors">
+                            ⚡ Синхронизировать сейчас
+                        </button>
+                    </form>
+                    <form method="post" action="/integration/{{ c.id }}/motiv/auto-sync-toggle">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="text-xs px-3 py-1.5 {% if c.motiv_auto_sync %}bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200{% else %}bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200{% endif %} rounded-lg font-medium transition-colors">
+                            {% if c.motiv_auto_sync %}🔔 Автосинк ВКЛ (отключить){% else %}🔕 Автосинк ВЫКЛ (включить){% endif %}
+                        </button>
+                    </form>
+                </div>
+                {% if c.motiv_auto_sync %}
+                <p class="text-[10px] text-emerald-600 mt-1">Ежедневная автоматическая синхронизация в 06:05 UTC.</p>
+                {% endif %}
                 {% endif %}
 
-                <!-- Aliases table -->
-                <div x-data="{ addAliasOpen: false }">
+                <!-- Chain Aliases table (сети — заголовки колонок) -->
+                <div x-data="{ addChainOpen: false }" class="mt-3">
                     <div class="flex items-center justify-between mb-1.5">
-                        <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">🔁 Псевдонимы моделей</p>
-                        <button @click="addAliasOpen = !addAliasOpen"
+                        <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">🏷 Псевдонимы сетей <span class="normal-case font-normal">(заголовки колонок)</span></p>
+                        <button @click="addChainOpen = !addChainOpen"
                                 class="text-[10px] font-semibold text-blue-600 hover:text-blue-800 transition-colors">
-                            <span x-text="addAliasOpen ? '✖ Закрыть' : '➕ Добавить'"></span>
+                            <span x-text="addChainOpen ? '✖ Закрыть' : '➕ Добавить'"></span>
                         </button>
                     </div>
 
-                    {% if c.motiv_aliases %}
+                    {% set chain_al = c.motiv_chain_aliases %}
+                    {% if chain_al %}
                     <div class="bg-white border border-slate-100 rounded-xl overflow-hidden mb-2">
                         <table class="w-full text-xs">
                             <thead>
                                 <tr class="bg-slate-50 border-b border-slate-100">
-                                    <th class="text-left px-3 py-1.5 font-semibold text-slate-400">В таблице</th>
-                                    <th class="text-left px-3 py-1.5 font-semibold text-slate-400">В системе</th>
+                                    <th class="text-left px-3 py-1.5 font-semibold text-slate-400">В таблице (заголовок)</th>
+                                    <th class="text-left px-3 py-1.5 font-semibold text-slate-400">В профилях (trade_network)</th>
                                     <th class="w-8"></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for alias_from, alias_to in c.motiv_aliases.items() %}
+                                {% for alias_from, alias_to in chain_al.items() %}
                                 <tr class="border-t border-slate-50">
                                     <td class="px-3 py-1.5 font-mono text-slate-600">{{ alias_from }}</td>
                                     <td class="px-3 py-1.5 font-mono text-slate-600">→ {{ alias_to }}</td>
@@ -548,6 +566,7 @@
                                         <form method="post" action="/integration/{{ c.id }}/motiv/alias/delete">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                             <input type="hidden" name="alias_from" value="{{ alias_from }}">
+                                            <input type="hidden" name="alias_type" value="chain">
                                             <button type="submit" class="text-red-400 hover:text-red-600 transition-colors">🗑</button>
                                         </form>
                                     </td>
@@ -557,26 +576,92 @@
                         </table>
                     </div>
                     {% else %}
-                    <p class="text-[11px] text-slate-400 mb-2">Псевдонимы не заданы. Используйте, если название <b>модели</b> или <b>сети</b> (заголовка колонки) в таблице отличается от названия в системе — например <span class="font-mono">DNS → Днс</span> (сеть как в профилях сотрудников).</p>
+                    <p class="text-[11px] text-slate-400 mb-2">Не заданы. Используйте, если заголовок колонки в таблице (напр. <span class="font-mono">DNS</span>) отличается от названия сети в профилях сотрудников (напр. <span class="font-mono">Днс</span>).</p>
                     {% endif %}
 
-                    <!-- Add alias form -->
-                    <div x-show="addAliasOpen" x-cloak>
+                    <div x-show="addChainOpen" x-cloak>
                         <form method="post" action="/integration/{{ c.id }}/motiv/alias/add">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="alias_type" value="chain">
+                            <div class="flex gap-2 items-end">
+                                <div class="flex-1">
+                                    <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Заголовок в таблице</label>
+                                    <input type="text" name="alias_from" required placeholder="DNS"
+                                           class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <div class="flex-1">
+                                    <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Название в профилях</label>
+                                    <input type="text" name="alias_to" required placeholder="Днс"
+                                           class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <button type="submit" class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shrink-0">
+                                    ➕
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Model Aliases table (товары — значения строк) -->
+                <div x-data="{ addModelOpen: false }" class="mt-3">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">📦 Псевдонимы моделей <span class="normal-case font-normal">(названия товаров)</span></p>
+                        <button @click="addModelOpen = !addModelOpen"
+                                class="text-[10px] font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+                            <span x-text="addModelOpen ? '✖ Закрыть' : '➕ Добавить'"></span>
+                        </button>
+                    </div>
+
+                    {% set model_al = c.motiv_model_aliases %}
+                    {% if model_al %}
+                    <div class="bg-white border border-slate-100 rounded-xl overflow-hidden mb-2">
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-100">
+                                    <th class="text-left px-3 py-1.5 font-semibold text-slate-400">В таблице (модель)</th>
+                                    <th class="text-left px-3 py-1.5 font-semibold text-slate-400">В системе (товар)</th>
+                                    <th class="w-8"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for alias_from, alias_to in model_al.items() %}
+                                <tr class="border-t border-slate-50">
+                                    <td class="px-3 py-1.5 font-mono text-slate-600">{{ alias_from }}</td>
+                                    <td class="px-3 py-1.5 font-mono text-slate-600">→ {{ alias_to }}</td>
+                                    <td class="px-3 py-1.5">
+                                        <form method="post" action="/integration/{{ c.id }}/motiv/alias/delete">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                            <input type="hidden" name="alias_from" value="{{ alias_from }}">
+                                            <input type="hidden" name="alias_type" value="model">
+                                            <button type="submit" class="text-red-400 hover:text-red-600 transition-colors">🗑</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-[11px] text-slate-400 mb-2">Не заданы. Используйте, если название модели в таблице (напр. <span class="font-mono">Pura 80</span>) отличается от названия товара в системе (напр. <span class="font-mono">Huawei Pura 80</span>).</p>
+                    {% endif %}
+
+                    <div x-show="addModelOpen" x-cloak>
+                        <form method="post" action="/integration/{{ c.id }}/motiv/alias/add">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="alias_type" value="model">
                             <div class="flex gap-2 items-end">
                                 <div class="flex-1">
                                     <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Название в таблице</label>
-                                    <input type="text" name="alias_from" required placeholder="iPhone 15 Pro"
+                                    <input type="text" name="alias_from" required placeholder="Pura 80"
                                            class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                                 </div>
                                 <div class="flex-1">
                                     <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Название в системе</label>
-                                    <input type="text" name="alias_to" required placeholder="iPhone15Pro"
+                                    <input type="text" name="alias_to" required placeholder="Huawei Pura 80"
                                            class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                                 </div>
                                 <button type="submit" class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shrink-0">
-                                    ➕ Добавить
+                                    ➕
                                 </button>
                             </div>
                         </form>

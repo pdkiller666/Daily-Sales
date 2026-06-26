@@ -223,8 +223,9 @@ class IntegrationStates(StatesGroup):
     waiting_oauth_poll     = State()
     waiting_motiv_sheet    = State()
     waiting_motiv_rows     = State()
-    waiting_motiv_aliases  = State()
-    waiting_motiv_manual   = State()
+    waiting_motiv_aliases       = State()
+    waiting_motiv_model_aliases = State()
+    waiting_motiv_manual        = State()
     waiting_alias_edit     = State()
     waiting_exp_sheet_edit = State()
 

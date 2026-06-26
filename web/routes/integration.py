@@ -109,20 +109,37 @@ def integration_page(
                         last_synced = (
                             max(synced_ats)[:16].replace("T", " ") if synced_ats else ""
                         )
+                        last_sync_stats = motiv_cfg.get("last_sync_stats") or {}
+                        chain_al_cnt = len(motiv_cfg.get("chain_aliases") or {})
+                        model_al_cnt = len(motiv_cfg.get("model_aliases") or {})
+                        leg_al_cnt   = len(motiv_cfg.get("aliases") or {})
                         motiv_preview = {
                             "sheet": motiv_cfg.get("sheet_name", ""),
                             "chains": chains,
                             "model_count": len(models),
-                            "last_synced": last_synced,
-                            "alias_count": len(motiv_cfg.get("aliases") or {}),
+                            "last_synced": last_sync_stats.get("synced_at") or last_synced,
+                            "alias_count": chain_al_cnt + model_al_cnt + leg_al_cnt,
+                            "rules_written": last_sync_stats.get("rules_written"),
+                            "matched_models": last_sync_stats.get("matched_models"),
+                            "unmatched_count": last_sync_stats.get("unmatched", 0),
+                            "auto_sync": bool(motiv_cfg.get("auto_sync")),
                         }
                     except Exception:
                         motiv_preview = None
                 motiv_bonus_cols_str = ""
                 if motiv_cfg.get("bonus_col_map"):
-                    motiv_bonus_cols_str = ", ".join(
-                        str(k) for k in motiv_cfg["bonus_col_map"].keys()
-                    )
+                    _bcm_parts = []
+                    for _k, _v in motiv_cfg["bonus_col_map"].items():
+                        try:
+                            _v_str = str(_v).strip()
+                            _k_str = str(_k).strip()
+                            if _v_str == _k_str or _v_str == str(int(_k)):
+                                _bcm_parts.append(_k_str)
+                            else:
+                                _bcm_parts.append(f"{_k_str}:{_v_str}")
+                        except (ValueError, TypeError):
+                            _bcm_parts.append(str(_k))
+                    motiv_bonus_cols_str = ", ".join(_bcm_parts)
                 conns.append({
                     "id": cid,
                     "name": c[1] or "—",
@@ -137,7 +154,11 @@ def integration_page(
                     "motiv_header_row": motiv_cfg.get("header_row", 1),
                     "motiv_model_col": motiv_cfg.get("model_col", 1),
                     "motiv_bonus_cols": motiv_bonus_cols_str,
+                    "motiv_chain_aliases": motiv_cfg.get("chain_aliases") or {},
+                    "motiv_model_aliases": motiv_cfg.get("model_aliases") or {},
                     "motiv_aliases": motiv_cfg.get("aliases") or {},
+                    "motiv_auto_sync": bool(motiv_cfg.get("auto_sync")),
+                    "motiv_auto_sync_hour": int(motiv_cfg.get("auto_sync_hour", 6)),
                     "motiv_preview": motiv_preview,
                 })
                 try:
@@ -435,6 +456,7 @@ async def integration_sync_motiv(request: Request, cid: int, csrf_token: str = F
         db = get_web_db(telegram_id, org_db)
         from integration.manager import integration_manager
         result = await integration_manager.run_motiv_sync_from_config(db, cid)
+        integration_manager.save_motiv_sync_stats(db, cid, result)
         synced = result.get("synced", 0)
         chains = result.get("chains", [])
         rules_written = result.get("rules_written", 0)
@@ -957,16 +979,27 @@ def integration_motiv_save(
             parts = [p.strip() for p in bonus_cols.split(",") if p.strip()]
             bonus_col_map = {}
             for part in parts:
+                chain_name = None
+                col_str_raw = part
+                if ':' in part:
+                    col_str_raw, chain_part = part.split(':', 1)
+                    col_str_raw = col_str_raw.strip()
+                    chain_name = chain_part.strip() or None
                 try:
-                    idx = int(part)
-                    bonus_col_map[str(idx)] = idx
+                    idx = int(col_str_raw)
                 except ValueError:
-                    col_str = part.upper()
                     idx = 0
-                    for ch in col_str:
+                    for ch in col_str_raw.upper():
                         idx = idx * 26 + (ord(ch) - ord('A') + 1)
-                    if idx > 0:
-                        bonus_col_map[part] = idx
+                if idx > 0:
+                    if not chain_name:
+                        letters = ''
+                        n = idx
+                        while n > 0:
+                            n, rem = divmod(n - 1, 26)
+                            letters = chr(ord('A') + rem) + letters
+                        chain_name = f"Кол.{letters}"
+                    bonus_col_map[str(idx)] = chain_name
             motiv["bonus_col_map"] = bonus_col_map
         existing_cfg["motiv_config"] = motiv
         db.update_integration_connection(cid, config=json.dumps(existing_cfg, ensure_ascii=False))
@@ -983,8 +1016,10 @@ def integration_motiv_alias_add(
     cid: int,
     alias_from: Annotated[str, Form()],
     alias_to: Annotated[str, Form()],
+    alias_type: str = Form(default="chain"),
     csrf_token: str = Form(default=""),
 ):
+    """Add a chain alias (alias_type='chain') or model alias (alias_type='model')."""
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from urllib.parse import quote
@@ -1010,9 +1045,10 @@ def integration_motiv_alias_add(
             return RedirectResponse(url=f"/integration?error={quote('Подключение не найдено')}", status_code=302)
         cfg = json.loads(conn_row[3] or "{}")
         motiv = cfg.get("motiv_config") or {}
-        aliases = motiv.get("aliases") or {}
+        key = "model_aliases" if alias_type == "model" else "chain_aliases"
+        aliases = motiv.get(key) or {}
         aliases[alias_from.strip()] = alias_to.strip()
-        motiv["aliases"] = aliases
+        motiv[key] = aliases
         cfg["motiv_config"] = motiv
         db.update_integration_connection(cid, config=json.dumps(cfg, ensure_ascii=False))
     except Exception as e:
@@ -1027,8 +1063,10 @@ def integration_motiv_alias_delete(
     request: Request,
     cid: int,
     alias_from: Annotated[str, Form()],
+    alias_type: str = Form(default="chain"),
     csrf_token: str = Form(default=""),
 ):
+    """Delete a chain alias (alias_type='chain') or model alias (alias_type='model')."""
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from urllib.parse import quote
@@ -1051,9 +1089,13 @@ def integration_motiv_alias_delete(
             return RedirectResponse(url=f"/integration?error={quote('Подключение не найдено')}", status_code=302)
         cfg = json.loads(conn_row[3] or "{}")
         motiv = cfg.get("motiv_config") or {}
-        aliases = motiv.get("aliases") or {}
+        key = "model_aliases" if alias_type == "model" else "chain_aliases"
+        aliases = motiv.get(key) or {}
         aliases.pop(alias_from.strip(), None)
-        motiv["aliases"] = aliases
+        motiv[key] = aliases
+        # Also clean up legacy aliases dict for backward compat
+        if "aliases" in motiv:
+            motiv["aliases"].pop(alias_from.strip(), None)
         cfg["motiv_config"] = motiv
         db.update_integration_connection(cid, config=json.dumps(cfg, ensure_ascii=False))
     except Exception as e:
@@ -1061,3 +1103,43 @@ def integration_motiv_alias_delete(
         return RedirectResponse(url=f"/integration?error={quote('Ошибка удаления псевдонима')}", status_code=302)
 
     return RedirectResponse(url="/integration?msg=Псевдоним+удалён", status_code=302)
+
+
+@router.post("/integration/{cid}/motiv/auto-sync-toggle")
+def integration_motiv_auto_sync_toggle(
+    request: Request,
+    cid: int,
+    csrf_token: str = Form(default=""),
+):
+    """Toggle auto-sync (daily APScheduler job) for this connection's motiv config."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn_row = db.get_integration_connection(cid)
+        if not conn_row:
+            return RedirectResponse(url=f"/integration?error={quote('Подключение не найдено')}", status_code=302)
+        cfg = json.loads(conn_row[3] or "{}")
+        motiv = cfg.get("motiv_config") or {}
+        motiv["auto_sync"] = not bool(motiv.get("auto_sync"))
+        motiv.setdefault("auto_sync_hour", 6)
+        cfg["motiv_config"] = motiv
+        db.update_integration_connection(cid, config=json.dumps(cfg, ensure_ascii=False))
+    except Exception as e:
+        logging.error(f"integration_motiv_auto_sync_toggle: {e}")
+        return RedirectResponse(url=f"/integration?error={quote('Ошибка изменения настройки автосинка')}", status_code=302)
+
+    return RedirectResponse(url="/integration?msg=Настройка+автосинка+обновлена", status_code=302)

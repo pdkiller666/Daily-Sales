@@ -194,6 +194,28 @@ class IntegrationManager:
             col_mapping=cfg.get('col_mapping') or {},
         )
 
+    def save_motiv_sync_stats(self, db, conn_id: int, result: dict) -> None:
+        """Persist last-sync statistics into motiv_config so the web UI can display them."""
+        db = self._unwrap(db)
+        try:
+            conn = db.get_integration_connection(conn_id)
+            if not conn:
+                return
+            cfg = json.loads(conn[3] or '{}')
+            motiv = cfg.get('motiv_config') or {}
+            motiv['last_sync_stats'] = {
+                'synced':          result.get('synced', 0),
+                'rules_written':   result.get('rules_written', 0),
+                'matched_models':  result.get('matched_models', 0),
+                'unmatched':       len(result.get('unmatched', [])),
+                'unmatched_chains': len(result.get('unmatched_chains', [])),
+                'synced_at':       datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
+            }
+            cfg['motiv_config'] = motiv
+            db.update_integration_connection(conn_id, config=json.dumps(cfg, ensure_ascii=False))
+        except Exception as e:
+            logger.warning(f"save_motiv_sync_stats: {e}")
+
     async def sync_motivation_from_sheet(
         self, db, conn_id: int,
         sheet_name: str,
@@ -202,13 +224,19 @@ class IntegrationManager:
         bonus_col_map: dict,
         rrp_col: int = None,
         aliases: dict = None,
+        model_aliases: dict = None,
+        chain_aliases: dict = None,
     ) -> dict:
         """
         Read bonus rates from a sheet (rows = models, columns = chains) and
         cache them in gs_bonus_cache.
-        `aliases` maps a sheet model name → the system model name; applied
-        (case-insensitively, trimmed) before writing to the cache.
-        Returns {'synced': N, 'models': [list], 'sheet': sheet_name, 'chains': [list]}.
+
+        model_aliases: {sheet_model_name → system_model_name}  (applied to row values)
+        chain_aliases: {sheet_col_header → trade_network_name}  (applied to column headers)
+        aliases: legacy unified dict — used as fallback if model_aliases/chain_aliases not set.
+
+        Returns {'synced': N, 'models': [list], 'sheet': sheet_name, 'chains': [list],
+                 'rules_written': N, 'matched_models': N, 'unmatched': [...], ...}.
         """
         db = self._unwrap(db)
         conn = db.get_integration_connection(conn_id)
@@ -232,13 +260,26 @@ class IntegrationManager:
         # Replace cache for this connection so removed chains/models don't linger
         db.clear_bonus_cache(conn_id)
 
-        # Normalize aliases for case-insensitive, trimmed lookup
-        alias_lookup = {}
-        for k, v in (aliases or {}).items():
-            ks = str(k).strip().lower()
-            vs = str(v).strip()
-            if ks and vs:
-                alias_lookup[ks] = vs
+        # Build separate normalized lookups for models and chains.
+        # Fallback to legacy unified `aliases` if new keys not provided.
+        _legacy = aliases or {}
+        _model_src = model_aliases if model_aliases is not None else _legacy
+        _chain_src = chain_aliases if chain_aliases is not None else _legacy
+
+        def _norm_lookup(d: dict) -> dict:
+            out = {}
+            for k, v in d.items():
+                ks = str(k).strip().lower()
+                vs = str(v).strip()
+                if ks and vs:
+                    out[ks] = vs
+            return out
+
+        model_lookup = _norm_lookup(_model_src)   # sheet model name → system model name
+        chain_lookup = _norm_lookup(_chain_src)   # sheet col header  → trade_network name
+
+        # Combined alias_lookup kept for backward-compat callers that read it from result
+        alias_lookup = {**_norm_lookup(_legacy), **model_lookup, **chain_lookup}
 
         # Build a normalized product-name lookup ONCE (case-insensitive, trimmed).
         # get_product_by_name() does an exact `name = ?` match — sheet model names
@@ -276,8 +317,8 @@ class IntegrationManager:
         unmatched_chains = set()
         for entry in rows:
             model_name = entry['model']
-            if alias_lookup:
-                model_name = alias_lookup.get(str(model_name).strip().lower(), model_name)
+            if model_lookup:
+                model_name = model_lookup.get(str(model_name).strip().lower(), model_name)
             rrp = entry.get('rrp', 0.0)
             bonuses = entry.get('bonuses', {})
             if not bonuses:
@@ -296,13 +337,11 @@ class IntegrationManager:
             else:
                 unmatched.append(model_name)
             for chain, bonus in bonuses.items():
-                # Resolve the sheet column header (network) through the SAME alias
-                # map as models, so "DNS" → "Днс" matches the trade_network stored
-                # in profiles. Without this the rule scope_value never matches and
-                # resolve_motivation falls back to the wrong / global rate.
+                # Resolve the sheet column header (network) through the chain alias map
+                # so "DNS" → "Днс" matches the trade_network stored in employee profiles.
                 chain_resolved = chain
-                if alias_lookup:
-                    chain_resolved = alias_lookup.get(str(chain).strip().lower(), chain)
+                if chain_lookup:
+                    chain_resolved = chain_lookup.get(str(chain).strip().lower(), chain)
                 chain_norm = str(chain_resolved).strip().lower()
                 db.upsert_bonus_cache(conn_id, model_name, chain_resolved, bonus, rrp)
                 chains.add(chain_resolved)
@@ -354,7 +393,56 @@ class IntegrationManager:
             bonus_col_map=cfg.get('bonus_col_map', {}),
             rrp_col=cfg.get('rrp_col'),
             aliases=cfg.get('aliases'),
+            model_aliases=cfg.get('model_aliases'),
+            chain_aliases=cfg.get('chain_aliases'),
         )
+
+    async def schedule_motiv_syncs(self, scheduler, get_db_paths_fn):
+        """Register daily auto-sync jobs for connections with motiv auto_sync=true."""
+        try:
+            db_paths = get_db_paths_fn()
+            for path in db_paths:
+                from database import Database
+                db = Database(path)
+                db.create_tables()
+                try:
+                    conns = db.get_integration_connections() or []
+                    for conn in conns:
+                        try:
+                            cfg = json.loads(conn[3] or '{}')
+                        except Exception:
+                            cfg = {}
+                        motiv = cfg.get('motiv_config') or {}
+                        if not motiv.get('auto_sync'):
+                            continue
+                        hour = int(motiv.get('auto_sync_hour', 6))
+                        job_id = f'gs_motiv_sync_{path}_{conn[0]}'
+                        scheduler.add_job(
+                            self._motiv_sync_scheduled,
+                            CronTrigger(hour=hour, minute=5),
+                            args=[path, conn[0]],
+                            id=job_id,
+                            replace_existing=True,
+                            misfire_grace_time=600,
+                        )
+                        logger.info(f"Scheduled motiv sync job: {job_id} hour={hour}")
+                except Exception as e:
+                    logger.error(f"schedule_motiv_syncs DB {path}: {e}")
+        except Exception as e:
+            logger.error(f"schedule_motiv_syncs error: {e}")
+
+    async def _motiv_sync_scheduled(self, db_path: str, conn_id: int):
+        """Scheduled runner: silently sync motivation for one connection."""
+        try:
+            from database import Database
+            db = Database(db_path)
+            db.create_tables()
+            result = await self.run_motiv_sync_from_config(db, conn_id)
+            self.save_motiv_sync_stats(db, conn_id, result)
+            logger.info(f"Auto motiv sync done: conn={conn_id} db={db_path} "
+                        f"synced={result.get('synced')} rules={result.get('rules_written')}")
+        except Exception as e:
+            logger.error(f"_motiv_sync_scheduled conn={conn_id} db={db_path}: {e}")
 
 
     # ───────────────────────────────────────────────────────

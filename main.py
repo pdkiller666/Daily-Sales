@@ -1298,6 +1298,13 @@ async def main():
     except Exception as _ie:
         logging.warning(f"Integration schedule_exports: {_ie}")
 
+    # Регистрируем cron-задачи автосинка мотивации (для подключений с auto_sync=true)
+    try:
+        from integration.manager import integration_manager
+        await integration_manager.schedule_motiv_syncs(scheduler, _get_scheduler_db_paths)
+    except Exception as _mse:
+        logging.warning(f"Integration schedule_motiv_syncs: {_mse}")
+
     logging.info("Бот запущен")
 
     # Сохраняем username бота для генерации deep-link

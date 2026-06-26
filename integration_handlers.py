@@ -1018,23 +1018,29 @@ async def gs_hub_motiv(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[3])
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    has_cfg = bool(integration_manager.get_motiv_config(current_db, conn_id))
+    motiv_cfg = integration_manager.get_motiv_config(current_db, conn_id)
+    has_cfg = bool(motiv_cfg)
+    auto_sync = bool((motiv_cfg or {}).get('auto_sync'))
     kb = InlineKeyboardBuilder()
     if has_cfg:
         kb.row(InlineKeyboardButton(text="⚡ Быстрая синхронизация",
                                     callback_data=f"gs_mtv_resync_{conn_id}"))
+        auto_lbl = "🔔 Автосинк: ВКЛ  →  выключить" if auto_sync else "🔕 Автосинк: ВЫКЛ  →  включить"
+        kb.row(InlineKeyboardButton(text=auto_lbl,
+                                    callback_data=f"gs_mtv_autosync_{conn_id}"))
     kb.row(InlineKeyboardButton(
         text="🔄 Перенастроить мотивацию" if has_cfg else "🔄 Настроить мотивацию",
         callback_data=f"gs_sync_motiv_{conn_id}"))
     kb.row(InlineKeyboardButton(text="📊 Кэш мотивации",
                                 callback_data=f"gs_show_motiv_{conn_id}"))
     kb.row(_back(f"gs_conn_{conn_id}"))
+    auto_line = f"\n{'🔔' if auto_sync else '🔕'} Автосинк: {'включён (ежедневно в 6:00)' if auto_sync else 'выключен'}" if has_cfg else ""
     cfg_line = ("\n✅ Настройка сохранена — доступна быстрая синхронизация."
                 if has_cfg else
                 "\n⚙️ Запустите мастер: бот покажет реальные строки и колонки листа.")
     await callback.message.edit_text(
         "🎯 <b>Мотивация</b>\n\nСинхронизация бонусных данных из Google Sheets "
-        f"и просмотр кэша.{cfg_line}",
+        f"и просмотр кэша.{cfg_line}{auto_line}",
         reply_markup=kb.as_markup(), parse_mode="HTML"
     )
 
@@ -1414,29 +1420,54 @@ def _parse_motiv_manual(text: str) -> dict:
             'bonus_map': bonus_map, 'rrp_col': rrp_col}
 
 
-async def _mtv_show_aliases(target, state: FSMContext):
-    """Step 5/5: optional aliases (sheet model name → system model name)."""
+async def _mtv_show_chain_aliases(target, state: FSMContext):
+    """Step 5/6: optional chain (column header) aliases."""
     data    = await state.get_data()
     conn_id = data.get('gs_motiv_conn_id')
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="⏩ Пропустить и сохранить", callback_data="gs_mtv_askip"))
+    kb.row(InlineKeyboardButton(text="⏩ Пропустить", callback_data="gs_mtv_askip"))
     kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="gs_mtv_bk_rcol"))
     text = (
-        "🎯 <b>Мотивация — шаг 5/5: псевдонимы</b> <i>(необязательно)</i>\n\n"
-        "Если название <b>в таблице отличается</b> от названия в системе — "
-        "задай соответствие. Работает и для <b>моделей</b>, и для <b>сетей</b> "
-        "(заголовков колонок).\n\n"
+        "🎯 <b>Мотивация — шаг 5/6: псевдонимы сетей</b> <i>(необязательно)</i>\n\n"
+        "Если заголовок колонки в таблице (<b>название сети</b>) отличается от "
+        "того, что записано в профилях сотрудников — задай соответствие.\n\n"
+        "Формат — <b>по одной паре в строке</b>:\n"
+        "<code>Название в листе → Название в системе</code>\n\n"
+        "<b>Например:</b>\n"
+        "<code>DNS → Днс</code>\n"
+        "<code>МВМ → МВидео</code>\n\n"
+        "Разделители: <code>→</code> или <code>-&gt;</code> или <code>:</code>\n\n"
+        "Если заголовки совпадают с профилями — нажми «⏩ Пропустить»."
+    )
+    await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await state.set_state(IntegrationStates.waiting_motiv_aliases)
+
+
+async def _mtv_show_model_aliases(target, state: FSMContext):
+    """Step 6/6: optional model (row value) aliases."""
+    data    = await state.get_data()
+    conn_id = data.get('gs_motiv_conn_id')
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="⏩ Пропустить и сохранить", callback_data="gs_mtv_amskip"))
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="gs_mtv_bk_chain_aliases"))
+    text = (
+        "🎯 <b>Мотивация — шаг 6/6: псевдонимы моделей</b> <i>(необязательно)</i>\n\n"
+        "Если название модели <b>в таблице</b> отличается от названия товара в системе — "
+        "задай соответствие.\n\n"
         "Формат — <b>по одной паре в строке</b>:\n"
         "<code>Название в листе → Название в системе</code>\n\n"
         "<b>Например:</b>\n"
         "<code>Pura 80 → Huawei Pura 80</code>\n"
-        "<code>Nova 14 → Nova 14i</code>\n"
-        "<code>DNS → Днс</code>  <i>(сеть как в профилях)</i>\n\n"
+        "<code>Nova 14 → Nova 14i</code>\n\n"
         "Разделители: <code>→</code> или <code>-&gt;</code> или <code>:</code>\n\n"
         "Если названия совпадают — нажми «⏩ Пропустить и сохранить»."
     )
     await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
-    await state.set_state(IntegrationStates.waiting_motiv_aliases)
+    await state.set_state(IntegrationStates.waiting_motiv_model_aliases)
+
+
+# backward compat alias
+_mtv_show_aliases = _mtv_show_chain_aliases
 
 
 async def _mtv_finalize(state: FSMContext, user_id: int, edit):
@@ -1458,20 +1489,32 @@ async def _mtv_finalize(state: FSMContext, user_id: int, edit):
         await clear_state_keep_org(state)
         return
 
+    chain_al = data.get('gs_mtv_chain_aliases', {})
+    model_al = data.get('gs_mtv_model_aliases', {})
+
+    await edit("⏳ Сохраняю настройку и синхронизирую мотивацию…", None)
+    current_db = await get_db(user_id, state)
+
+    # Preserve auto_sync toggle from existing config (wizard doesn't change it)
+    existing_motiv = integration_manager.get_motiv_config(current_db, conn_id) or {}
+    auto_sync = bool(existing_motiv.get('auto_sync', False))
+
     motiv_config = {
         'sheet_name':    sheet,
         'header_row':    int(header_row),
         'model_col':     int(model_col),
         'bonus_col_map': {str(k): v for k, v in bmap.items()},
         'rrp_col':       int(rrp_col) if rrp_col else None,
-        'aliases':       aliases or {},
+        'chain_aliases': chain_al,
+        'model_aliases': model_al,
+        'aliases':       {},
+        'auto_sync':     auto_sync,
+        'auto_sync_hour': int(existing_motiv.get('auto_sync_hour', 6)),
     }
-
-    await edit("⏳ Сохраняю настройку и синхронизирую мотивацию…", None)
-    current_db = await get_db(user_id, state)
     try:
         integration_manager.save_motiv_config(current_db, conn_id, motiv_config)
         result = await integration_manager.run_motiv_sync_from_config(current_db, conn_id)
+        integration_manager.save_motiv_sync_stats(current_db, conn_id, result)
         synced  = result['synced']
         models  = result['models']
         chains  = result.get('chains', [])
@@ -1667,6 +1710,7 @@ async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
         await msg.edit_text("⏳ Синхронизирую мотивацию…", parse_mode="HTML")
         try:
             result = await integration_manager.run_motiv_sync_from_config(current_db, conn_id)
+            integration_manager.save_motiv_sync_stats(current_db, conn_id, result)
             models_preview = ", ".join(result['models'][:8])
             if len(result['models']) > 8:
                 models_preview += f" … ещё {len(result['models']) - 8}"
@@ -1768,12 +1812,38 @@ async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
         await _mtv_show_aliases(msg, state)
         return
 
-    # ── aliases (step 5) skip → finalize ──────────────────────
+    # ── chain aliases (step 5) skip → model aliases ───────────
     if raw == "askip":
-        await state.update_data(gs_mtv_aliases={})
+        await state.update_data(gs_mtv_chain_aliases={})
+        await _mtv_show_model_aliases(msg, state)
+        return
+
+    # ── model aliases (step 6) skip → finalize ────────────────
+    if raw == "amskip":
+        await state.update_data(gs_mtv_model_aliases={})
         await _mtv_finalize(
             state, callback.from_user.id,
             lambda t, rm: msg.edit_text(t, reply_markup=rm, parse_mode="HTML"))
+        return
+
+    # ── back to chain aliases ──────────────────────────────────
+    if raw == "bk_chain_aliases":
+        await _mtv_show_chain_aliases(msg, state)
+        return
+
+    # ── auto_sync toggle ──────────────────────────────────────
+    if raw.startswith("autosync_"):
+        conn_id = int(raw[len("autosync_"):])
+        await state.update_data(gs_motiv_conn_id=conn_id, gs_conn_id=conn_id)
+        current_db = await get_db(callback.from_user.id, state)
+        motiv_cfg = integration_manager.get_motiv_config(current_db, conn_id) or {}
+        new_val = not bool(motiv_cfg.get('auto_sync'))
+        motiv_cfg['auto_sync'] = new_val
+        motiv_cfg.setdefault('auto_sync_hour', 6)
+        integration_manager.save_motiv_config(current_db, conn_id, motiv_cfg)
+        status = "включён (ежедневно в 6:00)" if new_val else "выключен"
+        await callback.answer(f"🔔 Автосинк {status}", show_alert=False)
+        await gs_hub_motiv(callback, state)
         return
 
     # ── manual fallback (GS API unavailable) ──────────────────
@@ -1805,17 +1875,42 @@ async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
 
 @integration_router.message(IntegrationStates.waiting_motiv_aliases)
 async def gs_motiv_aliases_input(message: Message, state: FSMContext):
-    aliases = _parse_aliases(message.text or "")
-    await state.update_data(gs_mtv_aliases=aliases)
+    """Chain alias input — save and go to model aliases step."""
+    chain_aliases = _parse_aliases(message.text or "")
+    await state.update_data(gs_mtv_chain_aliases=chain_aliases)
+    data      = await state.get_data()
+    anchor_id = data.get('anchor_msg_id')
+    await delete_message_safe(message)
+
+    class _Proxy:
+        def __init__(self, bot, chat_id, msg_id):
+            self.bot = bot; self.chat_id = chat_id; self.msg_id = msg_id
+        async def edit_text(self, text, reply_markup=None, parse_mode=None):
+            await self.bot.edit_message_text(
+                text, chat_id=self.chat_id, message_id=self.msg_id,
+                reply_markup=reply_markup, parse_mode=parse_mode or "HTML")
+
+    if anchor_id:
+        await _mtv_show_model_aliases(_Proxy(message.bot, message.chat.id, anchor_id), state)
+    else:
+        sent = await message.answer("…")
+        await state.update_data(anchor_msg_id=sent.message_id)
+        await _mtv_show_model_aliases(_Proxy(message.bot, message.chat.id, sent.message_id), state)
+
+
+@integration_router.message(IntegrationStates.waiting_motiv_model_aliases)
+async def gs_motiv_model_aliases_input(message: Message, state: FSMContext):
+    """Model alias input — save and finalize."""
+    model_aliases = _parse_aliases(message.text or "")
+    await state.update_data(gs_mtv_model_aliases=model_aliases)
     data      = await state.get_data()
     anchor_id = data.get('anchor_msg_id')
     await delete_message_safe(message)
 
     async def _edit(text, reply_markup):
-        target_id = anchor_id
-        if target_id:
+        if anchor_id:
             await message.bot.edit_message_text(
-                text, chat_id=message.chat.id, message_id=target_id,
+                text, chat_id=message.chat.id, message_id=anchor_id,
                 reply_markup=reply_markup, parse_mode="HTML")
         else:
             await message.answer(text, reply_markup=reply_markup, parse_mode="HTML")
@@ -1855,11 +1950,11 @@ async def gs_motiv_manual_input(message: Message, state: FSMContext):
                 reply_markup=reply_markup, parse_mode=parse_mode or "HTML")
 
     if anchor_id:
-        await _mtv_show_aliases(_AnchorProxy(message.bot, message.chat.id, anchor_id), state)
+        await _mtv_show_chain_aliases(_AnchorProxy(message.bot, message.chat.id, anchor_id), state)
     else:
         sent = await message.answer("…")
         await state.update_data(anchor_msg_id=sent.message_id)
-        await _mtv_show_aliases(_AnchorProxy(message.bot, message.chat.id, sent.message_id), state)
+        await _mtv_show_chain_aliases(_AnchorProxy(message.bot, message.chat.id, sent.message_id), state)
 
 
 @integration_router.callback_query(F.data.startswith("gs_show_motiv_"))
