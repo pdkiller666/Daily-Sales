@@ -1130,9 +1130,21 @@ function labelDesigner() {
     /* ── PDF ── */
     async downloadPdf() {
       if(SING) {
+        /* single → GET blob in current (authenticated) context → download.
+           window.open(_blank) ломается в мобильном/TWA: новая вкладка теряет
+           session-cookie и сервер редиректит на логин/десктоп-страницу. */
         let url = `/products/${SING}/label?format=pdf&size=${this.curSize}`;
         if(NET) url += `&network=${encodeURIComponent(NET)}`;
-        window.open(url, '_blank');
+        try {
+          const r = await fetch(url);
+          if(!r.ok) { this.toast('⚠ Ошибка PDF'); return; }
+          const blob = await r.blob();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'label.pdf';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        } catch { this.toast('⚠ Ошибка сети'); }
         return;
       }
       /* bulk → POST JSON → download blob */
@@ -1154,6 +1166,7 @@ function labelDesigner() {
         a.href = URL.createObjectURL(blob);
         a.download = 'labels.pdf';
         a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
       } catch { this.toast('⚠ Ошибка сети'); }
     },
 

@@ -139,13 +139,15 @@ class CurrencyMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-# CSP template — {nonce} заменяется per-request случайным значением из SecurityHeadersMiddleware.
+# CSP template.
 # 'unsafe-eval' обязателен для Alpine.js 3 (использует new Function() при вычислении x-* атрибутов).
-# 'nonce-{nonce}' заменяет 'unsafe-inline': браузеры с поддержкой нонсов игнорируют unsafe-inline
-# когда нонс присутствует в директиве, что ограничивает выполнение только тегированными <script>.
+# 'unsafe-inline' обязателен: интерфейс массово использует inline event-handler атрибуты
+# (onclick/onchange/onsubmit, 250+ штук в шаблонах). По CSP3 наличие nonce в директиве
+# ОТКЛЮЧАЕТ 'unsafe-inline' для браузера, а на inline-обработчики nonce повесить нельзя —
+# поэтому nonce здесь НЕ используется (иначе все inline-обработчики молча перестают работать).
 _CSP_TEMPLATE = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-eval' 'nonce-{{nonce}}' "
+    "script-src 'self' 'unsafe-eval' 'unsafe-inline' "
     "https://telegram.org; "
     "style-src 'self' 'unsafe-inline'; "
     "font-src 'self' data:; "

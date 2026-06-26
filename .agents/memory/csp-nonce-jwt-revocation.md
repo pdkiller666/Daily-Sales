@@ -3,16 +3,15 @@ name: CSP nonce + JWT revocation
 description: Как реализованы per-request CSP nonce и JWT jti blacklist; ключевые ловушки.
 ---
 
-## CSP nonce
+## CSP — nonce ОТКАЧЕН, используется 'unsafe-inline' (важно!)
 
-- `SecurityHeadersMiddleware.dispatch()` генерирует `nonce = _secrets.token_urlsafe(16)` **до** `call_next()`, кладёт в `request.state.csp_nonce`
-- Jinja2 global: `templates.env.globals['csp_nonce'] = lambda request: getattr(getattr(request,'state',None),'csp_nonce','')`
-- В шаблонах: `<script nonce="{{ csp_nonce(request) }}">` — 93 script-блока в 52 файлах (добавлены через `sed 's/<script>/<script nonce...>/g'`)
-- CSP header строится через `_CSP_TEMPLATE.replace("{{nonce}}", nonce)` (двойные фигурные скобки чтобы `str.format` не ломал)
-- `unsafe-inline` убран из script-src — современные браузеры игнорируют его при наличии нonce
-- `unsafe-eval` остаётся — Alpine.js 3 требует для `new Function()` в x-* атрибутах
+- ТЕКУЩЕЕ состояние `_CSP_TEMPLATE` (web/app.py): `script-src 'self' 'unsafe-eval' 'unsafe-inline' https://telegram.org` — БЕЗ nonce.
+- `unsafe-eval` обязателен — Alpine.js 3 (`new Function()` в x-* атрибутах).
+- `SecurityHeadersMiddleware` всё ещё генерит nonce и делает `.replace("{{nonce}}", nonce)` — теперь это **no-op** (в шаблоне нет `{{nonce}}`); `csp_nonce` Jinja-global и `nonce=` на `<script>` тоже безвредно игнорируются. Мёртвый код, чистить отдельным cleanup-коммитом.
 
-**Why:** `unsafe-inline` в CSP позволяет выполнять любой инжектированный `<script>`-тег. Nonce ограничивает выполнение только тегированными сервером скриптами.
+**Правило (НЕ переводить обратно на nonce без полного рефактора):** интерфейс массово (250+) использует inline event-handler атрибуты (`onclick`/`onchange`/`onsubmit`). По CSP3 наличие nonce в `script-src` **отключает** `'unsafe-inline'`, а на inline-обработчики nonce повесить НЕЛЬЗЯ → все они молча умирают (тема-тогл, канбан-кнопки, переход в карточку товара, push/тема в шторке «Ещё»). `<script>`-блоки с nonce и Alpine `@click` при этом продолжают работать — отсюда обманчивая картина «ломается только часть». Строгий nonce-CSP возможен ТОЛЬКО после миграции всех inline-обработчиков на delegated listeners/Alpine.
+
+**Why:** strict nonce-CSP — это XSS-харднинг, но он несовместим с текущей архитектурой шаблонов. Прошлая сессия добавила nonce + убрала `unsafe-inline` и сломала весь UI на inline-обработчиках; откат `unsafe-inline` — осознанный trade-off (слабее XSS-защита) ради работоспособности.
 
 ## JWT jti revocation
 
