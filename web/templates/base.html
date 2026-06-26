@@ -819,6 +819,7 @@ window.dsRefreshBadge = function() {
         h.style.opacity = '1';
     }
     function _hideHint() { if (_hintEl) _hintEl.style.opacity = '0'; }
+    window._dsHideNavHint = _hideHint;   /* позволяет дочерним модулям скрыть хинт при stopImmediatePropagation */
 
     /* ── Flash target nav item on navigate ── */
     function _flash(el) {

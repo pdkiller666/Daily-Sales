@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.226.0"
+CURRENT_VERSION = "1.227.0"
 
 ENTRIES = [
+    {
+        "version": "1.227.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Add \"read\" button to all bot notifications for easier message management",
+        ],
+    },
     {
         "version": "1.226.0",
         "date": "26 июня 2026",

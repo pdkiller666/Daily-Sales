@@ -2548,12 +2548,13 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         },
 
         /* ── Свайп группа↔ЛС на мобильном ──────────────────────────────────
+           Пространственная модель: [Отчёты] ←→ [Группа] ←→ [ЛС]
            Вешается на #chat-wrapper, перехватывает до base.html:
-           • группа + свайп вправо  → switchToDm()
-           • ЛС    + свайп влево   → switchToGroup()
-           • ЛС    + свайп вправо  → заблокировать (ничего)
-           • группа + свайп влево  → пропускаем (base.html → prev module)
-           Порог: ≥60px горизонтально, <40px вертикально (чтобы не мешать скроллу).
+           • группа + свайп влево  → switchToDm()   (ЛС правее группы)
+           • ЛС    + свайп вправо  → switchToGroup() (назад к группе)
+           • ЛС    + свайп влево   → заблокировать  (правее ЛС ничего нет)
+           • группа + свайп вправо → пропускаем (base.html → Отчёты)
+           Порог: ≥50px горизонтально, <60px вертикально (чтобы не мешать скроллу).
            Не срабатывает внутри input/textarea и горизонтально-скроллируемых зон.
         ─────────────────────────────────────────────────────────────────────── */
         _chatSwipeSetup() {
@@ -2596,19 +2597,20 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
 
                 const dir = dx > 0 ? 'right' : 'left';
 
-                if (!this.dmMode && dir === 'right') {
-                    /* Группа → ЛС */
+                if (!this.dmMode && dir === 'left') {
+                    /* Группа → ЛС (ЛС правее, свайп влево = движение вправо) */
                     e.stopImmediatePropagation();
                     this.switchToDm();
-                } else if (this.dmMode && dir === 'left') {
-                    /* ЛС → Группа */
-                    e.stopImmediatePropagation();
-                    this.switchToGroup();
                 } else if (this.dmMode && dir === 'right') {
-                    /* ЛС + вправо — блокируем, чтобы base.html не ушёл в другой модуль */
+                    /* ЛС → Группа; скрываем хинт base.html (он уже показан в touchmove) */
+                    e.stopImmediatePropagation();
+                    if (typeof window._dsHideNavHint === 'function') window._dsHideNavHint();
+                    this.switchToGroup();
+                } else if (this.dmMode && dir === 'left') {
+                    /* ЛС + влево — блокируем (правее ЛС ничего нет) */
                     e.stopImmediatePropagation();
                 }
-                /* группа + влево — пропускаем на base.html (переход в предыдущий модуль) */
+                /* группа + вправо — пропускаем на base.html (переход в Отчёты) */
             }, { passive: true });
         },
 
