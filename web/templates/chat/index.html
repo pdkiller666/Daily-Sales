@@ -2569,7 +2569,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             const MAX_DY = 60;
             let ts = null;
 
-            /* ── Локальная пилюля-подсказка (аналог base.html, z-index ниже) ── */
+            /* ── Локальная пилюля-подсказка (аналог base.html, z-index ниже) ──
+               Скрываем через display:none (мгновенно), а не opacity-transition:
+               Alpine-ререндер при switchToDm/switchToGroup может прервать
+               CSS-переход и оставить пилюлю видимой. display:none — надёжно. */
             let _hintEl = null;
             const _getHint = () => {
                 if (!_hintEl) {
@@ -2577,8 +2580,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     _hintEl.style.cssText = [
                         'position:fixed','top:50%','transform:translateY(-50%)',
                         'z-index:9998','pointer-events:none',
-                        'transition:opacity .12s ease','opacity:0',
-                        'display:flex','align-items:center','gap:5px',
+                        'display:none','align-items:center','gap:5px',
                         'background:rgba(37,99,235,.88)','color:#fff',
                         'padding:9px 16px','border-radius:99px',
                         'font-size:13px','font-weight:700',
@@ -2593,11 +2595,11 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             const _showHint = (dir, label) => {
                 const h = _getHint();
                 h.textContent = dir === 'left' ? ('→ ' + label) : (label + ' ←');
-                h.style.left  = dir === 'left' ? 'auto' : '16px';
-                h.style.right = dir === 'left' ? '16px' : 'auto';
-                h.style.opacity = '1';
+                h.style.left    = dir === 'left' ? 'auto' : '16px';
+                h.style.right   = dir === 'left' ? '16px' : 'auto';
+                h.style.display = 'flex';
             };
-            const _hideHint = () => { if (_hintEl) _hintEl.style.opacity = '0'; };
+            const _hideHint = () => { if (_hintEl) _hintEl.style.display = 'none'; };
 
             const _inScroll = el => {
                 while (el && el !== wrapper) {
