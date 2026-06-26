@@ -174,7 +174,7 @@
             </span>
         </div>
     </div>
-    <div class="relative ds-h-150">
+    <div class="relative" style="height:150px">
         <canvas id="reportsChart"></canvas>
     </div>
 </div>
@@ -564,7 +564,7 @@ window._aiReportData = {
                                 {% elif loop.index == 2 %}bg-slate-400
                                 {% elif loop.index == 3 %}bg-orange-400
                                 {% else %}bg-blue-300{% endif %}"
-                         :style="'width:'+(g.pct)+'%'"></div>
+                         style="width: {{ g.pct }}%"></div>
                 </div>
                 {# Sparkline — last 7 days trend #}
                 {% if g.spark|length >= 2 %}

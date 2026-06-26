@@ -129,7 +129,7 @@
         <div class="space-y-2">
             {% for node in dept_tree %}
             <div class="flex items-center justify-between gap-2 p-3 bg-white border border-slate-200 rounded-xl"
-                 :style="'margin-left:'+(node.depth * 20)+'px'">
+                 style="margin-left: {{ node.depth * 20 }}px">
                 <div class="flex items-center gap-2 min-w-0">
                     {% if node.depth > 0 %}<span class="text-slate-300">↳</span>{% endif %}
                     <span>{{ dept_type_labels.get(node.type, '🏢') }}</span>

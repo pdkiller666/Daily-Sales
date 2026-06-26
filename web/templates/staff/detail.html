@@ -153,7 +153,7 @@
                     {% if _is_abs %}
                     <div x-show="tt" x-cloak
                          class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-slate-800 text-white text-xs rounded-md whitespace-nowrap z-50 pointer-events-none shadow-lg"
-                         class="min-w-max">
+                         style="min-width:max-content">
                         {{ absence_tooltip_map.get(day, '') }}
                         <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
                     </div>
@@ -198,7 +198,7 @@
             <div class="w-full bg-slate-100 rounded-full h-1.5">
                 <div class="h-1.5 rounded-full transition-all
                     {{ 'bg-emerald-500' if plan.pct >= 100 else ('bg-amber-500' if plan.pct >= 60 else 'bg-blue-500') }}"
-                    :style="'width:'+(plan.pct)+'%'"></div>
+                    style="width: {{ plan.pct }}%"></div>
             </div>
             <div class="flex justify-between text-xs text-slate-400 mt-0.5">
                 {% if plan.metric_type == 'revenue' %}
@@ -227,7 +227,7 @@
         </span>
         {% endif %}
     </div>
-    <div class="relative ds-h-140">
+    <div class="relative" style="height:140px">
         <canvas id="staffRevenueChart"></canvas>
     </div>
 </div>

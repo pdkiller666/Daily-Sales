@@ -463,7 +463,7 @@
             <code class="font-mono text-[11px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded shrink-0 w-52 truncate">{{ tool_name }}</code>
             <div class="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                 <div class="h-2 rounded-full bg-indigo-500 dark:bg-indigo-400 transition-all"
-                     :style="'width:'+([(total_count / max_alltime * 100)|int, 100]|min)+'%'"></div>
+                     style="width: {{ [(total_count / max_alltime * 100)|int, 100]|min }}%"></div>
             </div>
             <span class="text-xs font-bold text-indigo-700 dark:text-indigo-300 w-10 text-right shrink-0">{{ total_count }}</span>
         </div>
@@ -514,7 +514,7 @@
                         <code class="font-mono text-[10px] text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded shrink-0 w-44 truncate">{{ tool_name }}</code>
                         <div class="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
                             <div class="h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500"
-                                 :style="'width:'+([(tool_count / max_org * 100)|int, 100]|min)+'%'"></div>
+                                 style="width: {{ [(tool_count / max_org * 100)|int, 100]|min }}%"></div>
                         </div>
                         <span class="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 w-8 text-right shrink-0">{{ tool_count }}</span>
                     </div>
@@ -555,7 +555,7 @@
                         <div class="mt-1.5 w-full max-w-[200px]">
                             <div class="h-1 rounded-full bg-slate-100 dark:bg-slate-700">
                                 <div class="h-1 rounded-full bg-indigo-400 dark:bg-indigo-500 transition-all"
-                                     :style="'width:'+([(row.today / max_today * 100)|int, 100]|min)+'%'"></div>
+                                     style="width: {{ [(row.today / max_today * 100)|int, 100]|min }}%"></div>
                             </div>
                         </div>
                         {% endif %}
@@ -616,7 +616,7 @@
                 <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5">
                     <div class="h-1.5 rounded-full
                                 {% if u.count >= high_daily_limit %}bg-red-500{% elif u.count >= base_daily_limit %}bg-amber-400{% else %}bg-blue-500{% endif %}"
-                         :style="'width:'+([(u.count / max_count * 100)|int, 100]|min)+'%'"></div>
+                         style="width: {{ [(u.count / max_count * 100)|int, 100]|min }}%"></div>
                 </div>
             </div>
             <span class="text-[10px] text-slate-400 shrink-0 w-14 text-right">ID {{ u.tg_id }}</span>
@@ -635,7 +635,7 @@
 </div>
 
 {% if alltime_total > 0 %}
-<style nonce="{{ csp_nonce(request) }}">
+<style>
 .ai-days-btn {
     color: #64748b;
     border-color: #e2e8f0;

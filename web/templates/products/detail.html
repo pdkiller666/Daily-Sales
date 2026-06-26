@@ -45,7 +45,7 @@
     <div class="relative">
         <div class="flex gap-2 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-1 -mx-1 px-1"
              id="gallery-scroll"
-             class="ds-no-scrollbar">
+             style="scrollbar-width:none;-ms-overflow-style:none">
             {% for _url in _photo_urls %}
             <div class="snap-center shrink-0 cursor-zoom-in"
                  @click="openLightbox({{ loop.index0 }})">
@@ -328,7 +328,7 @@
         </span>
         {% endif %}
     </div>
-    <div class="relative ds-h-130">
+    <div class="relative" style="height:130px">
         <canvas id="productRevenueChart"></canvas>
     </div>
 </div>
@@ -397,7 +397,7 @@ window.dsApplyLabelSize=function(a){try{var s=localStorage.getItem('ds_label_siz
             <div class="flex items-center gap-3 shrink-0">
                 <div class="w-24 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                     <div class="h-full rounded-full {{ 'bg-emerald-500' if (inv[3] or 0) > 5 else 'bg-amber-400' if (inv[3] or 0) > 0 else 'bg-slate-200' }}"
-                         :style="'width:'+(((inv[3] or 0) / total_stock * 100)|int if total_stock else 0)+'%'"></div>
+                         style="width: {{ ((inv[3] or 0) / total_stock * 100)|int if total_stock else 0 }}%"></div>
                 </div>
                 <span class="font-bold text-sm {{ 'text-emerald-600' if (inv[3] or 0) > 5 else 'text-amber-500' if (inv[3] or 0) > 0 else 'text-red-400' }} w-16 text-right">
                     {{ inv[3] or 0 }} шт.

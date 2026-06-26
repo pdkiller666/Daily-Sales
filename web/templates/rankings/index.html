@@ -98,7 +98,7 @@
     <div x-show="chartOpen" x-cloak x-transition>
         <div class="px-5 pb-5">
             <canvas id="rankingChart"
-                    :style="'max-height:'+([ranking|length, 10]|min * 36 + 20)+'px'"></canvas>
+                    style="max-height:{{ [ranking|length, 10]|min * 36 + 20 }}px"></canvas>
         </div>
     </div>
 </div>
@@ -141,17 +141,17 @@
         <div class="flex items-center gap-1">
             <span class="text-xs text-slate-400 mr-0.5">Сорт:</span>
             <button id="rnk-btn-revenue" @click="rnkSort('revenue')"
-                    class="ds-touch-manip"
+                    style="touch-action:manipulation"
                     class="px-2 py-1 rounded text-xs font-medium transition-colors border border-slate-200 text-slate-500 hover:border-blue-300">
                 Выручка<span id="rnk-arrow-revenue" class="ml-0.5"></span>
             </button>
             <button id="rnk-btn-count" @click="rnkSort('count')"
-                    class="ds-touch-manip"
+                    style="touch-action:manipulation"
                     class="px-2 py-1 rounded text-xs font-medium transition-colors border border-slate-200 text-slate-500 hover:border-blue-300">
                 Продаж<span id="rnk-arrow-count" class="ml-0.5"></span>
             </button>
             <button id="rnk-btn-qty" @click="rnkSort('qty')"
-                    class="ds-touch-manip"
+                    style="touch-action:manipulation"
                     class="px-2 py-1 rounded text-xs font-medium transition-colors border border-slate-200 text-slate-500 hover:border-blue-300">
                 Шт<span id="rnk-arrow-qty" class="ml-0.5"></span>
             </button>
@@ -220,7 +220,7 @@
                                     {% elif r.pos == 2 %}bg-slate-400
                                     {% elif r.pos == 3 %}bg-orange-400
                                     {% else %}bg-blue-300{% endif %}"
-                             :style="'width:'+(r.pct)+'%'"></div>
+                             style="width: {{ r.pct }}%"></div>
                     </div>
                 </div>
 
@@ -265,7 +265,7 @@
             <span class="text-xs text-blue-600">{{ own_rank.count }}&thinsp;продаж · {{ own_rank.qty }}&thinsp;шт.</span>
         </div>
         <div class="mt-2 h-1.5 bg-blue-100 rounded-full overflow-hidden">
-            <div class="h-full bg-blue-400 rounded-full" :style="'width:'+(own_rank.pct)+'%'"></div>
+            <div class="h-full bg-blue-400 rounded-full" style="width: {{ own_rank.pct }}%"></div>
         </div>
     </div>
     <div class="text-right shrink-0">

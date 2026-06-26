@@ -1,3 +1,4 @@
+- [Tailwind ds-custom.css overwrite](tailwind-ds-custom.md) — НИКОГДА не добавлять CSS напрямую в app.css; его перезаписывает Tailwind при deploy; все кастомные ds-*/ls-* классы ТОЛЬКО в ds-custom.css (deploy.sh дописывает его после сборки)
 - [Salary double-count paid absences](salary-paid-absences.md) — get_worked_days_count/bulk/team_summary ОБЯЗАНЫ вычитать дни approved paid absences; иначе отпуск/больничный/отгул считается дважды
 - [Amvera deploy auth gotchas](amvera-deploy-auth.md) — учётные данные Amvera ОБЯЗАНЫ URL-энкодиться (спецсимволы → «Port number» ошибка); упавший push НЕ должен молча стать «нет изменений» — сверять local HEAD vs remote-хэш
 - [UX hub pattern](ux-hub-pattern.md) — консолидация кнопок в хаб-меню: 3→1 кнопка + промежуточный экран; back из хаба → родительское меню

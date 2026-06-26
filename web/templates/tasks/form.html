@@ -202,7 +202,7 @@
       <div x-show="!assignAll">
 
         <!-- Selected chips -->
-        <div x-show="recips.length > 0" x-cloak class="flex flex-wrap gap-1.5 mb-2.5">
+        <div x-show="recips.length > 0" style="display:none" class="flex flex-wrap gap-1.5 mb-2.5">
           <template x-for="r in recips" :key="r.key">
             <span class="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full text-xs font-medium
                          bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200
@@ -230,7 +230,7 @@
           <!-- Dropdown results -->
           <div x-show="srchOpen && srchItems.length > 0"
                @click.outside="srchOpen = false"
- class="hidden"
+               style="display:none"
                class="absolute z-30 w-full mt-1 bg-white dark:bg-slate-800
                       border border-slate-200 dark:border-slate-700
                       rounded-xl shadow-xl overflow-hidden">
@@ -254,7 +254,7 @@
 
         <!-- Multi-recipient note (only on task creation, not edit) -->
         {% if not edit_task %}
-        <div x-show="recips.length > 1" x-cloak
+        <div x-show="recips.length > 1" style="display:none"
              class="mt-2 flex items-center gap-2 px-3 py-2
                     bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg">
           <span class="text-xs text-amber-700 dark:text-amber-300">
@@ -262,7 +262,7 @@
           </span>
         </div>
         {% else %}
-        <div x-show="recips.length > 1" x-cloak
+        <div x-show="recips.length > 1" style="display:none"
              class="mt-2 flex items-center gap-2 px-3 py-2
                     bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
           <span class="text-xs text-red-700 dark:text-red-300">
@@ -273,7 +273,7 @@
       </div>
 
       <!-- All-team banner -->
-      <div x-show="assignAll" x-cloak
+      <div x-show="assignAll" style="display:none"
            class="px-3 py-2.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300">
         👥 Задача будет назначена всем активным сотрудникам организации
       </div>

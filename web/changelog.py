@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.262.0"
+CURRENT_VERSION = "1.263.0"
 
 ENTRIES = [
+    {
+        "version": "1.263.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Add custom styles and improve build process for consistent appearance",
+            "Add documentation on managing custom CSS styles",
+        ],
+    },
     {
         "version": "1.262.0",
         "date": "26 июня 2026",

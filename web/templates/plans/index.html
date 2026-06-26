@@ -139,7 +139,7 @@
         <!-- Progress bar -->
         <div class="h-2 bg-slate-100 rounded-full overflow-hidden mb-2">
             <div class="h-full rounded-full transition-all {{ p.bar_cls }}"
-                 :style="'width:'+(p.pct)+'%'"></div>
+                 style="width: {{ p.pct }}%"></div>
         </div>
 
         <!-- Numbers row -->
@@ -293,7 +293,8 @@ async function aiAnalyzePlan(planId, btn) {
 
         if (data.ok && data.text) {
             box.innerHTML =
-                '<div class="mt-1 p-3 bg-violet-50 border border-violet-100 rounded-xl text-xs text-slate-700 ds-pre-wrap">' +
+                '<div class="mt-1 p-3 bg-violet-50 border border-violet-100 rounded-xl text-xs text-slate-700" ' +
+                '     style="white-space:pre-wrap;line-height:1.6;">' +
                 '<div class="flex items-center gap-1.5 mb-2 text-violet-600 font-medium text-xs">' +
                 '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
                 '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" ' +

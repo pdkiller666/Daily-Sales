@@ -9,7 +9,7 @@
 
 {% block content %}
 
-<style nonce="{{ csp_nonce(request) }}">
+<style>
 .sub-hero {
     background: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #1d4ed8 100%);
     position: relative;
@@ -334,7 +334,7 @@
             </div>
             {% if r.pct is not none %}
             <div class="mt-2 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                <div class="h-full rounded-full {{ 'bg-red-500' if r.pct >= 90 else ('bg-amber-500' if r.pct >= 70 else 'bg-indigo-500') }}" :style="'width:'+(r.pct)+'%'"></div>
+                <div class="h-full rounded-full {{ 'bg-red-500' if r.pct >= 90 else ('bg-amber-500' if r.pct >= 70 else 'bg-indigo-500') }}" style="width: {{ r.pct }}%"></div>
             </div>
             {% elif r.cap_fmt == '∞' %}
             <div class="mt-2 h-1.5 rounded-full bg-gradient-to-r from-indigo-400 to-emerald-400 opacity-60"></div>
