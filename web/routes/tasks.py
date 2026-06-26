@@ -539,6 +539,14 @@ def task_self_assign(request: Request, task_id: int, csrf_token: str = Form(""))
 
     try:
         db = get_web_db(telegram_id, org_db)
+        task = db.get_task(task_id)
+        if not task:
+            return RedirectResponse(url="/tasks/pool?msg=not_found", status_code=303)
+        # Only pool tasks (assign_all or shop-assigned, without an assignee) may be self-assigned
+        if not (task.get('assign_all') or task.get('assigned_shop')):
+            return RedirectResponse(url="/tasks/pool?msg=forbidden", status_code=303)
+        if task.get('assigned_to'):
+            return RedirectResponse(url="/tasks/pool?msg=already_taken", status_code=303)
         conn = db.get_connection()
         try:
             my_row = conn.execute("SELECT id FROM users WHERE telegram_id=?", (telegram_id,)).fetchone()
@@ -1355,6 +1363,13 @@ def tasks_topics_edit(
 
     try:
         db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            _topic = conn.execute("SELECT id FROM task_topics WHERE id=?", (tid,)).fetchone()
+        finally:
+            conn.close()
+        if not _topic:
+            return RedirectResponse(url="/tasks/topics?msg=not_found", status_code=303)
         db.update_task_topic(tid, name, color)
     except Exception as e:
         logger.error("tasks_topics_edit: %s", e)
@@ -1385,6 +1400,13 @@ def tasks_topics_delete(
 
     try:
         db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            _topic = conn.execute("SELECT id FROM task_topics WHERE id=?", (tid,)).fetchone()
+        finally:
+            conn.close()
+        if not _topic:
+            return RedirectResponse(url="/tasks/topics?msg=not_found", status_code=303)
         db.delete_task_topic(tid)
     except Exception as e:
         logger.error("tasks_topics_delete: %s", e)
@@ -1444,6 +1466,8 @@ def tasks_bulk(request: Request, action: str = Form(""),
             new_status = STATUS_MAP[action]
             for tid in task_ids:
                 try:
+                    if not db.get_task(tid):
+                        continue
                     db.update_task_status(tid, new_status)
                     try:
                         db.add_task_history(tid, my_db_id, 'status', None, new_status)
@@ -1455,6 +1479,8 @@ def tasks_bulk(request: Request, action: str = Form(""),
         elif action == "delete":
             for tid in task_ids:
                 try:
+                    if not db.get_task(tid):
+                        continue
                     try:
                         _atts = db.get_task_attachments(tid)
                         for _att in _atts:
@@ -3271,6 +3297,8 @@ def task_delete_time_log(
 
     try:
         db = get_web_db(telegram_id, org_db)
+        if not db.get_task(task_id):
+            return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
         conn = db.get_connection()
         try:
             my_row = conn.execute(
