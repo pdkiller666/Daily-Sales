@@ -2565,35 +2565,88 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                иначе появляется dead zone (dx 50–60px или dy 40–60px), где этот
                обработчик молча пропускает жест, а base.html уводит в соседний
                модуль. Держим 1-в-1 с base.html, чтобы чат всегда перехватывал первым. */
-            const MIN_DX   = 50;   /* минимальный горизонтальный сдвиг px (= base MIN_DIST) */
-            const MAX_DY   = 60;   /* максимальный вертикальный сдвиг px (= base MAX_VERT) */
+            const MIN_DX = 50;
+            const MAX_DY = 60;
             let ts = null;
+
+            /* ── Локальная пилюля-подсказка (аналог base.html, z-index ниже) ── */
+            let _hintEl = null;
+            const _getHint = () => {
+                if (!_hintEl) {
+                    _hintEl = document.createElement('div');
+                    _hintEl.style.cssText = [
+                        'position:fixed','top:50%','transform:translateY(-50%)',
+                        'z-index:9998','pointer-events:none',
+                        'transition:opacity .12s ease','opacity:0',
+                        'display:flex','align-items:center','gap:5px',
+                        'background:rgba(37,99,235,.88)','color:#fff',
+                        'padding:9px 16px','border-radius:99px',
+                        'font-size:13px','font-weight:700',
+                        'backdrop-filter:blur(8px)',
+                        'box-shadow:0 4px 24px rgba(37,99,235,.4)',
+                        'white-space:nowrap'
+                    ].join(';');
+                    document.body.appendChild(_hintEl);
+                }
+                return _hintEl;
+            };
+            const _showHint = (dir, label) => {
+                const h = _getHint();
+                h.textContent = dir === 'left' ? ('→ ' + label) : (label + ' ←');
+                h.style.left  = dir === 'left' ? 'auto' : '16px';
+                h.style.right = dir === 'left' ? '16px' : 'auto';
+                h.style.opacity = '1';
+            };
+            const _hideHint = () => { if (_hintEl) _hintEl.style.opacity = '0'; };
+
+            const _inScroll = el => {
+                while (el && el !== wrapper) {
+                    const s = getComputedStyle(el);
+                    if ((s.overflowX === 'auto' || s.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 4) return true;
+                    el = el.parentElement;
+                }
+                return false;
+            };
 
             wrapper.addEventListener('touchstart', e => {
                 const t = e.touches[0];
-                ts = { x: t.clientX, y: t.clientY };
+                ts = { x: t.clientX, y: t.clientY, tgt: e.target };
+            }, { passive: true });
+
+            /* Показываем пилюлю во время жеста — только для навигации группа↔ЛС */
+            wrapper.addEventListener('touchmove', e => {
+                if (!ts) return;
+                const t  = e.touches[0];
+                const dx = t.clientX - ts.x;
+                const dy = t.clientY - ts.y;
+                if (Math.abs(dx) > 32 && Math.abs(dy) < MAX_DY &&
+                    !ts.tgt.closest('input,textarea,select,[contenteditable]') &&
+                    !_inScroll(ts.tgt)) {
+                    const dir = dx > 0 ? 'right' : 'left';
+                    if (!this.dmMode && dir === 'left') {
+                        _showHint('left', '💬 Личные сообщения');
+                    } else if (this.dmMode && dir === 'right') {
+                        _showHint('right', '💬 Групповой чат');
+                    } else {
+                        _hideHint();
+                    }
+                } else if (Math.abs(dy) > 25) {
+                    _hideHint();
+                }
             }, { passive: true });
 
             wrapper.addEventListener('touchend', e => {
+                _hideHint();
                 if (!ts) return;
                 const t  = e.changedTouches[0];
                 const dx = t.clientX - ts.x;
                 const dy = t.clientY - ts.y;
+                const tgt = ts.tgt;
                 ts = null;
 
                 if (Math.abs(dx) < MIN_DX || Math.abs(dy) > MAX_DY) return;
-
-                /* Не мешаем input/textarea */
-                const tgt = e.target;
                 if (tgt.closest('input,textarea,select,[contenteditable]')) return;
-
-                /* Не мешаем горизонтальному скроллу (список тем и т.п.) */
-                let el = tgt;
-                while (el && el !== wrapper) {
-                    const s = getComputedStyle(el);
-                    if ((s.overflowX === 'auto' || s.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 4) return;
-                    el = el.parentElement;
-                }
+                if (_inScroll(tgt)) return;
 
                 const dir = dx > 0 ? 'right' : 'left';
 
@@ -2602,7 +2655,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     e.stopImmediatePropagation();
                     this.switchToDm();
                 } else if (this.dmMode && dir === 'right') {
-                    /* ЛС → Группа; скрываем хинт base.html (он уже показан в touchmove) */
+                    /* ЛС → Группа; также скрываем хинт base.html (если успел показаться) */
                     e.stopImmediatePropagation();
                     if (typeof window._dsHideNavHint === 'function') window._dsHideNavHint();
                     this.switchToGroup();
@@ -2612,6 +2665,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 }
                 /* группа + вправо — пропускаем на base.html (переход в Отчёты) */
             }, { passive: true });
+
+            wrapper.addEventListener('touchcancel', () => { _hideHint(); ts = null; }, { passive: true });
         },
 
         /* ── Load contacts ── */
