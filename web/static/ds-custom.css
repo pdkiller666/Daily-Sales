@@ -1,0 +1,215 @@
+
+/* ── CSP style-src helpers: no inline style="" in HTML allowed (nonce required on <style> blocks) ── */
+/* Progress bars: width applied via JS from data-pct attribute */
+[data-pct]{width:0}
+/* Scrollbar variants */
+.ds-sb-thin{scrollbar-width:thin}
+.ds-sb-none{scrollbar-width:none;-ms-overflow-style:none}
+.ds-sb-none-pad{scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px}
+/* Chat / DM avatar fixed sizes */
+.dm-av-xs{width:26px;height:26px;font-size:.7rem;flex-shrink:0}
+.dm-av-sm{width:28px;height:28px;font-size:.75rem;flex-shrink:0}
+.dm-av-sm-bare{width:28px;height:28px;font-size:.75rem}
+.dm-av-md{width:32px;height:32px;font-size:.8rem}
+.dm-av-lg{width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0}
+.dm-av-placeholder{width:28px;flex-shrink:0}
+.dm-photo-sm{width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0}
+.dm-photo-md{width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0}
+.dm-photo-lg{width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0}
+/* Dashboard metric icon variants */
+.ds-icon-blue{background:linear-gradient(135deg,#dbeafe,#eff6ff)}
+.ds-icon-green{background:linear-gradient(135deg,#d1fae5,#ecfdf5)}
+.ds-icon-indigo{background:linear-gradient(135deg,#e0e7ff,#eef2ff)}
+.ds-icon-purple{background:linear-gradient(135deg,#ede9fe,#f5f3ff)}
+/* Dashboard grid tick marks */
+.ds-grid-t25{left:25%}
+.ds-grid-t50{left:50%}
+.ds-grid-t75{left:75%}
+/* Dashboard chart area */
+.ds-chart-h180{height:180px}
+/* Skeleton inset variant */
+.ds-skel-inset{position:absolute;inset:0;border-radius:.75rem}
+/* Textarea composite height */
+.ds-textarea-chat{min-height:42px;max-height:120px}
+/* Touch manipulation */
+.ds-touch{touch-action:manipulation}
+/* Pre-wrap text */
+.ds-prewrap{white-space:pre-wrap;line-height:1.6}
+/* Auth logo mark */
+.ds-logo-btn{background:#2563eb;box-shadow:0 8px 28px rgba(37,99,235,.55)}
+.ds-logo-grad{background:linear-gradient(135deg,#3b82f6,#6366f1);box-shadow:0 8px 28px rgba(59,130,246,.55)}
+/* Landing gradient text inline */
+.ds-grad-purple{background:linear-gradient(135deg,#7c3aed,#9333ea,#c026d3);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.ds-grad-purple-btn{background:linear-gradient(135deg,#7c3aed,#9333ea);box-shadow:0 0 24px rgba(124,58,237,.35),0 4px 16px rgba(0,0,0,.15)}
+/* Absences select min-max width */
+.ds-sel-abs{min-width:8rem;max-width:16rem}
+/* Skeleton width presets */
+.sk-w40{width:40%}
+.sk-w80{width:80%}
+/* POS safe-area layout – applied via JS for dynamic env() calc */
+/* Products misc */
+.ds-min-w-320{min-width:320px}
+/* Inventory toast initial */
+.ds-opacity0{opacity:0}
+/* Base.html notification card styles */
+.ds-notif-card{padding:10px 14px;border-radius:12px;display:flex;align-items:flex-start;gap:10px;font-size:.85rem;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+.ds-notif-title{font-size:.82rem;font-weight:700;margin-bottom:3px}
+.ds-notif-body{font-size:.78rem;line-height:1.5}
+.ds-notif-link{margin-top:8px;display:inline-flex;align-items:center;gap:4px;font-size:.75rem;font-weight:700}
+.ds-notif-close{flex-shrink:0;font-size:1.1rem;line-height:1}
+/* Base kbd chip styles (hotkeys popup) */
+.ds-kbd{background:#334155;padding:1px 6px;border-radius:4px}
+/* Debug panel header */
+.ds-dbg-hdr{background:#0f172a;color:#94a3b8;display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:11px}
+.ds-dbg-btn-copy{background:#1e40af;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer}
+.ds-dbg-btn-clr{background:#7f1d1d;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer}
+.ds-dbg-btn-close{background:#374151;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer}
+/* Base.html misc sheet max-heights */
+.ds-sh-420{max-height:420px;overflow-y:auto}
+.ds-sh-notif{max-width:320px}
+.ds-sh-80vh{max-height:80vh;padding-bottom:env(safe-area-inset-bottom,0)}
+.ds-sh-78vh{max-height:78vh}
+.ds-sh-70vh{max-height:70vh}
+.ds-sh-84vh{max-height:84vh;padding-bottom:env(safe-area-inset-bottom,0)}
+.ds-sh-logo{background:linear-gradient(135deg,#2563eb,#4f46e5)}
+/* Bottom nav safe-area */
+.ds-bnav-bar{box-shadow:0 -2px 16px rgba(0,0,0,.07);padding-bottom:env(safe-area-inset-bottom,0)}
+.ds-bnav-menu-icon{font-size:1.1rem}
+/* FAB */
+.ds-fab-pos{bottom:84px;right:16px}
+.ds-fab-bg{background:#2563eb}
+/* Org structure indent applied via JS (data-indent) */
+[data-indent]{margin-left:0}
+/* Rankings canvas height applied via JS (data-style) */
+/* ── Additional utility classes (CSP style-src migration) ── */
+/* Heatmap */
+.ds-hm-mingrid{min-width:360px}
+.ds-hm-empty{background:rgba(203,213,225,0.25)}
+/* Avatar / avatar-size utilities */
+.ds-av-gray{background:#64748b}
+.ds-av-teal{background:#14b8a6}
+.ds-w-28{width:28px}
+/* Textarea resize limits */
+.ds-ta-resize{min-height:42px;max-height:120px}
+/* Line height */
+.ds-lh-14{line-height:1.4}
+/* Height-limited member list */
+.ds-sh-320{max-height:320px}
+/* Floating bar min width */
+.ds-min-w-320{min-width:320px}
+/* Products price-edit form */
+.ds-price-form{display:flex;align-items:center;justify-content:flex-end;gap:4px}
+.ds-price-input{width:90px;border:1.5px solid #3b82f6;border-radius:6px;padding:2px 6px;font-size:.85rem;text-align:right;outline:none}
+.ds-price-ok{font-size:.75rem;color:#059669;font-weight:600;cursor:pointer;background:none;border:none}
+.ds-price-cancel{font-size:.75rem;color:#94a3b8;cursor:pointer;background:none;border:none}
+/* Keyboard shortcut hint card */
+.ds-hint-title{font-weight:700;margin-bottom:8px;color:#60a5fa}
+.ds-kbd{background:#334155;padding:1px 6px;border-radius:4px}
+/* Debug panel header button sizes */
+.ds-dbg-flex1{flex:1}
+.ds-dbg-btn-copy,.ds-dbg-btn-clr,.ds-dbg-btn-close{color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer}
+.ds-dbg-btn-copy{background:#1e40af}
+.ds-dbg-btn-clr{background:#7f1d1d}
+.ds-dbg-btn-close{background:#374151}
+
+/* ── Static data-style → class migration (CSP hardening round 2) ── */
+.ds-range-8-16{min-width:8rem;max-width:16rem}
+.ds-pre-wrap{white-space:pre-wrap;line-height:1.6}
+.ds-w-40p{width:40%}
+.ds-w-80p{width:80%}
+.ds-h-130{height:130px}
+.ds-h-140{height:140px}
+.ds-h-150{height:150px}
+.ds-h-240{height:240px}
+.ds-sq-180{height:180px;width:180px}
+.ds-max-h-200{max-height:200px}
+.ds-max-h-82vh-pb-safe{max-height:82vh;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 80px)}
+.ds-max-h-82vh-220{max-height:calc(82vh - 220px)}
+.ds-pb-safe-11rem{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 11rem)}
+.ds-bottom-tip{bottom:calc(100% - 2.5rem)}
+.ds-bottom-safe-64{bottom:calc(4rem + 4px + env(safe-area-inset-bottom,0px))}
+.ds-bottom-safe-72{bottom:calc(4rem + 3.375rem + 4px + env(safe-area-inset-bottom,0px))}
+.ds-no-scrollbar{scrollbar-width:none;-ms-overflow-style:none}
+.ds-product-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+.ds-grad-blue-indigo{background:linear-gradient(135deg,#3b82f6 0%,#6366f1 100%)}
+.ds-grad-blue-indigo-glow{background:linear-gradient(135deg,#3b82f6 0%,#6366f1 100%);box-shadow:0 4px 14px rgba(99,102,241,.35)}
+.ds-grad-blue-indigo-glow-lg{background:linear-gradient(135deg,#3b82f6 0%,#6366f1 100%);box-shadow:0 4px 18px rgba(99,102,241,.45)}
+.ds-label-body{display:flex;flex-direction:column;justify-content:center;padding:10px 14px;gap:4px;width:100%;height:100%}
+.ds-label-font{font-size:11px;font-weight:600}
+.ds-logo-corner{position:absolute;top:5px;right:5px;max-height:18px;max-width:30px;object-fit:contain}
+.ds-label-inset{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:8px 10px;gap:3px}
+.ds-text-ccc{color:#ccc}
+.ds-touch-manip{touch-action:manipulation}
+/* Landing page decorative classes (static, was data-style) */
+.ls-anim-0{animation-delay:0s}
+.ls-anim-15{animation-delay:.15s}
+.ls-anim-30{animation-delay:.3s}
+.ls-anim-50{animation-delay:.5s}
+.ls-anim-slow1{animation-delay:1s;animation-duration:6s}
+.ls-anim-slow2{animation-delay:2.5s;animation-duration:8s}
+.ls-slide-up-0{animation:slide-up .6s ease both}
+.ls-slide-up-1{animation:slide-up .7s .1s ease both}
+.ls-slide-up-2{animation:slide-up .7s .2s ease both}
+.ls-slide-up-3{animation:slide-up .7s .3s ease both}
+.ls-bg-dark{background:#020617}
+.ls-bg-cyan{background:#22d3ee}
+.ls-bg-cyan-glow6{background:#22d3ee;box-shadow:0 0 6px #22d3ee}
+.ls-bg-cyan-glow8{background:#22d3ee;box-shadow:0 0 8px #22d3ee}
+.ls-bg-light{background:#f8fafc}
+.ls-dot-violet{background-image:radial-gradient(circle,rgba(139,92,246,.08) 1px,transparent 1px);background-size:36px 36px;opacity:.7}
+.ls-dot-slate{background-image:radial-gradient(circle,rgba(148,163,184,.15) 1px,transparent 1px);background-size:32px 32px;opacity:.6}
+.ls-dot-cyan{background-image:radial-gradient(circle,rgba(6,182,212,.12) 1px,transparent 1px);background-size:36px 36px}
+.ls-grad-teal-indigo{background:linear-gradient(135deg,#0891b2,#6366f1)}
+.ls-grad-teal-indigo-glow{background:linear-gradient(135deg,#0891b2,#6366f1);box-shadow:0 0 28px rgba(6,182,212,.3),0 4px 16px rgba(0,0,0,.2)}
+.ls-grad-teal-indigo-lit{background:linear-gradient(135deg,#0891b2,#6366f1);color:#fff;box-shadow:0 0 12px rgba(6,182,212,.3)}
+.ls-grad-cyan-purple-text{background:linear-gradient(135deg,#22d3ee 0%,#818cf8 50%,#c084fc 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.ls-grad-violet-purple{background:linear-gradient(135deg,#7c3aed,#9333ea);box-shadow:0 0 24px rgba(124,58,237,.35),0 4px 16px rgba(0,0,0,.15)}
+.ls-grad-violet-purple-text{background:linear-gradient(135deg,#7c3aed,#9333ea,#c026d3);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.ls-card-blue-light{background:linear-gradient(135deg,#f0f9ff 0%,#e8f4fd 60%,#eef2ff 100%);border-color:#bae6fd}
+.ls-card-green-light{background:linear-gradient(135deg,#f0fdf4 0%,#ecfdf5 50%,#eff6ff 100%);border-color:#86efac}
+.ls-card-violet-light{background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 50%,#faf5ff 100%);border-color:#c4b5fd}
+.ls-card-white{background:linear-gradient(135deg,#fafafa 0%,#f0f4ff 100%);border-color:#c7d7ff}
+.ls-card-cyan-indigo{background:linear-gradient(135deg,rgba(6,182,212,.1),rgba(99,102,241,.1));border:1px solid rgba(6,182,212,.2)}
+.ls-grad-fade-bottom{background:linear-gradient(to bottom,transparent,#020617)}
+.ls-blob-violet07{background:radial-gradient(ellipse,rgba(139,92,246,.07) 0%,transparent 70%);filter:blur(2px)}
+.ls-blob-violet08{background:radial-gradient(ellipse,rgba(139,92,246,.08) 0%,transparent 70%);filter:blur(2px)}
+.ls-blob-violet12{background:radial-gradient(ellipse,rgba(139,92,246,.12) 0%,transparent 70%);filter:blur(2px)}
+.ls-blob-purple10{background:radial-gradient(ellipse,rgba(168,85,247,.1) 0%,transparent 70%);filter:blur(2px)}
+.ls-blob-purple14{background:radial-gradient(ellipse,rgba(168,85,247,.14) 0%,transparent 70%);filter:blur(1px)}
+.ls-blob-emerald08{background:radial-gradient(ellipse,rgba(52,211,153,.08) 0%,transparent 70%);filter:blur(1px)}
+.ls-blob-emerald12{background:radial-gradient(ellipse,rgba(52,211,153,.12) 0%,transparent 70%);filter:blur(2px)}
+.ls-blob-blue10{background:radial-gradient(ellipse,rgba(59,130,246,.1) 0%,transparent 70%);filter:blur(2px)}
+.ls-blob-blue15{background:radial-gradient(ellipse,rgba(59,130,246,.15) 0%,transparent 70%);filter:blur(2px)}
+.ls-blob-blue18{background:radial-gradient(ellipse,rgba(59,130,246,.18) 0%,transparent 70%);filter:blur(1px)}
+.ls-blob-cyan06{background:radial-gradient(ellipse,rgba(6,182,212,.06) 0%,transparent 70%);filter:blur(1px)}
+.ls-blob-cyan13{background:radial-gradient(ellipse,rgba(6,182,212,.13) 0%,transparent 70%);filter:blur(2px)}
+.ls-bg-indigo-card{background:rgba(129,140,248,.12);border:1px solid rgba(129,140,248,.25)}
+.ls-bg-dark-modal{background:rgba(15,23,42,.9);border:1px solid rgba(6,182,212,.15);box-shadow:0 24px 80px rgba(0,0,0,.5),0 0 0 1px rgba(6,182,212,.08)}
+.ls-bg-purple-card{background:rgba(192,132,252,.12);border:1px solid rgba(192,132,252,.25)}
+.ls-bg-dark-header{background:rgba(2,6,23,.8);border-bottom:1px solid rgba(6,182,212,.1)}
+.ls-bg-slate-card{background:rgba(30,41,59,.7);border:1px solid rgba(6,182,212,.15)}
+.ls-bg-slate-dark{background:rgba(30,41,59,.8);border:1px solid rgba(255,255,255,.06)}
+.ls-bg-blue-blur{background:rgba(59,130,246,.2);filter:blur(24px)}
+.ls-badge-cyan{background:rgba(6,182,212,.08);border:1px solid rgba(6,182,212,.15);color:#67e8f9}
+.ls-card-cyan12{background:rgba(6,182,212,.12);border:1px solid rgba(6,182,212,.25)}
+.ls-badge-cyan2{background:rgba(6,182,212,.1);border:1px solid rgba(6,182,212,.25);color:#22d3ee}
+.ls-border-top{border-top:1px solid rgba(255,255,255,.05)}
+.ls-text-cyan{color:#22d3ee}
+.ls-bar-blue38{height:38%;background:rgba(59,130,246,.3)}
+.ls-bar-blue42{height:42%;background:rgba(59,130,246,.3)}
+.ls-bar-blue48{height:48%;background:rgba(59,130,246,.3)}
+.ls-bar-blue55{height:55%;background:rgba(59,130,246,.35)}
+.ls-bar-blue58{height:58%;background:rgba(59,130,246,.35)}
+.ls-bar-blue70{height:70%;background:rgba(59,130,246,.4)}
+.ls-bar-blue75{height:75%;background:rgba(59,130,246,.4)}
+.ls-bar-blue95{height:95%;background:linear-gradient(to top,rgba(59,130,246,.6),rgba(139,92,246,.5))}
+.ls-bar-fill{width:84%;background:linear-gradient(90deg,#3b82f6,#8b5cf6)}
+.ls-min-h-200{min-height:200px}
+/* Label preview static structure classes */
+.ds-lp-sm{width:110px;height:70px}
+.ds-lp-bulk{width:130px;height:82px}
+.ds-lp-name-layout{font-weight:600;line-height:1.2;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ds-lp-price-layout{font-weight:700;line-height:1.2}
+.ds-lp-bulk-price{font-weight:700;font-size:16px;line-height:1.1}
+.ds-lp-bulk-article{font-size:9px;opacity:.7}
+.ds-sparkline{display:inline-block;vertical-align:middle}
