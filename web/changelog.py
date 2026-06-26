@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.242.0"
+CURRENT_VERSION = "1.243.0"
 
 ENTRIES = [
+    {
+        "version": "1.243.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Update documentation to clarify post-session procedures",
+        ],
+    },
     {
         "version": "1.242.0",
         "date": "26 июня 2026",

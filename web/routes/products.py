@@ -2008,10 +2008,19 @@ def product_label(request: Request, product_id: int, print: str = "",
             logging.error(f"PDF generation failed: {exc}")
             return Response(content="PDF generation error", status_code=500)
         safe_name = (label["name"] or "label")[:40].replace(" ", "_")
+        # Content-Disposition кодируется latin-1: имя с кириллицей в простом
+        # filename= уронит ответ (500). ASCII-fallback + RFC 5987 filename* для
+        # юникода — браузеры берут filename*, остальные — ASCII-вариант.
+        from urllib.parse import quote as _q
+        ascii_name = safe_name.encode("ascii", "ignore").decode("ascii") or "label"
+        disposition = (
+            f"attachment; filename=\"{ascii_name}.pdf\"; "
+            f"filename*=UTF-8''{_q(safe_name)}.pdf"
+        )
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{safe_name}.pdf"'},
+            headers={"Content-Disposition": disposition},
         )
 
     return request.app.state.templates.TemplateResponse(
