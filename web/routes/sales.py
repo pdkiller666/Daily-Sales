@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
 from timezone_utils import DEFAULT_TZ
+from web.response_utils import content_disposition as _cd
 
 router = APIRouter()
 PAGE_SIZE = 50
@@ -507,7 +508,7 @@ def sales_export_xlsx(
         return StreamingResponse(
             buf,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition": _cd(filename)},
         )
 
     except Exception as exc:

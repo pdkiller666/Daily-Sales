@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.245.0"
+CURRENT_VERSION = "1.246.0"
 
 ENTRIES = [
+    {
+        "version": "1.246.0",
+        "date": "26 июня 2026",
+        "items": [
+            "защита Content-Disposition от кириллических имён файлов по всему кабинету",
+        ],
+    },
     {
         "version": "1.245.0",
         "date": "26 июня 2026",

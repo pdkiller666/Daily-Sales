@@ -430,6 +430,21 @@ def check_pos_cart(page, base_url, product_id):
         f"POS checkout не прошёл: {result_state['err']!r}"
 
 
+def check_cyrillic_content_disposition(page, base_url, product_id):
+    """Content-Disposition для товара с кириллическим именем содержит RFC 5987 filename*."""
+    url = f"{base_url}/products/{product_id}/label?format=pdf&size=58x40"
+    resp = page.request.get(url)
+    assert resp.status == 200, f"PDF endpoint вернул {resp.status} для кириллического товара"
+    cd = resp.headers.get("content-disposition", "")
+    assert "filename*=UTF-8''" in cd, (
+        f"Content-Disposition не содержит RFC 5987 filename*: {cd!r}. "
+        "Кириллические имена файлов будут вызывать 500."
+    )
+    assert "filename=" in cd, (
+        f"Content-Disposition не содержит ASCII-fallback filename=: {cd!r}"
+    )
+
+
 def _run_checks(page, base_url, product_id, browser, console_errors):
     """Запустить все проверки, вернуть список (name, ok, error)."""
     checks = [
@@ -443,6 +458,8 @@ def _run_checks(page, base_url, product_id, browser, console_errors):
         ("PDF label download", lambda: check_pdf_download(page, base_url, product_id)),
         ("login — email/password flow", lambda: check_login_email_flow(browser, base_url, console_errors)),
         ("POS cart — add item + checkout", lambda: check_pos_cart(page, base_url, product_id)),
+        ("Cyrillic filename → RFC 5987 Content-Disposition",
+         lambda: check_cyrillic_content_disposition(page, base_url, product_id)),
     ]
     results = []
     for name, fn in checks:

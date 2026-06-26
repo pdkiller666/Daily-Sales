@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse, StreamingResponse
 from datetime import date
 from timezone_utils import DEFAULT_TZ
+from web.response_utils import content_disposition as _cd
 
 logger = logging.getLogger(__name__)
 
@@ -900,7 +901,7 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         return StreamingResponse(
             buf,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition": _cd(filename)},
         )
 
     except Exception as exc:

@@ -4,6 +4,7 @@ import traceback
 from collections import defaultdict
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
+from web.response_utils import content_disposition as _cd
 
 logger = logging.getLogger(__name__)
 
@@ -506,7 +507,7 @@ def reports_export_xlsx(
         return StreamingResponse(
             buf,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{fname_safe}"'},
+            headers={"Content-Disposition": _cd(fname_safe)},
         )
     except Exception as exc:
         logger.error(f"reports_export_xlsx error: {exc}\n{traceback.format_exc()}")

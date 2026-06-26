@@ -1644,10 +1644,11 @@ def tasks_export_excel(request: Request, status: str = "", topic_id: int = 0,
         buf.seek(0)
 
         fname = f"tasks_{_dt.date.today().isoformat()}.xlsx"
+        from web.response_utils import content_disposition as _cd
         return StreamingResponse(
             buf,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+            headers={"Content-Disposition": _cd(fname)},
         )
     except Exception as e:
         logger.error("tasks_export_excel: %s", e)

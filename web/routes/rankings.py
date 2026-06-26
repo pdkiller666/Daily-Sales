@@ -1,9 +1,9 @@
 import io
 import logging
 import traceback
-from urllib.parse import quote as _url_quote
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
+from web.response_utils import content_disposition as _cd
 
 logger = logging.getLogger(__name__)
 
@@ -358,7 +358,7 @@ def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "
         return StreamingResponse(
             buf,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition": _cd(filename)},
         )
     except Exception as exc:
         logger.error(f"rankings_export error: {exc}\n{traceback.format_exc()}")
