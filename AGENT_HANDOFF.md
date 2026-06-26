@@ -36,6 +36,14 @@ Workflow: "Start application" → python start.py (→ убивает порт 5
 - `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
 - `VAPID_MAILTO` — контактный email для VAPID заявок (`mailto:admin@example.com`)
 
+**Сессия 514 (2026-06-26) — Аудит безопасности модуля задач (Tasks #70–#73 + round 2):**
+
+- **Круг 1 (#70–#73)**: kanban cancel bypass (IDOR — добавлен `can_act` guard по `is_assignee`/`is_creator`); `decompose_role` guard на owner/org_admin; bulk delete → физическое удаление файлов вложений; rate-статус без проверки доступа → добавлен `can_act`.
+- **Круг 2 (round 2, 5 находок)**: `self_assign` принимал любой tg_id из пула без проверки типа задачи — теперь требует `assign_all` или `shop`-тип + отсутствие существующего исполнителя; `bulk_action` (status + delete циклы) не проверял существование каждой задачи перед мутацией — добавлен SELECT; `topics_edit`/`topics_delete` не проверяли существование записи в `task_topics` — добавлен SELECT; `delete_time_log` не проверял существование задачи — добавлен SELECT.
+- **Email-only fix**: `get_tasks()` для синтетических `tg_id` брал не тот `org_db` (глобальный контекст вместо `web_credentials.org_db`) — исправлено; `my_complete` в боте и вебе не фильтровал по принадлежности к магазину — добавлен `shop_membership` guard; `watch`/`unwatch` не проверяли scope принадлежности к org — добавлена проверка.
+- **Итог аудита**: 27/27 POST-роутов покрыты Auth+CSRF; 26/27 — existence check (1 исключение: `POST /tasks/templates/{tid}/delete`, admin-only, тихий no-op — принято осознанно); SQL-инъекций нет; path traversal защищён.
+- **Деплои**: round 1 — GitHub `f2032ad` · Amvera `9c52f02`; все 3 репозитория верифицированы.
+
 **Сессии 970–974 (2026-06-25) — AI digest shop-filter · AI Insights рефакторинг · чат input-бар · фикс label планов:**
 
 - **AI digest shop-filter** (`notifications_handlers.py`): пользователь выбирает конкретные магазины, которые войдут в еженедельный AI-дайджест; 3 новых callback — `ai_alert_shop_filter` (экран выбора), `toggle_ai_shop:{name}` (тоггл, safe_cb), `ai_shop_filter_reset` (сбросить). Колонка `digest_shop_filter TEXT DEFAULT NULL` добавлена в `ai_alert_settings` (ALTER TABLE, org_*.db); NULL = все магазины.

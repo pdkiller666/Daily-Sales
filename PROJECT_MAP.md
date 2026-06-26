@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-25 (сессии 970–974: AI digest shop-filter в боте; AI Insights (спарклайны, разбивка по магазинам, свежесть данных); рефакторинг input-бара чата ([+]-попап, Ctrl+Enter); фикс label планов при совпадении фильтров; APScheduler +11 → 24 задачи; `digest_shop_filter` в `ai_alert_settings`; `shop_breakdown_json`+`shops_included_json` в `ai_weekly_digest_cache`; новые джобы: `ai_weekly_digest`, `ai_smart_alerts`, `ai_network_insights`, `ai_morning_briefing`, `ai_anomaly_check`, `ai_procurement_advisor`, `ai_seller_coach`, `ai_task_digest`, `ai_task_overdue_predictor`, `check_task_reminders`, `backfill_shop_breakdown`) · 55 модулей · GitHub `53a7565` · Amvera `ae78b43`
+> Последнее обновление: 2026-06-26 (сессия 514: аудит безопасности модуля задач — Tasks #70–#73 + round-2; закрыты 9 уязвимостей в `web/routes/tasks.py`: IDOR самоназначения `self_assign`, cross-shop в `my_complete`, scope guard в `watch`/`unwatch`, exist-check в `bulk_action`/`topics_edit`/`topics_delete`/`log_time`/`delete_time_log`, email-only visibility leak; 27/27 POST-роутов покрыты Auth+CSRF) · 55 модулей · GitHub `f2032ad` · Amvera `9c52f02`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 

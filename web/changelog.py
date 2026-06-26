@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.223.0"
+CURRENT_VERSION = "1.224.0"
 
 ENTRIES = [
+    {
+        "version": "1.224.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Add safety checks to task operations to prevent errors",
+            "Update documentation to reflect security audit and fixes",
+        ],
+    },
     {
         "version": "1.223.0",
         "date": "26 июня 2026",

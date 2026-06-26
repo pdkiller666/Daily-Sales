@@ -1,8 +1,8 @@
 # Анализ безопасности DailySales
 
-> **Дата последнего аудита:** 25 июня 2026  
+> **Дата последнего аудита:** 26 июня 2026  
 > **Охват:** web-слой (FastAPI), бот (aiogram), database.py, шаблоны Jinja2, деплой-инфраструктура  
-> **Версия:** v1.211.0 · Amvera `2052518`
+> **Версия:** v1.223.0 · Amvera `9c52f02`
 
 ---
 
@@ -112,6 +112,15 @@ SQLite-файлы (`data/*.db`) хранятся открытым текстом
 | JWT без server-side revocation | ✅ jti blacklist (in-memory + shop_bot.db) | 2026-06-25 |
 | Billing grant/revoke без invalidate_plan_cache | ✅ Добавлен в оба веб-маршрута | 2026-06-25 |
 | Право на забвение (ФЗ-152 / GDPR) | ✅ erase_user_pii() + веб-интерфейс + аудит | 2026-06-25 |
+| Tasks: отмена kanban-карточки без проверки автора (IDOR) | ✅ Фильтр `can_act` по is_assignee/is_creator | 2026-06-26 |
+| Tasks: `self_assign` без валидации пула (IDOR) | ✅ Проверка assign_all/shop + отсутствия существующего исполнителя | 2026-06-26 |
+| Tasks: `bulk_action` без проверки существования задачи | ✅ SELECT перед status-change и delete в каждом цикле | 2026-06-26 |
+| Tasks: `log_time` без проверки членства/доступа | ✅ Добавлен `can_act` guard | 2026-06-26 |
+| Tasks: `my_complete` показывает задачи чужого магазина | ✅ Фильтр `shop_membership` в боте и вебе | 2026-06-26 |
+| Tasks: `watch`/`unwatch` без scope-проверки | ✅ Проверка org-принадлежности перед подпиской | 2026-06-26 |
+| Tasks: `topics_edit`/`topics_delete` без проверки существования | ✅ SELECT из `task_topics` перед мутацией | 2026-06-26 |
+| Tasks: `delete_time_log` без проверки существования задачи | ✅ SELECT задачи перед удалением лога | 2026-06-26 |
+| Tasks: email-only пользователи видели чужие задачи (`get_tasks()` без org_db) | ✅ `org_db` из `web_credentials` для синт. tg_id | 2026-06-26 |
 
 ---
 
@@ -140,6 +149,7 @@ SQLite-файлы (`data/*.db`) хранятся открытым текстом
 8. Право на забвение — `erase_user_pii()` + веб-интерфейс + аудит
 9. `unsafe-inline` → per-request nonce (93 script-блока)
 10. JWT server-side revocation — jti blacklist (память + DB)
+11. Аудит безопасности модуля задач — 9 уязвимостей (`web/routes/tasks.py`): IDOR самоназначения, cross-shop в my_complete, scope watch/unwatch, отсутствие exist-check в bulk/topics/log_time/delete_time_log, email-only visibility leak _(2026-06-26)_
 
 ### Следующий приоритет
 - **[Высокий]** SQLCipher — шифрование live-БД at-rest (требует миграцию, downtime)
