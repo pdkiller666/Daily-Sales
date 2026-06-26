@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.228.0"
+CURRENT_VERSION = "1.229.0"
 
 ENTRIES = [
+    {
+        "version": "1.229.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Add swipe hint pills for navigation between chat modes",
+        ],
+    },
     {
         "version": "1.228.0",
         "date": "26 июня 2026",

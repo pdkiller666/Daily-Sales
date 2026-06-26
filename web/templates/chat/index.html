@@ -2550,10 +2550,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         /* ── Свайп группа↔ЛС на мобильном ──────────────────────────────────
            Пространственная модель: [Отчёты] ←→ [Группа] ←→ [ЛС]
            Вешается на #chat-wrapper, перехватывает до base.html:
-           • группа + свайп влево  → switchToDm()   (ЛС правее группы)
+           • группа + свайп влево  → switchToDm()    (ЛС правее группы)
+           • группа + свайп вправо → history.back()  (предыдущий модуль)
            • ЛС    + свайп вправо  → switchToGroup() (назад к группе)
-           • ЛС    + свайп влево   → заблокировать  (правее ЛС ничего нет)
-           • группа + свайп вправо → пропускаем (base.html → Отчёты)
+           • ЛС    + свайп влево   → заблокировать   (правее ЛС ничего нет)
            Порог: ≥50px горизонтально, <60px вертикально (чтобы не мешать скроллу).
            Не срабатывает внутри input/textarea и горизонтально-скроллируемых зон.
         ─────────────────────────────────────────────────────────────────────── */
@@ -2613,7 +2613,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 ts = { x: t.clientX, y: t.clientY, tgt: e.target };
             }, { passive: true });
 
-            /* Показываем пилюлю во время жеста — только для навигации группа↔ЛС */
+            /* Лейбл предыдущего пункта боттом-нава (для хинта «← Назад») */
+            const _prevNavLabel = () => {
+                const items = Array.from(document.querySelectorAll('nav.fixed.bottom-0 .bnav-item'));
+                const idx   = items.findIndex(el => el.classList.contains('bn-active'));
+                return idx > 0 ? (items[idx - 1]?.querySelector('.bnav-label')?.textContent?.trim() || null) : null;
+            };
+
+            /* Показываем пилюлю во время жеста */
             wrapper.addEventListener('touchmove', e => {
                 if (!ts) return;
                 const t  = e.touches[0];
@@ -2627,6 +2634,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         _showHint('left', '💬 Личные сообщения');
                     } else if (this.dmMode && dir === 'right') {
                         _showHint('right', '💬 Групповой чат');
+                    } else if (!this.dmMode && dir === 'right') {
+                        /* Группа + вправо → назад; показываем лейбл предыдущего модуля */
+                        const lbl = _prevNavLabel() || 'Назад';
+                        _showHint('right', lbl);
                     } else {
                         _hideHint();
                     }
@@ -2654,6 +2665,17 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     /* Группа → ЛС (ЛС правее, свайп влево = движение вправо) */
                     e.stopImmediatePropagation();
                     this.switchToDm();
+                } else if (!this.dmMode && dir === 'right') {
+                    /* Группа + вправо → возврат на предыдущий модуль */
+                    e.stopImmediatePropagation();
+                    if (history.length > 1) {
+                        history.back();
+                    } else {
+                        /* Нет истории — идём на предыдущий пункт боттом-нава как base.html */
+                        const items = Array.from(document.querySelectorAll('nav.fixed.bottom-0 .bnav-item'));
+                        const idx   = items.findIndex(el => el.classList.contains('bn-active'));
+                        if (idx > 0) items[idx - 1].click();
+                    }
                 } else if (this.dmMode && dir === 'right') {
                     /* ЛС → Группа; также скрываем хинт base.html (если успел показаться) */
                     e.stopImmediatePropagation();
@@ -2663,7 +2685,6 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     /* ЛС + влево — блокируем (правее ЛС ничего нет) */
                     e.stopImmediatePropagation();
                 }
-                /* группа + вправо — пропускаем на base.html (переход в Отчёты) */
             }, { passive: true });
 
             wrapper.addEventListener('touchcancel', () => { _hideHint(); ts = null; }, { passive: true });
