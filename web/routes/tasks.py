@@ -295,9 +295,11 @@ def _is_overdue(deadline: str | None, status: str) -> bool:
 @router.get("/tasks")
 def tasks_list(request: Request, status: str = "", topic_id: int = 0,
                assigned_filter: int = 0, shop_filter: str = "", msg: str = "",
-               q: str = ""):
+               q: str = "", page: int = 1):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
+    import math as _math
+    import urllib.parse as _urlparse
 
     user = get_session_user(request)
     if not user:
@@ -324,7 +326,11 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
         "msg": msg, "error": None,
         "fmt_deadline": _fmt_deadline, "is_overdue": _is_overdue,
         "tasks_pro": tasks_pro, "tasks_ai": tasks_ai,
+        "page": 1, "total_pages": 1, "total_tasks": 0,
+        "pagination_base": "/tasks?page=",
     }
+
+    _PAGE_SIZE = 50
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -340,7 +346,7 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
 
         ctx["topics"] = db.get_task_topics()
 
-        tasks = db.get_tasks(
+        _filter_kwargs = dict(
             status=status or None,
             topic_id=topic_id or None,
             assigned_to=assigned_filter if assigned_filter else None,
@@ -350,7 +356,30 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
             my_shop=my_shop or None,
             q=q.strip() or None,
         )
+
+        total_tasks = db.count_tasks(**_filter_kwargs)
+        total_pages = max(1, _math.ceil(total_tasks / _PAGE_SIZE))
+        page = max(1, min(page, total_pages))
+
+        tasks = db.get_tasks(
+            **_filter_kwargs,
+            limit=_PAGE_SIZE,
+            offset=(page - 1) * _PAGE_SIZE,
+        )
         ctx["tasks"] = tasks
+        ctx["page"] = page
+        ctx["total_pages"] = total_pages
+        ctx["total_tasks"] = total_tasks
+
+        _parts = []
+        if status: _parts.append(f"status={_urlparse.quote(status)}")
+        if topic_id: _parts.append(f"topic_id={topic_id}")
+        if assigned_filter: _parts.append(f"assigned_filter={assigned_filter}")
+        if shop_filter: _parts.append(f"shop_filter={_urlparse.quote(shop_filter)}")
+        if q: _parts.append(f"q={_urlparse.quote(q)}")
+        _base = "/tasks?" + ("&".join(_parts) + "&" if _parts else "") + "page="
+        ctx["pagination_base"] = _base
+
         if is_admin:
             ctx["staff_list"] = _get_staff_list(db)
             ctx["shops_list"] = _get_shops_list(db)
@@ -1168,10 +1197,12 @@ def tasks_kanban(request: Request, topic_id: int = 0, shop_filter: str = "",
         )
         ctx["my_db_id"] = my_db_id
 
-        col_order = ['new', 'in_progress', 'review', 'done']
-        col_icons = {'new': '🆕', 'in_progress': '🔄', 'review': '🔍', 'done': '✅'}
+        col_order = ['new', 'in_progress', 'review', 'done', 'cancelled']
+        col_icons = {'new': '🆕', 'in_progress': '🔄', 'review': '🔍',
+                     'done': '✅', 'cancelled': '🚫'}
         col_names = {'new': 'Новые', 'in_progress': 'В работе',
-                     'review': 'На проверке', 'done': 'Выполнены'}
+                     'review': 'На проверке', 'done': 'Выполнены',
+                     'cancelled': 'Отменены'}
         by_status = {s: [] for s in col_order}
         for t in all_tasks:
             s = t.get('status', 'new')
@@ -1657,6 +1688,8 @@ def tasks_analytics(request: Request):
     try:
         db = get_web_db(telegram_id, org_db)
         stats = db.get_tasks_analytics()
+        if not is_admin:
+            stats['by_assignee'] = []
         ctx["stats"] = stats
 
         STATUS_RU = {
@@ -2154,11 +2187,18 @@ def task_change_status(
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
+    from fastapi.responses import JSONResponse as _JSONResponse
+
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest"
 
     user = get_session_user(request)
     if not user:
+        if wants_json:
+            return _JSONResponse({"error": "not_auth"}, status_code=401)
         return RedirectResponse(url="/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
+        if wants_json:
+            return _JSONResponse({"error": "csrf"}, status_code=403)
         return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
 
     telegram_id = int(user["sub"])
@@ -2325,8 +2365,13 @@ def task_change_status(
 
     except Exception as e:
         logger.error("task_change_status: %s", e)
+        if wants_json:
+            return _JSONResponse({"error": "server_error"}, status_code=500)
         return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
 
+    if wants_json:
+        return _JSONResponse({"ok": True, "new_status": status,
+                              "label": STATUS_LABELS[status]})
     return RedirectResponse(url=f"/tasks/{task_id}?msg=status_updated", status_code=303)
 
 
@@ -2481,11 +2526,18 @@ def task_toggle_checklist(
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
+    from fastapi.responses import JSONResponse as _JSONResponse
+
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest"
 
     user = get_session_user(request)
     if not user:
+        if wants_json:
+            return _JSONResponse({"error": "not_auth"}, status_code=401)
         return RedirectResponse(url="/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
+        if wants_json:
+            return _JSONResponse({"error": "csrf"}, status_code=403)
         return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
 
     telegram_id = int(user["sub"])
@@ -2545,8 +2597,20 @@ def task_toggle_checklist(
             return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
 
         db.toggle_task_checklist_item(item_id, my_db_id)
+        if wants_json:
+            _ic = db.get_connection()
+            try:
+                _ir = _ic.execute(
+                    "SELECT is_done FROM task_checklist WHERE id = ?", (item_id,)
+                ).fetchone()
+            finally:
+                _ic.close()
+            new_is_done = bool(_ir[0]) if _ir else False
+            return _JSONResponse({"ok": True, "is_done": new_is_done})
     except Exception as e:
         logger.error("task_toggle_checklist: %s", e)
+        if wants_json:
+            return _JSONResponse({"error": "server_error"}, status_code=500)
 
     return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
 

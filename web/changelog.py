@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.241.0"
+CURRENT_VERSION = "1.242.0"
 
 ENTRIES = [
+    {
+        "version": "1.242.0",
+        "date": "26 июня 2026",
+        "items": [
+            "4 critical bugs in web tasks module (Task #93) — final",
+            "Add pagination and improve task status updates",
+        ],
+    },
     {
         "version": "1.241.0",
         "date": "26 июня 2026",

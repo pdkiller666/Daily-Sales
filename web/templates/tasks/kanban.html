@@ -98,6 +98,7 @@
         'in_progress': 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800',
         'review':      'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800',
         'done':        'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800',
+        'cancelled':   'bg-slate-200 dark:bg-slate-800 border-slate-400 dark:border-slate-600',
       } %}
       <div class="flex items-center justify-between px-3 py-2 rounded-xl border mb-3
                   {{ header_css.get(col.key, 'bg-slate-100 border-slate-300') }}">
@@ -170,7 +171,13 @@
             <!-- Quick move buttons (visible on hover) -->
             {% if is_admin or t.get('assigned_to') == my_db_id or t.get('assign_all') %}
             <div class="quick-move mt-2 flex flex-wrap gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              {% set all_cols = [('new','🆕'),('in_progress','🔄'),('review','🔍'),('done','✅')] %}
+              {% if col.key == 'cancelled' %}
+                {% set all_cols = [('in_progress','↩️')] %}
+              {% elif is_admin %}
+                {% set all_cols = [('new','🆕'),('in_progress','🔄'),('review','🔍'),('done','✅'),('cancelled','🚫')] %}
+              {% else %}
+                {% set all_cols = [('new','🆕'),('in_progress','🔄'),('review','🔍'),('done','✅')] %}
+              {% endif %}
               {% for st_key, st_icon in all_cols %}
               {% if st_key != col.key %}
               <button onclick="moveCard({{ t.id }}, '{{ st_key }}', event)"
@@ -179,6 +186,7 @@
                         {% if st_key == 'done' %}border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-400
                         {% elif st_key == 'in_progress' %}border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-400
                         {% elif st_key == 'review' %}border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400
+                        {% elif st_key == 'cancelled' %}border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-400
                         {% else %}border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300{% endif %}">
                 {{ st_icon }}
               </button>
@@ -231,6 +239,7 @@ document.querySelectorAll('.kanban-card').forEach(card => {
 function onDrop(e, toStatus) {
   e.preventDefault();
   if (!draggingId || draggingFrom === toStatus) return;
+  if (draggingFrom === 'cancelled') return;
   moveCard(draggingId, toStatus, null);
 }
 

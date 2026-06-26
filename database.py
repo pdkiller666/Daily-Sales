@@ -14702,13 +14702,66 @@ class Database:
             logger.error("create_task: %s", e)
             return 0
 
+    def count_tasks(self, assigned_to: int | None = None,
+                   topic_id: int | None = None, status: str | None = None,
+                   created_by: int | None = None,
+                   is_admin: bool = False, my_user_id: int | None = None,
+                   my_shop: str | None = None,
+                   shop_filter: str | None = None,
+                   q: str | None = None) -> int:
+        """Количество задач с теми же фильтрами что get_tasks (для пагинации)."""
+        try:
+            conn = self.get_connection()
+            where = ["1=1"]
+            params = []
+            if not is_admin and my_user_id is not None:
+                if my_user_id == 0:
+                    conn.close()
+                    return 0
+                sub_clauses = ["t.created_by = ?", "t.assign_all = 1"]
+                sub_params = [my_user_id]
+                sub_clauses.append("t.assigned_to = ?")
+                sub_params.append(my_user_id)
+                if my_shop:
+                    sub_clauses.append("t.assigned_shop = ?")
+                    sub_params.append(my_shop)
+                where.append(f"({' OR '.join(sub_clauses)})")
+                params += sub_params
+            if assigned_to:
+                where.append("t.assigned_to = ?")
+                params.append(assigned_to)
+            if shop_filter:
+                where.append("t.assigned_shop = ?")
+                params.append(shop_filter)
+            if topic_id:
+                where.append("t.topic_id = ?")
+                params.append(topic_id)
+            if status:
+                where.append("t.status = ?")
+                params.append(status)
+            if q:
+                where.append("(lower_u(t.title) LIKE lower_u(?) OR lower_u(t.description) LIKE lower_u(?))")
+                like = f"%{q}%"
+                params += [like, like]
+            where_sql = " AND ".join(where)
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM tasks t WHERE {where_sql}",
+                params
+            ).fetchone()
+            conn.close()
+            return row[0] if row else 0
+        except Exception as e:
+            logger.error("count_tasks: %s", e)
+            return 0
+
     def get_tasks(self, assigned_to: int | None = None,
                   topic_id: int | None = None, status: str | None = None,
                   created_by: int | None = None,
                   is_admin: bool = False, my_user_id: int | None = None,
                   my_shop: str | None = None,
                   shop_filter: str | None = None,
-                  q: str | None = None) -> list:
+                  q: str | None = None,
+                  limit: int | None = None, offset: int = 0) -> list:
         """Список задач с фильтрацией. Admin видит все, user — только свои."""
         try:
             conn = self.get_connection()
@@ -14744,6 +14797,10 @@ class Database:
                 like = f"%{q}%"
                 params += [like, like]
             where_sql = " AND ".join(where)
+            limit_sql = ""
+            if limit is not None:
+                limit_sql = "LIMIT ? OFFSET ?"
+                params += [limit, offset]
             rows = conn.execute(
                 f"""
                 SELECT t.id, t.title, t.description, t.topic_id, t.created_by,
@@ -14767,6 +14824,7 @@ class Database:
                     CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
                                     WHEN 'normal' THEN 2 ELSE 3 END,
                     t.deadline ASC NULLS LAST, t.id DESC
+                {limit_sql}
                 """,
                 params
             ).fetchall()
