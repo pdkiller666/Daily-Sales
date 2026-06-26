@@ -14714,7 +14714,10 @@ class Database:
             conn = self.get_connection()
             where = ["1=1"]
             params = []
-            if not is_admin and my_user_id:
+            if not is_admin and my_user_id is not None:
+                if my_user_id == 0:
+                    conn.close()
+                    return []
                 sub_clauses = ["t.created_by = ?", "t.assign_all = 1"]
                 sub_params = [my_user_id]
                 sub_clauses.append("t.assigned_to = ?")

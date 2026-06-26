@@ -879,14 +879,22 @@ async def task_mycomp_cb(callback: CallbackQuery, state: FSMContext):
 
     try:
         conn = db.get_connection()
-        my_row = conn.execute("SELECT id FROM users WHERE telegram_id = ?", (tg_id,)).fetchone()
+        my_row = conn.execute("SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)).fetchone()
         conn.close()
         my_db_id = my_row[0] if my_row else 0
+        my_shop = (my_row[1] or '') if my_row else ''
 
         task = db.get_task(task_id)
         if not task:
             await callback.answer("Задача не найдена")
             return
+
+        # For shop-specific tasks: verify user belongs to the assigned shop
+        _assigned_shop = task.get('assigned_shop', '')
+        if _assigned_shop and not task.get('assign_all'):
+            if my_shop != _assigned_shop:
+                await callback.answer("Эта задача назначена другому магазину", show_alert=True)
+                return
 
         db.record_task_user_completion(task_id, my_db_id, 'done')
 
@@ -1221,6 +1229,15 @@ async def tsk_c_title_msg(message: Message, state: FSMContext):
     title = message.text.strip() if message.text else ""
     if not title:
         await message.answer("⚠️ Название не может быть пустым. Введите название задачи:")
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return
+    if len(title) > 200:
+        await message.answer(
+            "⚠️ Название слишком длинное. Пожалуйста, сократите его до 200 символов и повторите ввод."
+        )
         try:
             await message.delete()
         except Exception:

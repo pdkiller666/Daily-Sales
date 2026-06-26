@@ -1,6 +1,17 @@
-CURRENT_VERSION = "1.221.0"
+CURRENT_VERSION = "1.222.0"
 
 ENTRIES = [
+    {
+        "version": "1.222.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Update documentation and application version to reflect latest deployment",
+            "critical access control — kanban cancel bypass + decompose role guard",
+            "data integrity — bulk delete files, rate status guard, email-only visibility fix",
+            "membership checks — my_complete shop, log_time membership, watch/unwatch scope",
+            "validation & UX — comment length limit, bot title guard, CSRF message",
+        ],
+    },
     {
         "version": "1.221.0",
         "date": "26 июня 2026",

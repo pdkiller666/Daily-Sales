@@ -436,6 +436,8 @@ def tasks_decompose_create(
         return RedirectResponse(url="/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(url="/tasks/decompose?msg=csrf_error", status_code=303)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
@@ -1226,6 +1228,9 @@ def tasks_kanban_move(request: Request,
         if not can_edit:
             return JSONResponse({"error": "forbidden"}, status_code=403)
 
+        if not is_admin and status == 'cancelled':
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+
         old_status_kb = task.get('status', '')
         db.update_task_status(task_id, status)
         try:
@@ -1450,6 +1455,18 @@ def tasks_bulk(request: Request, action: str = Form(""),
         elif action == "delete":
             for tid in task_ids:
                 try:
+                    try:
+                        _atts = db.get_task_attachments(tid)
+                        for _att in _atts:
+                            _att_id = _att["id"] if isinstance(_att, dict) else _att[0]
+                            _ok_a, _fpath = db.delete_task_attachment(_att_id, telegram_id, is_admin=True)
+                            if _ok_a and _fpath:
+                                try:
+                                    os.remove(_fpath)
+                                except OSError:
+                                    pass
+                    except Exception as _ae:
+                        logger.warning("tasks_bulk delete attachments: %s", _ae)
                     db.delete_task(tid)
                     ok += 1
                 except Exception:
@@ -2290,7 +2307,7 @@ def task_add_comment(
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
 
-    text = text.strip()
+    text = text.strip()[:2000]
     if not text:
         return RedirectResponse(url=f"/tasks/{task_id}?msg=no_text", status_code=303)
 
@@ -2522,6 +2539,9 @@ def task_rate(request: Request, task_id: int,
         if not task:
             return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
 
+        if task.get('status') != 'done':
+            return RedirectResponse(url=f"/tasks/{task_id}?msg=task_not_done", status_code=303)
+
         conn = db.get_connection()
         try:
             my_row = conn.execute(
@@ -2573,6 +2593,9 @@ def task_rate_inline(request: Request, task_id: int,
         task = db.get_task(task_id)
         if not task:
             return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+
+        if task.get('status') != 'done':
+            return JSONResponse({"ok": False, "error": "task_not_done"}, status_code=400)
 
         conn = db.get_connection()
         try:
@@ -2977,11 +3000,12 @@ def task_my_complete(
         conn = db.get_connection()
         try:
             my_row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+                "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
             ).fetchone()
         finally:
             conn.close()
         my_db_id = my_row[0] if my_row else 0
+        my_shop = (my_row[1] or '') if my_row else ''
         if not my_db_id:
             return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
 
@@ -2992,6 +3016,11 @@ def task_my_complete(
         # Only allowed on assign_all or shop tasks
         if not (task.get('assign_all') or task.get('assigned_shop')):
             return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
+
+        # For shop-specific tasks: verify user belongs to the assigned shop
+        if task.get('assigned_shop') and not task.get('assign_all'):
+            if my_shop != (task.get('assigned_shop') or ''):
+                return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
 
         db.record_task_user_completion(task_id, my_db_id, 'done')
 
@@ -3077,19 +3106,29 @@ def task_watch(request: Request, task_id: int, csrf_token: str = Form("")):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
     try:
         db = get_web_db(telegram_id, org_db)
-        if not db.get_task(task_id):
+        task = db.get_task(task_id)
+        if not task:
             return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
         conn = db.get_connection()
         try:
             my_row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+                "SELECT id, shop_name FROM users WHERE telegram_id=?", (telegram_id,)
             ).fetchone()
         finally:
             conn.close()
         my_db_id = my_row[0] if my_row else 0
-        if my_db_id:
+        my_shop = (my_row[1] or '') if my_row else ''
+        can_view = (
+            is_admin
+            or task.get('created_by') == my_db_id
+            or task.get('assigned_to') == my_db_id
+            or task.get('assign_all')
+            or (task.get('assigned_shop') and my_shop and task['assigned_shop'] == my_shop)
+        )
+        if my_db_id and can_view:
             db.add_task_watcher(task_id, my_db_id)
     except Exception as e:
         logger.error("task_watch: %s", e)
@@ -3109,19 +3148,29 @@ def task_unwatch(request: Request, task_id: int, csrf_token: str = Form("")):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
     try:
         db = get_web_db(telegram_id, org_db)
-        if not db.get_task(task_id):
+        task = db.get_task(task_id)
+        if not task:
             return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
         conn = db.get_connection()
         try:
             my_row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+                "SELECT id, shop_name FROM users WHERE telegram_id=?", (telegram_id,)
             ).fetchone()
         finally:
             conn.close()
         my_db_id = my_row[0] if my_row else 0
-        if my_db_id:
+        my_shop = (my_row[1] or '') if my_row else ''
+        can_view = (
+            is_admin
+            or task.get('created_by') == my_db_id
+            or task.get('assigned_to') == my_db_id
+            or task.get('assign_all')
+            or (task.get('assigned_shop') and my_shop and task['assigned_shop'] == my_shop)
+        )
+        if my_db_id and can_view:
             db.remove_task_watcher(task_id, my_db_id)
     except Exception as e:
         logger.error("task_unwatch: %s", e)
@@ -3157,6 +3206,8 @@ def task_log_time(
     if not _has_module(telegram_id, 'tasks_pro'):
         return RedirectResponse(url=f"/tasks/{task_id}?msg=pro_required", status_code=303)
 
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
     try:
         h = int(hours or 0)
         m = int(minutes or 0)
@@ -3168,15 +3219,26 @@ def task_log_time(
         conn = db.get_connection()
         try:
             my_row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+                "SELECT id, shop_name FROM users WHERE telegram_id=?", (telegram_id,)
             ).fetchone()
         finally:
             conn.close()
         my_db_id = my_row[0] if my_row else 0
+        my_shop = (my_row[1] or '') if my_row else ''
 
         task = db.get_task(task_id)
         if not task:
             return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
+
+        if not is_admin:
+            can_act = (
+                task.get('assigned_to') == my_db_id
+                or task.get('created_by') == my_db_id
+                or task.get('assign_all')
+                or (task.get('assigned_shop') and my_shop and task['assigned_shop'] == my_shop)
+            )
+            if not can_act:
+                return RedirectResponse(url=f"/tasks/{task_id}?msg=forbidden", status_code=303)
 
         db.log_task_time(task_id, my_db_id, total_minutes, note.strip()[:500])
 
