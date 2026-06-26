@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.259.0"
+CURRENT_VERSION = "1.260.0"
 
 ENTRIES = [
+    {
+        "version": "1.260.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Remove unsafe-inline from style-src CSP: complete nonce + class migration",
+        ],
+    },
     {
         "version": "1.259.0",
         "date": "26 июня 2026",

@@ -8,7 +8,7 @@
 {% endblock %}
 
 {% block content %}
-<style>
+<style nonce="{{ csp_nonce(request) }}">
 .multi-absent {
   background-image: repeating-linear-gradient(
     45deg,
@@ -203,7 +203,7 @@
           {% if _tip %}
           <div x-show="tt" x-cloak
                class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1.5 bg-slate-800 text-white text-xs rounded-md whitespace-pre-line z-50 pointer-events-none shadow-lg"
-               style="min-width:8rem;max-width:16rem">
+               class="ds-range-8-16">
             {{ _tip }}
             <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
           </div>

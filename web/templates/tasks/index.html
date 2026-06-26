@@ -228,7 +228,7 @@
         Сбросить
       </button>
     </div>
-    <form id="bulk-form" method="POST" action="/tasks/bulk" style="display:none">
+    <form id="bulk-form" method="POST" action="/tasks/bulk" class="hidden">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="action" x-bind:value="bulkAction">
       <template x-for="id in Array.from(selected)" :key="id">

@@ -365,7 +365,7 @@ def _make_sparkline_svg(values: list[float], labels: list[str] | None = None) ->
         )
     return (
         f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
-        f'xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle">'
+        f'xmlns="http://www.w3.org/2000/svg" class="ds-sparkline">'
         f'{"".join(bars)}</svg>'
     )
 

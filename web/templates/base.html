@@ -33,7 +33,7 @@
     <!-- CSP-safe delegated event handlers (replaces inline on* attributes) -->
     <script defer src="/static/ds-delegate.js?v=20260626"></script>
     {% block extra_head %}{% endblock %}
-    <style>
+    <style nonce="{{ csp_nonce(request) }}">
         [x-cloak]{display:none!important}
         .nav-active{background:rgba(37,99,235,.18);color:#93c5fd}
         .nav-active .nav-icon{color:#60a5fa}
@@ -276,12 +276,27 @@
         /* Видимый фокус для интерактивных не-нативных элементов (клавиатура) */
         [role="button"]:focus-visible,[tabindex]:focus-visible{
             outline:2px solid #3b82f6;outline-offset:2px;border-radius:6px}
+
+        /* ── JS-generated hint card (dark-mode-aware) ── */
+        .ds-hint-inner{background:#eff6ff;border-color:#bfdbfe}
+        html.dark .ds-hint-inner{background:#1e3a5f;border-color:#2563eb}
+        .ds-hint-icon{font-size:1.5rem;line-height:1;flex-shrink:0;margin-top:2px}
+        .ds-hint-title{font-size:.82rem;font-weight:700;color:#1d4ed8;margin-bottom:3px}
+        html.dark .ds-hint-title{color:#93c5fd}
+        .ds-hint-body{font-size:.78rem;color:#334155;line-height:1.5}
+        html.dark .ds-hint-body{color:#cbd5e1}
+        .ds-hint-btn{margin-top:8px;display:inline-flex;align-items:center;gap:4px;font-size:.75rem;font-weight:700;color:#2563eb;background:rgba(37,99,235,.08);border:none;border-radius:8px;padding:4px 10px;cursor:pointer;line-height:1.4}
+        html.dark .ds-hint-btn{color:#60a5fa;background:rgba(37,99,235,.18)}
+        .ds-hint-close{flex-shrink:0;font-size:1.1rem;line-height:1;color:#94a3b8;background:none;border:none;cursor:pointer;padding:2px;margin-top:-2px}
+        html.dark .ds-hint-close{color:#64748b}
+        /* ── Debug panel header buttons ── */
+        .ds-dbg-flex1{flex:1}
     </style>
 </head>
 <body class="h-full bg-slate-100" x-data="mainApp()">
 
 <!-- ── Toast notifications (reads ?success= / ?error= from URL) ── -->
-<div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" style="max-width:320px"
+<div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none ds-sh-notif"
      x-data="toastMgr()" x-init="init()">
     <template x-for="(t, i) in list" :key="i">
         <div x-show="t.v"
@@ -601,7 +616,7 @@ function toastMgr() {
 
     <!-- Beta banner -->
     {% if beta_mode() %}
-    <div id="ds-beta-bar" class="w-full bg-amber-500/10 border-b border-amber-400/20 px-4 py-1.5 flex items-center justify-center gap-2 relative" style="display:none">
+    <div id="ds-beta-bar" class="hidden w-full bg-amber-500/10 border-b border-amber-400/20 px-4 py-1.5 flex items-center justify-center gap-2 relative">
         <span class="flex items-center gap-1 bg-amber-400/10 border border-amber-400/25 rounded-full px-2 py-0.5">
             <span class="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse flex-shrink-0"></span>
             <span class="text-[10px] font-bold text-amber-400 uppercase tracking-widest leading-none">Бета</span>
@@ -617,10 +632,10 @@ function toastMgr() {
     <script nonce="{{ csp_nonce(request) }}">
     (function(){
         var bar = document.getElementById('ds-beta-bar');
-        if(bar && sessionStorage.getItem('ds_beta_dismissed') !== '1') bar.style.display = '';
+        if(bar && sessionStorage.getItem('ds_beta_dismissed') !== '1') bar.classList.remove('hidden');
         var btn = document.getElementById('ds-beta-close');
         if(btn) btn.addEventListener('click', function(){
-            if(bar) bar.style.display = 'none';
+            if(bar) bar.classList.add('hidden');
             sessionStorage.setItem('ds_beta_dismissed', '1');
             window.dispatchEvent(new CustomEvent('ds-beta-dismissed'));
         });
@@ -689,8 +704,7 @@ function toastMgr() {
                 </button>
                 <!-- Desktop dropdown -->
                 <div x-show="notifDdOpen" x-cloak
-                     class="hidden lg:block absolute right-0 mt-1 w-80 bg-white border border-slate-200 rounded-xl shadow-lg z-50"
-                     style="max-height:420px;overflow-y:auto">
+                     class="hidden lg:block absolute right-0 mt-1 w-80 bg-white border border-slate-200 rounded-xl shadow-lg z-50 ds-sh-420">
                     <div class="flex items-center justify-between px-3 py-2.5 border-b border-slate-100 sticky top-0 bg-white">
                         <p class="text-xs font-semibold text-slate-700">🔔 Уведомления</p>
                         <button @click="notifDdOpen=false" class="text-slate-400 hover:text-slate-600 text-xs leading-none">✕</button>
@@ -1270,14 +1284,14 @@ window.dsRefreshBadge = function() {
                 '«Открывать ссылки» → Внешний браузер. ' +
                 'Затем снова откройте ссылку — Chrome добавит приложение на экран.';
             if (btn) btn.style.display = 'none';
-            if (copyBtn) copyBtn.style.display = '';
+            if (copyBtn) copyBtn.classList.remove('hidden');
         } else {
             const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
             if (txt) txt.textContent = ios
                 ? 'Safari → кнопка «Поделиться» → «На экран «Домой»'
                 : 'Меню браузера ⋮ → «Установить приложение» или «Добавить на гл. экран»';
             if (btn) btn.style.display = 'none';
-            if (copyBtn) copyBtn.style.display = 'none';
+            if (copyBtn) copyBtn.classList.add('hidden');
         }
         if (el) el.classList.remove('hidden');
     };
@@ -1486,12 +1500,21 @@ _dsApplyDark(document.documentElement.classList.contains('dark'));
         const d = document.createElement('div');
         d.id = 'ds-shortcuts-hint';
         d.style.cssText = 'position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:9999;background:#1e293b;color:#e2e8f0;border-radius:12px;padding:16px 20px;font-size:13px;line-height:1.8;box-shadow:0 8px 32px rgba(0,0,0,.5);min-width:220px;pointer-events:none';
-        d.innerHTML = '<div style="font-weight:700;margin-bottom:8px;color:#60a5fa">⌨️ Горячие клавиши</div>' +
-            '<div><kbd style="background:#334155;padding:1px 6px;border-radius:4px">/</kbd> &nbsp;Поиск</div>' +
-            '<div><kbd style="background:#334155;padding:1px 6px;border-radius:4px">Esc</kbd> &nbsp;Закрыть</div>' +
-            '<div><kbd style="background:#334155;padding:1px 6px;border-radius:4px">Alt+D</kbd> &nbsp;Тёмная тема</div>' +
-            '<div><kbd style="background:#334155;padding:1px 6px;border-radius:4px">Alt+N</kbd> &nbsp;Новая запись</div>' +
-            '<div><kbd style="background:#334155;padding:1px 6px;border-radius:4px">?</kbd> &nbsp;Эта подсказка</div>';
+        const hdr = document.createElement('div');
+        hdr.className = 'ds-hint-title';
+        hdr.textContent = '⌨️ Горячие клавиши';
+        const keys = [['/', 'Поиск'], ['Esc', 'Закрыть'], ['Alt+D', 'Тёмная тема'], ['Alt+N', 'Новая запись'], ['?', 'Эта подсказка']];
+        const rows = keys.map(([k, lbl]) => {
+            const row = document.createElement('div');
+            const kb = document.createElement('kbd');
+            kb.className = 'ds-kbd';
+            kb.textContent = k;
+            row.appendChild(kb);
+            row.appendChild(document.createTextNode('\u00a0 \u00a0' + lbl));
+            return row;
+        });
+        d.appendChild(hdr);
+        rows.forEach(r => d.appendChild(r));
         document.body.appendChild(d);
         setTimeout(() => d.remove(), 3500);
     }
@@ -1545,10 +1568,10 @@ function dsLogClosePanel() {
         panel.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:999999;background:#0f172a;color:#94a3b8;font-size:11px;font-family:monospace;height:55vh;display:flex;flex-direction:column;border-top:3px solid #2563eb';
         const hdr = document.createElement('div');
         hdr.style.cssText = 'color:#60a5fa;font-weight:bold;padding:6px 8px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #1e3a5f;flex-shrink:0';
-        hdr.innerHTML = '<span style="flex:1">🐛 DS Log</span>'
-            + '<button style="background:#1e40af;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer" data-action="dsLogCopy">📋 Копировать</button>'
-            + '<button style="background:#7f1d1d;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer" data-action="dsLogClear">🗑️ Очистить</button>'
-            + '<button style="background:#374151;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer" data-action="dsLogClosePanel">✕</button>';
+        hdr.innerHTML = '<span class="ds-dbg-flex1">🐛 DS Log</span>'
+            + '<button class="ds-dbg-btn-copy" data-action="dsLogCopy">📋 Копировать</button>'
+            + '<button class="ds-dbg-btn-clr" data-action="dsLogClear">🗑️ Очистить</button>'
+            + '<button class="ds-dbg-btn-close" data-action="dsLogClosePanel">✕</button>';
         panel.appendChild(hdr);
         const pre = document.createElement('pre');
         pre.id = '_ds_log_pre';
@@ -1957,22 +1980,14 @@ function mainApp() {
         card.style.cssText = 'opacity:0;transform:translateY(-6px);transition:opacity .25s,transform .25s';
         card.className = 'mb-5';
         card.innerHTML = `
-<div class="flex items-start gap-3 px-4 py-3.5 rounded-2xl border shadow-sm"
-     style="background:${isDark?'#1e3a5f':'#eff6ff'};border-color:${isDark?'#2563eb':'#bfdbfe'}">
-  <span style="font-size:1.5rem;line-height:1;flex-shrink:0;margin-top:2px">${h.icon}</span>
+<div class="ds-hint-inner flex items-start gap-3 px-4 py-3.5 rounded-2xl border shadow-sm">
+  <span class="ds-hint-icon">${h.icon}</span>
   <div class="flex-1 min-w-0">
-    <p style="font-size:.82rem;font-weight:700;color:${isDark?'#93c5fd':'#1d4ed8'};margin-bottom:3px">${h.title}</p>
-    <p style="font-size:.78rem;color:${isDark?'#cbd5e1':'#334155'};line-height:1.5">${h.text}</p>
-    <button data-action="dsDismissHint" data-arg="${key}"
-            style="margin-top:8px;display:inline-flex;align-items:center;gap:4px;font-size:.75rem;font-weight:700;
-                   color:${isDark?'#60a5fa':'#2563eb'};background:${isDark?'rgba(37,99,235,.18)':'rgba(37,99,235,.08)'};
-                   border:none;border-radius:8px;padding:4px 10px;cursor:pointer;line-height:1.4">
-      ✅ Понятно!
-    </button>
+    <p class="ds-hint-title">${h.title}</p>
+    <p class="ds-hint-body">${h.text}</p>
+    <button class="ds-hint-btn" data-action="dsDismissHint" data-arg="${key}">✅ Понятно!</button>
   </div>
-  <button data-action="dsDismissHint" data-arg="${key}"
-          style="flex-shrink:0;font-size:1.1rem;line-height:1;color:${isDark?'#64748b':'#94a3b8'};
-                 background:none;border:none;cursor:pointer;padding:2px;margin-top:-2px">×</button>
+  <button class="ds-hint-close" data-action="dsDismissHint" data-arg="${key}">×</button>
 </div>`;
         const main = document.querySelector('main');
         if (main) main.insertBefore(card, main.firstChild);
@@ -2016,8 +2031,7 @@ function mainApp() {
      x-transition:enter-end="sheet-to"
      x-transition:leave="transition duration-200 ease-in"
      x-transition:leave-end="sheet-from"
-     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto"
-     style="max-height:80vh;padding-bottom:env(safe-area-inset-bottom,0)">
+     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto ds-sh-80vh">
 
     <!-- Drag handle -->
     <div class="flex justify-center pt-3 pb-1 shrink-0">
@@ -2319,7 +2333,7 @@ function mainApp() {
             <span class="flex-1 leading-snug" id="ds-pwa-prompt-text">Добавить на экран смартфона — работает как приложение</span>
             <div class="flex flex-col gap-1 shrink-0">
                 <button id="ds-pwa-install-btn" data-action="dsPwaInstall" class="px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors">Добавить</button>
-                <button id="ds-pwa-copy-btn" data-action="dsPwaCopyLink" style="display:none" class="px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors whitespace-nowrap">Скопировать ссылку</button>
+                <button id="ds-pwa-copy-btn" data-action="dsPwaCopyLink" class="hidden px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors whitespace-nowrap">Скопировать ссылку</button>
             </div>
             <button data-action="dsPwaDismiss" class="shrink-0 text-emerald-400 hover:text-emerald-600 text-base leading-none px-1">×</button>
         </div>
@@ -2352,15 +2366,14 @@ function mainApp() {
      x-transition:leave="transition duration-200 ease-in"
      x-transition:leave-start="sheet-to"
      x-transition:leave-end="sheet-from"
-     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto"
-     style="max-height:78vh"
+     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto ds-sh-78vh"
      @click.stop>
     <div class="flex justify-center pt-3 pb-1 shrink-0">
         <div class="w-10 h-1 bg-slate-200 rounded-full"></div>
     </div>
     <div class="flex items-center justify-between px-4 pt-1 pb-2.5 border-b border-slate-100 sticky top-0 bg-white">
         <div class="flex items-center gap-2.5">
-            <div class="ds-logo-mark w-8 h-8 rounded-xl flex flex-col items-center justify-center shrink-0" style="background:linear-gradient(135deg,#2563eb,#4f46e5)">
+            <div class="ds-logo-mark ds-sh-logo w-8 h-8 rounded-xl flex flex-col items-center justify-center shrink-0">
                 <span class="text-white font-extrabold text-[10px] leading-none">DS</span>
                 <span class="font-bold text-[5px] tracking-widest text-white leading-none mt-px">CRM</span>
             </div>
@@ -2418,8 +2431,7 @@ function mainApp() {
      x-transition:leave="transition duration-200 ease-in"
      x-transition:leave-start="sheet-to"
      x-transition:leave-end="sheet-from"
-     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto"
-     style="max-height:70vh">
+     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto ds-sh-70vh">
     <!-- Drag handle -->
     <div class="flex justify-center pt-3 pb-1 shrink-0">
         <div class="w-10 h-1 bg-slate-200 rounded-full"></div>
@@ -2473,8 +2485,8 @@ function mainApp() {
      x-transition:enter-end="sheet-to"
      x-transition:leave="transition duration-200 ease-in"
      x-transition:leave-end="sheet-from"
-     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto"
-     style="max-height:84vh;padding-bottom:env(safe-area-inset-bottom,0)" @click.stop>
+     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto ds-sh-84vh"
+     @click.stop>
 
     <div class="flex justify-center pt-3 pb-1">
         <div class="w-10 h-1 bg-slate-200 rounded-full"></div>
@@ -2570,8 +2582,7 @@ function mainApp() {
 </div>
 
 <!-- ═══ BOTTOM NAV BAR ═══ -->
-<nav class="fixed bottom-0 inset-x-0 z-30 bg-white border-t border-slate-200 lg:hidden"
-     style="box-shadow:0 -2px 16px rgba(0,0,0,.07);padding-bottom:env(safe-area-inset-bottom,0)">
+<nav class="fixed bottom-0 inset-x-0 z-30 bg-white border-t border-slate-200 lg:hidden ds-bnav-bar">
     <div class="flex items-stretch h-16">
         <template x-for="item in navItems" :key="item.key">
             <a :href="item.href"
@@ -2584,7 +2595,7 @@ function mainApp() {
         <button @click="moreOpen=true"
                 class="bnav-item"
                 :class="moreActive ? 'bn-active' : ''">
-            <span class="bnav-icon" style="font-size:1.1rem">☰</span>
+            <span class="bnav-icon ds-bnav-menu-icon">☰</span>
             <span class="bnav-label">Ещё</span>
         </button>
     </div>
@@ -2592,11 +2603,9 @@ function mainApp() {
 
 {% if chat_enabled(request) %}
 <!-- ══ Chat FAB (mobile, draggable, edge-snap) ══ -->
-<div id="chat-fab-wrap" class="lg:hidden fixed z-40 select-none"
-     style="bottom:84px;right:16px">
+<div id="chat-fab-wrap" class="lg:hidden fixed z-40 select-none ds-fab-pos">
     <button id="chat-fab"
-       class="w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white text-2xl transition-colors relative"
-       style="background:#2563eb"
+       class="w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white text-2xl transition-colors relative ds-fab-bg"
        draggable="false" aria-label="Открыть чат">
         <span id="chat-fab-icon">💬</span>
         <span id="chat-fab-badge"

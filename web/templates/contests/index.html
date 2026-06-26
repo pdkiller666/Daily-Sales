@@ -113,7 +113,7 @@
                             {% if c.status == 'finished' %}bg-slate-400
                             {% elif c.progress >= 80 %}bg-emerald-500
                             {% else %}bg-blue-500{% endif %}"
-                     style="width: {{ c.progress }}%"></div>
+                     :style="'width:'+(c.progress)+'%'"></div>
             </div>
             <p class="text-xs text-slate-400 mt-1 text-right">{{ c.progress }}% времени прошло</p>
             {% endif %}
@@ -268,7 +268,7 @@
                 {% if r.get('sub') %}<p class="text-xs text-slate-400">{{ r.sub }}</p>{% endif %}
                 <div class="mt-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                     <div class="h-full rounded-full {{ 'bg-amber-400' if r.pos==1 else 'bg-slate-400' if r.pos==2 else 'bg-orange-400' if r.pos==3 else 'bg-blue-300' }}"
-                         style="width: {{ r.pct }}%"></div>
+                         :style="'width:'+(r.pct)+'%'"></div>
                 </div>
             </div>
             <div class="text-right shrink-0">

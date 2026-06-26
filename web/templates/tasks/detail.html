@@ -146,7 +146,7 @@
         <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5">
           <div id="cl-progress-bar" class="bg-emerald-500 h-1.5 rounded-full transition-all"
                data-total="{{ total_count }}"
-               style="width: {{ (done_count / total_count * 100)|int }}%"></div>
+               :style="'width:'+((done_count / total_count * 100)|int)+'%'"></div>
         </div>
       </div>
       {% endif %}
@@ -291,7 +291,7 @@
           <div x-show="showMention && filtered.length > 0"
                x-cloak
                class="absolute z-30 left-0 w-64 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg overflow-hidden"
-               style="bottom: calc(100% - 2.5rem)">
+               class="ds-bottom-tip">
             <template x-for="u in filtered" :key="u.db_id">
               <button type="button"
                       @click="pickUser(u, $el.closest('[x-data]').querySelector('textarea'))"
@@ -674,7 +674,7 @@
       {% if _total_m > 0 %}
       <div class="mb-3">
         <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5">
-          <div class="bg-emerald-500 h-1.5 rounded-full transition-all" style="width: {{ _pct_m }}%"></div>
+          <div class="bg-emerald-500 h-1.5 rounded-full transition-all" :style="'width:'+(_pct_m)+'%'"></div>
         </div>
         {% if _pct_m == 100 %}
         <p class="text-xs text-emerald-600 dark:text-emerald-400 mt-1 font-medium">✅ Все выполнили</p>
@@ -726,7 +726,7 @@
         </div>
         <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5">
           <div class="h-1.5 rounded-full transition-all {{ 'bg-red-500' if _pct_t > 100 else 'bg-indigo-500' }}"
-               style="width: {{ [_pct_t, 100]|min }}%"></div>
+               :style="'width:'+([_pct_t, 100]|min)+'%'"></div>
         </div>
       </div>
       {% endif %}

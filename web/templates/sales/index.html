@@ -240,7 +240,7 @@
                     </button>
                 </div>
                 <!-- Scrollable product list -->
-                <div class="border border-slate-200 dark:border-slate-600 rounded-lg overflow-y-auto bg-white dark:bg-slate-700" style="max-height:200px">
+                <div class="border border-slate-200 dark:border-slate-600 rounded-lg overflow-y-auto bg-white dark:bg-slate-700 ds-max-h-200">
                     <div x-show="loading" class="py-3 text-center text-sm text-slate-400 dark:text-slate-500">Загрузка…</div>
                     <div x-show="!loading && products.length === 0" class="py-3 text-center text-sm text-slate-400 dark:text-slate-500">Нет товаров в наличии</div>
                     <div x-show="!loading && products.length > 0 && filteredProducts.length === 0" class="py-3 text-center text-sm text-slate-400 dark:text-slate-500">Ничего не найдено</div>
@@ -326,7 +326,7 @@
         </div>
 
         <!-- Camera view -->
-        <div class="relative bg-black" style="height:240px" x-show="!scanResult && !scanError">
+        <div class="relative bg-black ds-h-240" x-show="!scanResult && !scanError">
             <video id="barcode-video" autoplay playsinline muted
                    class="w-full h-full object-cover"></video>
             <!-- Scan frame overlay -->

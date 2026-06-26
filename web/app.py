@@ -150,7 +150,7 @@ _CSP_TEMPLATE = (
     "default-src 'self'; "
     "script-src 'self' 'unsafe-eval' 'nonce-{{nonce}}' "
     "https://telegram.org; "
-    "style-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'nonce-{{nonce}}'; "
     "font-src 'self' data:; "
     "img-src 'self' data: blob: https:; "
     "connect-src 'self'; "
@@ -1053,15 +1053,7 @@ def create_web_app() -> FastAPI:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="6;url=/download/android">
 <title>APK — DailySales</title>
-<style>
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f0fdf4;color:#166534;}
-  .card{text-align:center;padding:2.5rem 2rem;background:#fff;border-radius:1.25rem;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:340px;width:90%;}
-  .icon{font-size:3rem;margin-bottom:1rem;}
-  h1{font-size:1.25rem;font-weight:700;margin:0 0 .5rem;}
-  p{font-size:.875rem;color:#4b5563;margin:0 0 1.5rem;line-height:1.5;}
-  .spinner{width:2rem;height:2rem;border:3px solid #d1fae5;border-top-color:#16a34a;border-radius:50%;animation:spin 0.8s linear infinite;margin:.5rem auto 0;}
-  @keyframes spin{to{transform:rotate(360deg)}}
-</style>
+<link rel="stylesheet" href="/static/apk-download.css">
 </head>
 <body>
 <div class="card">

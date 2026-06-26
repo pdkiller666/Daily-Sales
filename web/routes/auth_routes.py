@@ -382,8 +382,7 @@ async def miniapp_entry(request: Request):
 <html lang="ru"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DailySales</title>
-<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;font-family:sans-serif;color:#94a3b8}
-.wrap{text-align:center}.ico{font-size:2.5rem;margin-bottom:.75rem}.msg{font-size:.95rem}</style>
+<link rel="stylesheet" href="/static/miniapp-entry.css">
 </head><body><div class="wrap"><div class="ico">⏳</div><div class="msg">Вход в DailySales…</div></div>
 <script>
 (async function(){
@@ -419,17 +418,8 @@ async def open_app(request: Request, c: str = ""):
 <html lang="ru"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DailySales</title>
-<style>
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;font-family:system-ui,-apple-system,sans-serif;color:#e2e8f0;padding:1.5rem}
-.card{max-width:340px;width:100%;text-align:center}
-.ico{font-size:3rem;margin-bottom:1rem}
-.title{font-size:1.15rem;font-weight:700;margin-bottom:.5rem}
-.sub{font-size:.9rem;color:#94a3b8;margin-bottom:1.5rem;line-height:1.5}
-.btn{display:block;width:100%;box-sizing:border-box;padding:.85rem;border-radius:.75rem;font-weight:600;font-size:.95rem;text-decoration:none;margin-bottom:.6rem;border:none;cursor:pointer}
-.btn-primary{background:#2563eb;color:#fff}
-.btn-secondary{background:#1e293b;color:#e2e8f0}
-.hidden{display:none}
-</style></head><body>
+<link rel="stylesheet" href="/static/open-app.css">
+</head><body>
 <div class="card">
   <div class="ico">📱</div>
   <div class="title" id="t">Открываем приложение…</div>

@@ -4,7 +4,7 @@
 {% block extra_head %}
 <script src="/static/vendor/jsbarcode.all.min.js?v=faf9d188bd"></script>
 <script src="/static/vendor/sortable.min.js?v=faf9d188bd"></script>
-<style>
+<style nonce="{{ csp_nonce(request) }}">
 /* ───── CSS переменные дизайна ──────────────────────────────────────────── */
 :root {
   --lbl-bg:     {{ label_settings.bg_color    | default('#ffffff') }};
@@ -407,7 +407,7 @@
           <input type="text" x-model="d.sale_badge" @input="applyDesign()"
                  maxlength="30" placeholder="напр. СКИДКА 20%">
         </div>
-        <div class="ctrl-group" style="grid-column:1/-1">
+        <div class="ctrl-group col-span-full">
           <label>Содержимое QR-кода</label>
           <input type="text" x-model="d.qr_content" @input="applyDesign()"
                  maxlength="300"
@@ -569,8 +569,7 @@
 <div class="label size-{{ initial_size }}" data-id="{{ lb.id }}" data-copies="{{ n_copies }}">
 
   <div class="lbl-block" data-block="badge">
-    <div class="label-badge"
-         style="{{ 'display:none' if not ls.sale_badge else '' }}">{{ ls.sale_badge or '' }}</div>
+    <div class="label-badge{{ '' if ls.sale_badge else ' hidden' }}">{{ ls.sale_badge or '' }}</div>
   </div>
 
   <div class="lbl-block" data-block="logo">
@@ -619,7 +618,7 @@
     {% elif lb.barcode %}
     <div class="label-article">{{ lb.barcode }}</div>
     {% else %}
-    <div class="label-article" style="color:#ccc">— артикул не задан —</div>
+    <div class="label-article ds-text-ccc">— артикул не задан —</div>
     {% endif %}
   </div>
 

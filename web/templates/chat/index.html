@@ -8,7 +8,7 @@
 {% endblock %}
 
 {% block extra_css %}
-<style>
+<style nonce="{{ csp_nonce(request) }}">
 /* ── Full-screen chat ── */
 main.ds-main { padding:0 !important; overflow:hidden; }
 footer { display:none !important; }
@@ -516,8 +516,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
 
     <!-- ══ Topic tabs ══ -->
     <div x-show="!dmMode" class="shrink-0 px-4 sm:px-6 py-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
-        <div class="flex items-center gap-2 overflow-x-auto scroll-smooth"
-             style="scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px"
+        <div class="flex items-center gap-2 overflow-x-auto scroll-smooth ds-sb-none-pad"
              id="topics-bar">
 
             <template x-for="t in topicsList" :key="t.id">
@@ -745,7 +744,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                 <span class="font-semibold text-slate-800 dark:text-slate-100">↪ Переслать сообщение</span>
                 <button @click="closeForward()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 text-xl leading-none px-1">×</button>
             </div>
-            <div class="flex-1 overflow-y-auto p-3 space-y-3" style="scrollbar-width:thin">
+            <div class="flex-1 overflow-y-auto p-3 space-y-3 ds-sb-thin">
                 <!-- Темы -->
                 <div>
                     <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1 px-1">Темы</p>
@@ -768,7 +767,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                             <button type="button" :disabled="forwardSending"
                                     @click="doForward('dm', c.id)"
                                     class="flex items-center gap-2 px-2.5 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50">
-                                <span class="dm-avatar shrink-0" style="width:26px;height:26px;font-size:.7rem;background:#64748b" x-text="c.initial"></span>
+                                <span class="dm-avatar dm-av-xs shrink-0" x-text="c.initial"></span>
                                 <span class="text-sm text-slate-800 dark:text-slate-100 truncate" x-text="c.display_name"></span>
                             </button>
                         </template>
@@ -1085,8 +1084,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                 rows="1"
                 :placeholder="currentTopicIsAi ? '🤖 Спросите AI-ассистента…' : ('Написать в #' + currentTopicName + '… (Ctrl+Enter — отправить)')"
                 :disabled="sending"
-                class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug"
-                style="min-height:42px;max-height:120px"
+                class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug ds-ta-resize"
                 @input="autoResize($event.target); mentionInput($event.target, 'group')"
                 @blur="mentionBlur()"
             ></textarea>
@@ -1098,7 +1096,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                 <svg x-show="!sending" class="w-5 h-5 -translate-x-px" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/>
                 </svg>
-                <svg x-show="sending" style="display:none" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24">
+                <svg x-show="sending" x-cloak class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
                 </svg>
@@ -1204,7 +1202,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                         <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest px-3 pt-3 pb-1">Сотрудники</p>
                         <template x-for="m in dmFilteredMembers" :key="m.id">
                             <div class="dm-contact-row" @click="openDmConversation(m)">
-                                <div class="dm-avatar" style="background:#64748b" x-text="m.initial"></div>
+                                <div class="dm-avatar ds-av-gray" x-text="m.initial"></div>
                                 <div class="flex-1 min-w-0">
                                     <span class="font-medium text-sm text-slate-800 dark:text-slate-100 truncate block" x-text="m.display_name"></span>
                                     <p x-show="m.shop_name" class="text-xs text-slate-400 truncate" x-text="m.shop_name"></p>
@@ -1242,8 +1240,8 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                 <path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                             </svg>
                         </button>
-                        <div class="dm-avatar shrink-0" style="width:32px;height:32px;font-size:.8rem"
-                             :style="dmPeerId === -1 ? 'width:32px;height:32px;font-size:.8rem;background:#14b8a6' : 'width:32px;height:32px;font-size:.8rem'"
+                        <div class="dm-avatar dm-av-md shrink-0"
+                             :class="dmPeerId === -1 ? 'ds-av-teal' : ''"
                              x-text="dmPeerInitial"></div>
                         <span class="font-semibold text-slate-800 dark:text-slate-100 flex-1 truncate"
                               x-text="dmPeerName"></span>
@@ -1262,8 +1260,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                     </div>
 
                     <!-- Messages scroll -->
-                    <div id="dm-conv-scroll" class="flex-1 overflow-y-auto p-4 flex flex-col"
-                         style="scrollbar-width:thin">
+                    <div id="dm-conv-scroll" class="flex-1 overflow-y-auto p-4 flex flex-col ds-sb-thin">
                         <!-- Load more -->
                         <div x-show="dmHasMore" class="text-center py-1 shrink-0">
                             <button @click="dmLoadMore()" :disabled="dmLoadingMore"
@@ -1286,13 +1283,12 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                  :class="[m.is_mine ? 'flex-row-reverse' : '', lastInGroup(dmMessages, mi) ? 'mb-2' : 'mb-0.5']"
                                  :data-dmid="m.id">
                                 <template x-if="!m.is_mine && lastInGroup(dmMessages, mi)">
-                                    <div class="dm-avatar shrink-0"
-                                         style="width:28px;height:28px;font-size:.75rem"
-                                         :style="(m.is_ai || dmPeerId === -1) ? 'width:28px;height:28px;font-size:.75rem;background:#14b8a6' : 'width:28px;height:28px;font-size:.75rem'"
+                                    <div class="dm-avatar dm-av-sm shrink-0"
+                                         :class="(m.is_ai || dmPeerId === -1) ? 'ds-av-teal' : ''"
                                          x-text="dmPeerInitial"></div>
                                 </template>
                                 <template x-if="!m.is_mine && !lastInGroup(dmMessages, mi)">
-                                    <div class="shrink-0" style="width:28px"></div>
+                                    <div class="shrink-0 ds-w-28"></div>
                                 </template>
                                 <div :class="m.is_mine ? 'items-end' : 'items-start'"
                                      class="flex flex-col max-w-[72%]">
@@ -1422,8 +1418,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                         <!-- AI thinking indicator (DM) -->
                         <div x-show="dmAiThinking" x-cloak
                              class="flex items-end gap-1.5">
-                            <div class="dm-avatar shrink-0"
-                                 style="width:28px;height:28px;font-size:.75rem;background:#14b8a6">🤖</div>
+                            <div class="dm-avatar dm-av-sm ds-av-teal shrink-0">🤖</div>
                             <div class="flex flex-col items-start max-w-[72%]">
                                 <div class="px-3 py-2 text-sm leading-relaxed shadow-sm dm-bubble-other flex items-center gap-2">
                                     <svg class="w-3.5 h-3.5 spin shrink-0 text-teal-500" fill="none" viewBox="0 0 24 24">
@@ -1544,8 +1539,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                 rows="1"
                                 :placeholder="'Написать ' + dmPeerName + '… (Ctrl+Enter — отправить)'"
                                 :disabled="dmSending"
-                                class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug"
-                                style="min-height:42px;max-height:120px"
+                                class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug ds-ta-resize"
                             ></textarea>
                             <button type="submit"
                                     :disabled="dmSending || (!dmText.trim() && !dmAttachedFiles.length)"
@@ -1554,7 +1548,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                 <svg x-show="!dmSending" class="w-5 h-5 -translate-x-px" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/>
                                 </svg>
-                                <svg x-show="dmSending" style="display:none" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24">
+                                <svg x-show="dmSending" x-cloak class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
                                 </svg>

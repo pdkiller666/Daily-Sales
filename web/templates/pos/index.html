@@ -73,7 +73,7 @@
 
 <!-- ── Основной POS-лэйаут ── -->
 <!-- На мобайле: pb учитывает нав (56px) + строка поиска (~52px) + корзина (~60px) = ~168px -->
-<div class="flex gap-4 items-start pb-4 lg:pb-4" style="padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 11rem)" id="pos-main-grid">
+<div class="flex gap-4 items-start pb-4 lg:pb-4 ds-pb-safe-11rem" id="pos-main-grid">
 
     <!-- ── ЛЕВАЯ ПАНЕЛЬ: категории (только десктоп) ── -->
     <div class="hidden lg:flex flex-col gap-1 w-44 shrink-0">
@@ -212,7 +212,7 @@
         <!-- Сетка товаров -->
         <div x-show="!loading && filteredProducts.length > 0"
              class="grid gap-3"
-             style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
+             class="ds-product-grid">
             <template x-for="p in filteredProducts" :key="p.id">
                 <div class="group relative bg-white border border-slate-200 rounded-2xl p-3.5 transition-all duration-150 hover:border-blue-400 hover:shadow-md"
                      :class="isInCart(p.id) ? 'border-blue-400 bg-blue-50/40 shadow-sm' : ''">
@@ -381,7 +381,7 @@
      x-transition:leave-start="translate-y-0"
      x-transition:leave-end="translate-y-full"
      class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden"
-     style="max-height: 82vh; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 80px)">
+     class="ds-max-h-82vh-pb-safe">
 
     <div class="flex items-center justify-between px-5 pt-3 pb-2 border-b border-slate-100">
         <div class="w-10 h-1 rounded-full bg-slate-200 absolute left-1/2 -translate-x-1/2 top-2"></div>
@@ -400,7 +400,7 @@
     </div>
 
     <div x-show="cart.length > 0" class="overflow-y-auto divide-y divide-slate-50"
-         style="max-height: calc(82vh - 220px)">
+         class="ds-max-h-82vh-220">
         <template x-for="(item, idx) in cart" :key="item.id">
             <div class="px-5 py-3 flex flex-col gap-2">
                 <div class="flex items-start justify-between gap-2">
@@ -460,7 +460,7 @@
         <button @click="checkout()"
                 :disabled="checkoutLoading || cart.length === 0"
                 class="w-full py-3.5 rounded-xl text-sm font-bold transition-opacity text-white shadow-lg disabled:opacity-50 disabled:cursor-not-allowed active:opacity-80"
-                style="background:linear-gradient(135deg,#3b82f6 0%,#6366f1 100%)">
+                class="ds-grad-blue-indigo">
             <span x-show="!checkoutLoading" class="flex items-center justify-center gap-2">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0"/>
@@ -480,7 +480,7 @@
 
 <!-- ── Фиксированная строка поиска + категорий (мобайл, снизу над навом) ── -->
 <div class="lg:hidden fixed inset-x-0 z-30 bg-white/97 dark:bg-slate-900/97 backdrop-blur-md border-t border-slate-100 dark:border-slate-700 px-3 py-2"
-     style="bottom: calc(4rem + 4px + env(safe-area-inset-bottom, 0px))">
+     class="ds-bottom-safe-64">
     <div class="flex gap-2 items-center">
         <div class="relative flex-1">
             <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -545,7 +545,7 @@
 
 <!-- Фиксированный бар корзины (мобайл) — над строкой поиска -->
 <div class="fixed inset-x-0 z-29 px-4 lg:hidden"
-     style="bottom: calc(4rem + 3.375rem + 4px + env(safe-area-inset-bottom, 0px))">
+     class="ds-bottom-safe-72">
     <div x-show="cart.length === 0 && !loading && allProducts.length > 0" x-cloak
          class="bg-white/90 backdrop-blur border border-slate-200 rounded-2xl px-4 py-2.5 text-center text-xs text-slate-400 shadow-sm">
         Нажмите на товар, чтобы добавить в корзину
@@ -553,7 +553,7 @@
     <button x-show="cart.length > 0" x-cloak
             @click="mobileCartOpen = true"
             class="w-full flex items-center justify-between text-white rounded-2xl px-5 py-4 transition-opacity active:opacity-80"
-            style="background:linear-gradient(135deg,#3b82f6 0%,#6366f1 100%);box-shadow:0 4px 18px rgba(99,102,241,.45)">
+            class="ds-grad-blue-indigo-glow-lg">
         <div class="flex items-center gap-2.5">
             <span class="text-2xl leading-none">🛒</span>
             <div class="text-left">
@@ -612,7 +612,7 @@
         </div>
 
         <!-- Camera view -->
-        <div class="relative bg-black" style="height:240px" x-show="!scanError">
+        <div class="relative bg-black ds-h-240" x-show="!scanError">
             <video id="pos-barcode-video" autoplay playsinline muted
                    class="w-full h-full object-cover"></video>
             <!-- Scan frame overlay -->

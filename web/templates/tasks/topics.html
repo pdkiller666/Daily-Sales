@@ -85,7 +85,7 @@
         </div>
 
         <!-- Edit row -->
-        <form x-show="editing" style="display:none"
+        <form x-show="editing" x-cloak
               method="POST" action="/tasks/topics/{{ t.id }}/edit"
               class="space-y-3">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

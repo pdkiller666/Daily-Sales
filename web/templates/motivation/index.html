@@ -428,8 +428,7 @@
                             <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-5"></div>
                         </div>
                     </label>
-                    <div id="coeff-cap-row" class="pl-4 border-l-2 border-emerald-100"
-                         style="{{ '' if plan_coeff_enabled else 'display:none' }}">
+                    <div id="coeff-cap-row" class="pl-4 border-l-2 border-emerald-100{% if not plan_coeff_enabled %} hidden{% endif %}">
                         <label class="flex items-center justify-between gap-4 cursor-pointer group">
                             <div>
                                 <p class="text-sm font-medium text-slate-700 group-hover:text-slate-900">Обрезать коэффициент до 100%</p>

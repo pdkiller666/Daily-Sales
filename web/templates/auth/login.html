@@ -6,8 +6,22 @@
     <title>Вход — DailySales</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%232563eb'/><text x='50' y='57' text-anchor='middle' font-size='44' font-family='Arial,sans-serif' font-weight='bold' fill='white'>DS</text><text x='50' y='75' text-anchor='middle' font-size='21' font-family='Arial,sans-serif' font-weight='bold' fill='white' letter-spacing='1'>CRM</text></svg>">
     <link rel="stylesheet" href="/static/app.css?v=a102dbda84">
-    <style>
+    <style nonce="{{ csp_nonce(request) }}">
         .circuit-line{position:absolute;background:rgba(220,38,38,.12);border-radius:2px}
+        .cl-h1{top:18%;left:0;width:28%;height:1px}
+        .cl-h2{top:18%;left:72%;width:28%;height:1px}
+        .cl-h3{top:72%;left:0;width:22%;height:1px}
+        .cl-h4{top:72%;left:78%;width:22%;height:1px}
+        .cl-h5{top:44%;left:0;width:14%;height:1px}
+        .cl-h6{top:44%;left:86%;width:14%;height:1px}
+        .cl-v1{left:15%;top:0;height:18%;width:1px}
+        .cl-v2{left:85%;top:0;height:18%;width:1px}
+        .cl-v3{left:15%;top:72%;height:28%;width:1px}
+        .cl-v4{left:85%;top:72%;height:28%;width:1px}
+        .cl-nd1{top:calc(18% - 4px);left:calc(28% - 4px)}
+        .cl-nd2{top:calc(18% - 4px);left:calc(72% - 4px)}
+        .cl-nd3{top:calc(72% - 4px);left:calc(22% - 4px)}
+        .cl-nd4{top:calc(72% - 4px);left:calc(78% - 4px)}
     </style>
     <script defer src="/static/ds-delegate.js?v=20260626"></script>
 </head>
@@ -20,22 +34,22 @@
         <div class="absolute -bottom-32 -left-32 w-80 h-80 bg-indigo-700/8 rounded-full blur-3xl"></div>
         <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-900/5 rounded-full blur-3xl"></div>
         <!-- Horizontal circuit lines -->
-        <div class="circuit-line" style="top:18%;left:0;width:28%;height:1px"></div>
-        <div class="circuit-line" style="top:18%;left:72%;width:28%;height:1px"></div>
-        <div class="circuit-line" style="top:72%;left:0;width:22%;height:1px"></div>
-        <div class="circuit-line" style="top:72%;left:78%;width:22%;height:1px"></div>
-        <div class="circuit-line" style="top:44%;left:0;width:14%;height:1px"></div>
-        <div class="circuit-line" style="top:44%;left:86%;width:14%;height:1px"></div>
+        <div class="circuit-line cl-h1"></div>
+        <div class="circuit-line cl-h2"></div>
+        <div class="circuit-line cl-h3"></div>
+        <div class="circuit-line cl-h4"></div>
+        <div class="circuit-line cl-h5"></div>
+        <div class="circuit-line cl-h6"></div>
         <!-- Vertical circuit lines -->
-        <div class="circuit-line" style="left:15%;top:0;height:18%;width:1px"></div>
-        <div class="circuit-line" style="left:85%;top:0;height:18%;width:1px"></div>
-        <div class="circuit-line" style="left:15%;top:72%;height:28%;width:1px"></div>
-        <div class="circuit-line" style="left:85%;top:72%;height:28%;width:1px"></div>
+        <div class="circuit-line cl-v1"></div>
+        <div class="circuit-line cl-v2"></div>
+        <div class="circuit-line cl-v3"></div>
+        <div class="circuit-line cl-v4"></div>
         <!-- Circuit nodes -->
-        <div class="absolute w-2 h-2 rounded-full bg-blue-500/20 border border-blue-500/30" style="top:calc(18% - 4px);left:calc(28% - 4px)"></div>
-        <div class="absolute w-2 h-2 rounded-full bg-blue-500/20 border border-blue-500/30" style="top:calc(18% - 4px);left:calc(72% - 4px)"></div>
-        <div class="absolute w-2 h-2 rounded-full bg-blue-500/20 border border-blue-500/30" style="top:calc(72% - 4px);left:calc(22% - 4px)"></div>
-        <div class="absolute w-2 h-2 rounded-full bg-blue-500/20 border border-blue-500/30" style="top:calc(72% - 4px);left:calc(78% - 4px)"></div>
+        <div class="absolute w-2 h-2 rounded-full bg-blue-500/20 border border-blue-500/30 cl-nd1"></div>
+        <div class="absolute w-2 h-2 rounded-full bg-blue-500/20 border border-blue-500/30 cl-nd2"></div>
+        <div class="absolute w-2 h-2 rounded-full bg-blue-500/20 border border-blue-500/30 cl-nd3"></div>
+        <div class="absolute w-2 h-2 rounded-full bg-blue-500/20 border border-blue-500/30 cl-nd4"></div>
     </div>
 
     <div class="relative w-full max-w-sm mx-4">
@@ -53,8 +67,7 @@
 
                 <div class="relative">
                     <!-- Logo mark -->
-                    <div class="w-20 h-20 mx-auto mb-3 rounded-2xl flex flex-col items-center justify-center text-white select-none"
-                         style="background:#2563eb;box-shadow:0 8px 28px rgba(37,99,235,.55)">
+                    <div class="w-20 h-20 mx-auto mb-3 rounded-2xl flex flex-col items-center justify-center text-white select-none ds-logo-btn">
                         <span class="font-extrabold text-3xl leading-none">DS</span>
                         <span class="font-bold text-[9px] tracking-widest text-white leading-none mt-1">CRM</span>
                     </div>
@@ -220,7 +233,7 @@
         <p class="text-center text-slate-600 text-xs mt-4">© DailySales Web Interface</p>
     </div>
 
-<style>
+<style nonce="{{ csp_nonce(request) }}">
 .tab-active{background:#fff;color:#1e40af;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 </style>
 <script nonce="{{ csp_nonce(request) }}">

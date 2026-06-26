@@ -8,7 +8,7 @@
 {% endblock %}
 
 {% block extra_css %}
-<style>
+<style nonce="{{ csp_nonce(request) }}">
 .hm-cell {
     border-radius: 4px;
     width: 100%;
@@ -95,7 +95,7 @@ html.dark .hm-label, html.dark .hm-header { color: #64748b; }
 
     {% if heatmap %}
     <div class="overflow-x-auto">
-        <div class="hm-grid" style="min-width:360px">
+        <div class="hm-grid ds-hm-mingrid">
             <!-- Header row: hour labels -->
             <div></div>
             {% for h in hours_show %}
@@ -111,11 +111,11 @@ html.dark .hm-label, html.dark .hm-header { color: #64748b; }
                 {% set intensity = (cell.revenue / max_revenue * 100)|int %}
                 {% set alpha = [intensity / 100 * 0.85 + 0.08, 0.93]|min %}
                 <div class="hm-cell"
-                     style="background:rgba(16,185,129,{{ '%.2f'|format(alpha) }})"
+                     :style="'background:rgba(16,185,129,'+('%.2f'|format(alpha))+')'"
                      title="{{ days_ru[wd] }} {{ h }}:00 — {{ cell.revenue|int|fmt_currency }} ₽ ({{ cell.count }} прод.)">
                 </div>
             {% else %}
-                <div class="hm-cell" style="background:rgba(203,213,225,0.25)"></div>
+                <div class="hm-cell ds-hm-empty"></div>
             {% endif %}
             {% endfor %}
             {% endfor %}
@@ -127,7 +127,7 @@ html.dark .hm-label, html.dark .hm-header { color: #64748b; }
         <span class="text-xs text-slate-400">Меньше</span>
         <div class="flex gap-0.5">
             {% for v in [0.1, 0.25, 0.45, 0.65, 0.85] %}
-            <div class="w-4 h-4 rounded" style="background:rgba(16,185,129,{{ v }})"></div>
+            <div class="w-4 h-4 rounded" :style="'background:rgba(16,185,129,'+(v)+')'"></div>
             {% endfor %}
         </div>
         <span class="text-xs text-slate-400">Больше</span>

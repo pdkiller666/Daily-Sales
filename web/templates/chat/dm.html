@@ -8,7 +8,7 @@
 {% endblock %}
 
 {% block extra_css %}
-<style>
+<style nonce="{{ csp_nonce(request) }}">
 main.ds-main { padding:0 !important; overflow:hidden; }
 footer { display:none !important; }
 
@@ -174,7 +174,7 @@ html.dark .dm-row.ai .dm-bubble {
         <div class="contact-item {% if peer and peer.id == c.id %}active{% endif %}"
              data-id="{{ c.id }}" data-name="{{ c.display_name|e }}">
           {% if c.photo_url %}
-          <img src="{{ c.photo_url }}" class="contact-avatar" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0" alt="">
+          <img src="{{ c.photo_url }}" class="contact-avatar dm-photo-lg" alt="">
           {% else %}
           <div class="contact-avatar">{{ c.initial }}</div>
           {% endif %}
@@ -209,9 +209,9 @@ html.dark .dm-row.ai .dm-bubble {
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
       {% if peer.photo_url %}
-      <img src="{{ peer.photo_url }}" class="contact-avatar" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0" alt="">
+      <img src="{{ peer.photo_url }}" class="contact-avatar dm-photo-md" alt="">
       {% else %}
-      <div class="contact-avatar" style="width:32px;height:32px;font-size:.8rem">{{ peer.initial }}</div>
+      <div class="contact-avatar dm-av-md">{{ peer.initial }}</div>
       {% endif %}
       <span class="font-semibold text-slate-800 dark:text-slate-100 flex-1 truncate">{{ peer.display_name }}</span>
       <div id="dm-ws-dot" class="ws-dot off" title="Соединение"></div>
@@ -227,11 +227,11 @@ html.dark .dm-row.ai .dm-bubble {
       <div class="dm-row {% if m.is_mine %}mine{% elif m.is_ai %}other ai{% else %}other{% endif %}" data-id="{{ m.id }}">
         {% if not m.is_mine %}
           {% if m.is_ai %}
-          <div class="contact-avatar ai-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">🤖</div>
+          <div class="contact-avatar ai-avatar dm-av-sm">🤖</div>
           {% elif peer and peer.photo_url %}
-          <img src="{{ peer.photo_url }}" class="contact-avatar" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0" alt="">
+          <img src="{{ peer.photo_url }}" class="contact-avatar dm-photo-sm" alt="">
           {% else %}
-          <div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">{{ peer.initial if peer else "?" }}</div>
+          <div class="contact-avatar dm-av-sm">{{ peer.initial if peer else "?" }}</div>
           {% endif %}
         {% endif %}
         <div>
@@ -271,8 +271,7 @@ html.dark .dm-row.ai .dm-bubble {
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.64 16.34a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
         </label>
         <textarea id="dm-input" rows="1" placeholder="Написать… (Enter — отправить)"
-                  class="flex-1 resize-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 dark:text-slate-100 px-3 py-2 text-sm outline-none focus:border-blue-400 max-h-28 overflow-y-auto"
-                  style="line-height:1.4"></textarea>
+                  class="flex-1 resize-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 dark:text-slate-100 px-3 py-2 text-sm outline-none focus:border-blue-400 max-h-28 overflow-y-auto ds-lh-14"></textarea>
         <button id="dm-send-btn"
                 class="flex-shrink-0 w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors disabled:opacity-40"
                 title="Отправить (Enter)">
@@ -302,7 +301,7 @@ html.dark .dm-row.ai .dm-bubble {
     </div>
     <input id="dm-member-search" type="search" placeholder="Поиск сотрудника…" autocomplete="off"
            class="w-full text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-slate-200 px-3 py-2 outline-none focus:border-blue-400 mb-2">
-    <div id="dm-member-list" class="overflow-y-auto flex-1" style="max-height:320px">
+    <div id="dm-member-list" class="overflow-y-auto flex-1 ds-sh-320">
       {% set all_people = contacts + members %}
       {% for p in all_people %}
       <div class="contact-item" data-id="{{ p.id }}" data-name="{{ p.display_name|e }}"
@@ -431,11 +430,11 @@ function appendMessage(m) {
     let avatarHtml = '';
     if (!m.is_mine) {
         if (m.is_ai) {
-            avatarHtml = `<div class="contact-avatar ai-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">🤖</div>`;
+            avatarHtml = `<div class="contact-avatar ai-avatar dm-av-sm">🤖</div>`;
         } else if (PEER_PHOTO) {
-            avatarHtml = `<img src="${escHtml(PEER_PHOTO)}" class="contact-avatar" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0" alt="">`;
+            avatarHtml = `<img src="${escHtml(PEER_PHOTO)}" class="contact-avatar dm-photo-sm" alt="">`;
         } else {
-            avatarHtml = `<div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${escHtml(PEER_INITIAL)}</div>`;
+            avatarHtml = `<div class="contact-avatar dm-av-sm">${escHtml(PEER_INITIAL)}</div>`;
         }
     }
 
@@ -599,11 +598,11 @@ async function dmLoadMore() {
                 let avatarHtml = '';
                 if (!m.is_mine) {
                     if (m.is_ai) {
-                        avatarHtml = `<div class="contact-avatar ai-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">🤖</div>`;
+                        avatarHtml = `<div class="contact-avatar ai-avatar dm-av-sm">🤖</div>`;
                     } else if (PEER_PHOTO) {
-                        avatarHtml = `<img src="${escHtml(PEER_PHOTO)}" class="contact-avatar" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0" alt="">`;
+                        avatarHtml = `<img src="${escHtml(PEER_PHOTO)}" class="contact-avatar dm-photo-sm" alt="">`;
                     } else {
-                        avatarHtml = `<div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${escHtml(PEER_INITIAL)}</div>`;
+                        avatarHtml = `<div class="contact-avatar dm-av-sm">${escHtml(PEER_INITIAL)}</div>`;
                     }
                 }
                 let bodyHtml = m.has_file && m.is_image ? `<a href="${m.file_url}" target="_blank"><img src="${m.file_url}" class="dm-img-preview"></a>`

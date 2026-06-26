@@ -116,7 +116,7 @@
     <!-- Progress bar -->
     <div class="mt-4 h-3 bg-slate-100 rounded-full overflow-hidden">
         <div class="h-full rounded-full transition-all {{ plan.bar_cls }}"
-             style="width: {{ plan.pct }}%"></div>
+             :style="'width:'+(plan.pct)+'%'"></div>
     </div>
 
     <!-- Numbers row -->
@@ -154,7 +154,7 @@
     {% if ai_cached %}
     <div id="ai-analysis-{{ plan.id }}"
          class="p-4 bg-violet-50 border border-violet-100 rounded-xl text-sm text-slate-700"
-         style="white-space:pre-wrap;line-height:1.6;">
+         class="ds-pre-wrap">
         <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
             <span class="flex items-center gap-1.5 text-violet-600 font-medium text-sm">
                 <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -214,7 +214,7 @@
                 <p class="text-sm font-medium text-slate-800 truncate">{{ s.name }}</p>
                 <div class="mt-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                     <div class="h-full rounded-full bg-blue-400 transition-all"
-                         style="width: {{ [s.pct, 100]|min }}%"></div>
+                         :style="'width:'+([s.pct, 100]|min)+'%'"></div>
                 </div>
             </div>
             <div class="text-right shrink-0">
