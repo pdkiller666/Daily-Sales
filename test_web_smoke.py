@@ -126,6 +126,9 @@ def _seed_data():
         raise RuntimeError(f"create_organization failed: {result}")
     org_id = result
 
+    # Генерируем инвайт-код (create_organization его не создаёт)
+    tenant_manager.generate_invite_code(org_id)
+
     import sqlite3
     conn = sqlite3.connect("data/main.db")
     row = conn.execute(
@@ -276,7 +279,7 @@ def check_kanban_quick_move(page, base_url):
     assert card.count() >= 1, "Нет карточек на канбан-доске"
     # Quick-move кнопки скрыты до hover (opacity-0 group-hover) — наводим курсор.
     card.hover()
-    move_btn = card.locator("button[onclick^='moveCard']").first
+    move_btn = card.locator("button[data-action='moveCard']").first
     assert move_btn.count() >= 1, "Кнопка быстрого переноса не найдена"
     move_btn.click(force=True)
     # Успех подтверждается тостом «Статус изменён …».
@@ -494,18 +497,40 @@ def check_register_flow(browser, base_url, console_errors):
             assert page.locator(f"input[name='{field}']").count() >= 1, \
                 f"Поле {field!r} не найдено в форме регистрации"
 
-        page.locator("input[name='first_name']").fill("Тест Тест")
-        page.locator("input[name='email']").fill(_SMOKE_REG_EMAIL)
-        page.locator("input[name='password']").fill(_SMOKE_REG_PASSWORD)
-        page.locator("input[name='password2']").fill(_SMOKE_REG_PASSWORD)
-        page.locator("input[name='invite_code']").fill(invite_code)
-        page.locator("input[name='consent']").check()
+        nonce = page.locator("input[name='login_nonce']").get_attribute("value") or ""
 
-        form.evaluate("f => f.submit()")
-        page.wait_for_url("**/dashboard", timeout=10000)
-
-        assert "/dashboard" in page.url, \
-            f"После регистрации ожидался /dashboard, получен {page.url}"
+        # Отправляем POST без следования редиректу — cookie secure=True
+        # не работает по HTTP, поэтому достаточно проверить что сервер
+        # вернул 302 → /dashboard (регистрация прошла успешно).
+        resp = page.request.fetch(
+            f"{base_url}/register",
+            method="POST",
+            form={
+                "first_name": "Тест Тест",
+                "email": _SMOKE_REG_EMAIL,
+                "password": _SMOKE_REG_PASSWORD,
+                "password2": _SMOKE_REG_PASSWORD,
+                "invite_code": invite_code,
+                "login_nonce": nonce,
+                "consent": "on",
+            },
+            max_redirects=0,
+        )
+        if resp.status == 200:
+            body = resp.text()
+            import re as _re
+            m = _re.search(r'<span>([^<]{5,})</span>', body)
+            err_hint = m.group(1).strip() if m else ""
+            if not err_hint:
+                stripped = _re.sub(r'<[^>]+>', ' ', body)
+                stripped = ' '.join(stripped.split())
+                err_hint = stripped[:200]
+            raise AssertionError(f"Регистрация вернула 200 (ошибка): {err_hint}")
+        assert resp.status in (302, 303), \
+            f"POST /register вернул {resp.status} вместо 302"
+        location = resp.headers.get("location", "")
+        assert "/dashboard" in location, \
+            f"Редирект после регистрации ведёт не на /dashboard: {location!r}"
     finally:
         page.close()
         ctx.close()
