@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.231.0"
+CURRENT_VERSION = "1.232.0"
 
 ENTRIES = [
+    {
+        "version": "1.232.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Show targeted motivation rules and clarify GS rule visibility",
+        ],
+    },
     {
         "version": "1.231.0",
         "date": "26 июня 2026",

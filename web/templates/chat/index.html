@@ -2648,6 +2648,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
 
             wrapper.addEventListener('touchend', e => {
                 _hideHint();
+                if (typeof window._dsHideNavHint === 'function') window._dsHideNavHint();
                 if (!ts) return;
                 const t  = e.changedTouches[0];
                 const dx = t.clientX - ts.x;
@@ -2677,9 +2678,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         if (idx > 0) items[idx - 1].click();
                     }
                 } else if (this.dmMode && dir === 'right') {
-                    /* ЛС → Группа; также скрываем хинт base.html (если успел показаться) */
+                    /* ЛС → Группа */
                     e.stopImmediatePropagation();
-                    if (typeof window._dsHideNavHint === 'function') window._dsHideNavHint();
                     this.switchToGroup();
                 } else if (this.dmMode && dir === 'left') {
                     /* ЛС + влево — блокируем (правее ЛС ничего нет) */
