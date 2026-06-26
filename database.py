@@ -15029,11 +15029,17 @@ class Database:
             return False
 
     def delete_task(self, task_id: int) -> bool:
-        """Удалить задачу вместе с чеклистом и комментариями."""
+        """Удалить задачу вместе со всеми связанными данными."""
         try:
             conn = self.get_connection()
             conn.execute("DELETE FROM task_checklist WHERE task_id = ?", (task_id,))
             conn.execute("DELETE FROM task_comments WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM task_attachments WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM task_history WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM task_reminders WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM task_watchers WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM task_time_logs WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM task_user_completions WHERE task_id = ?", (task_id,))
             conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
             conn.commit()
             conn.close()

@@ -2229,17 +2229,25 @@ def task_add_comment(
         conn = db.get_connection()
         try:
             my_row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+                "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
             ).fetchone()
         finally:
             conn.close()
         my_db_id = my_row[0] if my_row else 0
+        my_shop = (my_row[1] or "") if my_row and len(my_row) > 1 else ""
 
         task = db.get_task(task_id)
         if not task:
             return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
-        if not is_admin and task.get("assigned_to") != my_db_id and task.get("created_by") != my_db_id:
-            return RedirectResponse(url="/tasks", status_code=303)
+        if not is_admin:
+            _can_comment = (
+                task.get("assigned_to") == my_db_id
+                or task.get("created_by") == my_db_id
+                or task.get("assign_all")
+                or (task.get("assigned_shop") and my_shop and task["assigned_shop"] == my_shop)
+            )
+            if not _can_comment:
+                return RedirectResponse(url="/tasks", status_code=303)
 
         db.add_task_comment(task_id, my_db_id, text)
 
@@ -2370,8 +2378,24 @@ def task_toggle_checklist(
         task = db.get_task(task_id)
         if not task:
             return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
-        if not is_admin and task.get("assigned_to") != my_db_id:
-            return RedirectResponse(url="/tasks", status_code=303)
+        if not is_admin:
+            _my_shop_cl = ""
+            try:
+                _cl_conn = db.get_connection()
+                _cl_row = _cl_conn.execute(
+                    "SELECT shop_name FROM users WHERE id = ?", (my_db_id,)
+                ).fetchone()
+                _cl_conn.close()
+                _my_shop_cl = (_cl_row[0] or "") if _cl_row else ""
+            except Exception:
+                pass
+            _can_toggle = (
+                task.get("assigned_to") == my_db_id
+                or task.get("assign_all")
+                or (task.get("assigned_shop") and _my_shop_cl and task["assigned_shop"] == _my_shop_cl)
+            )
+            if not _can_toggle:
+                return RedirectResponse(url="/tasks", status_code=303)
 
         # IDOR guard: verify item_id belongs to this task_id
         item_conn = db.get_connection()
@@ -2782,6 +2806,20 @@ def task_delete(
 
     try:
         db = get_web_db(telegram_id, org_db)
+        # Сначала удалить файлы вложений с диска
+        try:
+            attachments = db.get_task_attachments(task_id)
+            for att in attachments:
+                att_id = att["id"] if isinstance(att, dict) else att[0]
+                ok, fpath = db.delete_task_attachment(att_id, telegram_id, is_admin=True)
+                if ok and fpath:
+                    import os as _os
+                    try:
+                        _os.remove(fpath)
+                    except OSError:
+                        pass
+        except Exception as _ae:
+            logger.warning("task_delete attachments cleanup: %s", _ae)
         db.delete_task(task_id)
     except Exception as e:
         logger.error("task_delete: %s", e)
