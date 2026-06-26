@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.233.0"
+CURRENT_VERSION = "1.234.0"
 
 ENTRIES = [
+    {
+        "version": "1.234.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Ensure chat swipe hints disappear correctly with navigation",
+            "Hide chat hint instantly by changing display style",
+        ],
+    },
     {
         "version": "1.233.0",
         "date": "26 июня 2026",

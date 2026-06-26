@@ -2508,7 +2508,18 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         /* ══ DM METHODS ══════════════════════════════════════════════════════ */
 
         /* ── Switch modes ── */
+        /* Скрыть свайп-пилюлю по стабильному ID + навбарную пилюлю base.html.
+           Привязано к переключению режима (а не только к touch-событию): как и
+           навбар прячет хинт на навигации, мы прячем на смене режима — это
+           гарантирует исчезновение пилюли после ЛЮБОГО успешного свайпа,
+           даже если touchend/touchcancel не отработали (перехват жеста и т.п.). */
+        _hideSwipeHint() {
+            const el = document.getElementById('ds-chat-swipe-hint');
+            if (el) el.style.display = 'none';
+            if (typeof window._dsHideNavHint === 'function') window._dsHideNavHint();
+        },
         switchToDm() {
+            this._hideSwipeHint();
             this.dmMode = true;
             if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
             this.dmLoadContacts();
@@ -2539,6 +2550,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             });
         },
         switchToGroup() {
+            this._hideSwipeHint();
             this.dmMode = false;
             /* WS для ЛС НЕ закрываем — он живёт постоянно, чтобы получать
                входящие сообщения/удаления и бейдж в любом режиме */
@@ -2573,11 +2585,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                Скрываем через display:none (мгновенно), а не opacity-transition:
                Alpine-ререндер при switchToDm/switchToGroup может прервать
                CSS-переход и оставить пилюлю видимой. display:none — надёжно. */
-            let _hintEl = null;
+            /* Стабильный ID → пилюля всегда одна (идемпотентно при ре-инициализации
+               компонента), и любой код может скрыть её по ID, не имея closure. */
             const _getHint = () => {
-                if (!_hintEl) {
-                    _hintEl = document.createElement('div');
-                    _hintEl.style.cssText = [
+                let el = document.getElementById('ds-chat-swipe-hint');
+                if (!el) {
+                    el = document.createElement('div');
+                    el.id = 'ds-chat-swipe-hint';
+                    el.style.cssText = [
                         'position:fixed','top:50%','transform:translateY(-50%)',
                         'z-index:9998','pointer-events:none',
                         'display:none','align-items:center','gap:5px',
@@ -2588,9 +2603,9 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         'box-shadow:0 4px 24px rgba(37,99,235,.4)',
                         'white-space:nowrap'
                     ].join(';');
-                    document.body.appendChild(_hintEl);
+                    document.body.appendChild(el);
                 }
-                return _hintEl;
+                return el;
             };
             const _showHint = (dir, label) => {
                 const h = _getHint();
@@ -2599,7 +2614,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 h.style.right   = dir === 'left' ? '16px' : 'auto';
                 h.style.display = 'flex';
             };
-            const _hideHint = () => { if (_hintEl) _hintEl.style.display = 'none'; };
+            const _hideHint = () => { this._hideSwipeHint(); };
 
             const _inScroll = el => {
                 while (el && el !== wrapper) {
