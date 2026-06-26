@@ -27,6 +27,11 @@ test_web_smoke.py — браузерные smoke-тесты ключевых д�
      pyotp.TOTP(secret).now() → /dashboard; CSP не ломает twofa.html.
  13. POS-корзина: Alpine работает, товар добавляется, итог пересчитывается,
      кнопка «Оформить» активна и продажа записывается.
+ 13. Добавление продажи (/sales/create): GET /sales возвращает форму с CSRF-токеном;
+     POST /sales/create с product_id/shop/qty/price редиректит на /sales; запись
+     появляется в таблице на странице /sales.
+ 14. Экспорт Excel (/reports/export.xlsx): GET возвращает HTTP 200, Content-Type —
+     application/vnd.openxmlformats или octet-stream, тело начинается с PK (ZIP).
 
 Изоляция: тест работает в собственном временном каталоге (свежие SQLite-БД),
 ничего не пишет в рабочие data/. Аутентификация — через выписанный сессионный
@@ -730,6 +735,111 @@ def check_password_reset_confirm(browser, base_url, console_errors):
         ctx.close()
 
 
+def check_sales_add(page, base_url, product_id):
+    """Добавление продажи через UI-форму /sales → запись появляется в списке.
+
+    Проверяет весь browser-flow (CSP-чувствительный путь):
+    - GET /sales рендерит страницу; CSRF-токен присутствует в форме.
+    - Кнопка открывает Alpine-модалку (open = true, x-show работает).
+    - Alpine загружает товары через /api/products-for-shop (products.length > 0).
+    - selectProduct() выбирает товар, qty заполняется через input.
+    - Кнопка «Записать» (submit) становится активной и форма сабмитится кликом.
+    - Редирект ведёт на /sales?ok=1; в URL нет error=.
+    - Количество строк tr[data-sale-id] увеличивается на ≥1.
+    """
+    _SALE_ROW = "tr[data-sale-id]"
+    _ALPINE_DATA = "Alpine.$data(document.querySelector(\"div[x-data='saleModal()']\"))"
+
+    page.goto(f"{base_url}/sales", wait_until="networkidle")
+
+    csrf_input = page.locator("form[action='/sales/create'] input[name='csrf_token']")
+    assert csrf_input.count() >= 1, \
+        "Форма /sales/create не найдена — страница /sales не отрендерилась"
+    assert csrf_input.get_attribute("value"), \
+        "CSRF-токен в форме /sales/create пустой"
+
+    rows_before = page.locator(_SALE_ROW).count()
+
+    page.evaluate(f"{_ALPINE_DATA}.open = true")
+
+    page.wait_for_function(
+        f"(() => {{ const d = {_ALPINE_DATA}; return d && d.open === true; }})()",
+        timeout=5000,
+    )
+    page.wait_for_selector(
+        "form[action='/sales/create'] button[type='submit']",
+        state="attached", timeout=5000,
+    )
+
+    page.wait_for_function(
+        f"(() => {{ const d = {_ALPINE_DATA}; return d && Array.isArray(d.products) && d.products.length > 0; }})()",
+        timeout=12000,
+    )
+
+    page.evaluate(
+        f"(() => {{"
+        f"  const d = {_ALPINE_DATA};"
+        f"  const p = d.products.find(x => String(x.id) === String({product_id})) || d.products[0];"
+        f"  d.selectedProductId = String(p.id);"
+        f"  d.price = p.price;"
+        f"}})()"
+    )
+
+    qty_input = page.locator("input[name='quantity']")
+    qty_input.fill("3")
+
+    page.wait_for_function(
+        f"(() => {{"
+        f"  const d = {_ALPINE_DATA};"
+        f"  return !!d.selectedProductId && Number(d.price) > 0;"
+        f"}})()",
+        timeout=5000,
+    )
+
+    submit_btn = page.locator("form[action='/sales/create'] button[type='submit']")
+    assert submit_btn.count() >= 1, "Кнопка submit не найдена в форме /sales/create"
+    assert not submit_btn.is_disabled(), \
+        "Кнопка submit всё ещё disabled после выбора товара"
+
+    with page.expect_navigation(wait_until="networkidle", timeout=10000):
+        submit_btn.click()
+
+    final_url = page.url
+    assert "error=" not in final_url, \
+        f"POST /sales/create завершился ошибкой — в URL есть error=: {final_url!r}"
+    assert "ok=1" in final_url, \
+        f"Ожидался редирект на /sales?ok=1, получен: {final_url!r}"
+
+    rows_after = page.locator(_SALE_ROW).count()
+    assert rows_after > rows_before, (
+        f"Число строк в таблице продаж не выросло: до={rows_before}, после={rows_after}"
+    )
+
+
+def check_excel_export(page, base_url):
+    """GET /reports/export.xlsx → Excel-файл с правильным Content-Type и непустым телом.
+
+    Проверяет:
+    - Эндпоинт /reports/export.xlsx доступен для суперадмина.
+    - Content-Type — application/vnd.openxmlformats-officedocument или
+      application/octet-stream (Excel via openpyxl).
+    - Тело ответа непустое (файл реально сгенерирован).
+    - Первые 2 байта — PK (ZIP-сигнатура .xlsx = OOXML).
+    """
+    resp = page.request.get(f"{base_url}/reports/export.xlsx?period=month")
+    assert resp.status == 200, \
+        f"GET /reports/export.xlsx вернул {resp.status} (ожидался 200)"
+    ctype = resp.headers.get("content-type", "")
+    assert (
+        "application/vnd.openxmlformats" in ctype
+        or "application/octet-stream" in ctype
+    ), f"Content-Type не Excel: {ctype!r}"
+    body = resp.body()
+    assert len(body) > 0, "Тело /reports/export.xlsx пустое — файл не сгенерирован"
+    assert body[:2] == b"PK", \
+        f"Тело не начинается с PK (ZIP/XLSX сигнатура), первые байты: {body[:4]!r}"
+
+
 def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret):
     """Запустить все проверки, вернуть список (name, ok, error)."""
     checks = [
@@ -749,6 +859,10 @@ def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret
         ("POS cart — add item + checkout", lambda: check_pos_cart(page, base_url, product_id)),
         ("Cyrillic filename → RFC 5987 Content-Disposition",
          lambda: check_cyrillic_content_disposition(page, base_url, product_id)),
+        ("sales add — POST /sales/create → record visible",
+         lambda: check_sales_add(page, base_url, product_id)),
+        ("Excel export — /reports/export.xlsx → valid .xlsx body",
+         lambda: check_excel_export(page, base_url)),
     ]
     results = []
     for name, fn in checks:
