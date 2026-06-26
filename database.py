@@ -15411,11 +15411,11 @@ class Database:
             return empty
 
     def get_unassigned_tasks(self, topic_id: int | None = None, q: str | None = None) -> list:
-        """Задачи без назначения (пул) — assign_all=0, assigned_to IS NULL, assigned_shop IS NULL, status=open."""
+        """Задачи без назначения (пул) — assign_all=0, assigned_to IS NULL, assigned_shop IS NULL, status=new."""
         try:
             conn = self.get_connection()
             where = [
-                "t.status = 'open'",
+                "t.status = 'new'",
                 "t.assign_all = 0",
                 "t.assigned_to IS NULL",
                 "t.assigned_shop IS NULL",
@@ -15466,16 +15466,10 @@ class Database:
             cur = conn.execute(
                 """UPDATE tasks SET assigned_to = ?, updated_at = datetime('now')
                    WHERE id = ? AND assign_all = 0 AND assigned_to IS NULL
-                     AND assigned_shop IS NULL AND status = 'open'""",
+                     AND assigned_shop IS NULL AND status = 'new'""",
                 (user_db_id, task_id)
             )
             changed = cur.rowcount > 0
-            if changed:
-                conn.execute(
-                    """INSERT INTO task_history (task_id, user_id, action, old_val, new_val)
-                       VALUES (?, ?, 'self_assign', NULL, ?)""",
-                    (task_id, user_db_id, str(user_db_id))
-                )
             conn.commit()
             conn.close()
             return changed

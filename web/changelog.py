@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.218.0"
+CURRENT_VERSION = "1.219.0"
 
 ENTRIES = [
+    {
+        "version": "1.219.0",
+        "date": "26 июня 2026",
+        "items": [
+            "fix 4 minor task module bugs",
+        ],
+    },
     {
         "version": "1.218.0",
         "date": "26 июня 2026",

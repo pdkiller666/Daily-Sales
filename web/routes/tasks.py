@@ -557,8 +557,8 @@ def task_self_assign(request: Request, task_id: int, csrf_token: str = Form(""))
                     conn2.close()
                 _display = (f"{_urow[0] or ''} {_urow[1] or ''}".strip() or _urow[2] or str(my_db_id)) if _urow else str(my_db_id)
                 db.add_task_history(task_id, my_db_id, 'assigned', None, f"Взял в работу: {_display}")
-            except Exception:
-                pass
+            except Exception as _he:
+                logger.error("task_self_assign history: %s", _he)
             return RedirectResponse(url=f"/tasks/{task_id}?msg=status_updated", status_code=303)
         else:
             return RedirectResponse(url="/tasks/pool?msg=already_taken", status_code=303)
