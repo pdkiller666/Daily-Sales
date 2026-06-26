@@ -14,10 +14,13 @@ SOURCE_DIR="/home/runner/workspace"
 
 # ─── Парсим аргументы ────────────────────────────────────────────────────────
 WITH_AMVERA=true
+SKIP_TESTS=false
 COMMIT_MSG=""
 for arg in "$@"; do
   if [ "$arg" = "--no-amvera" ]; then
     WITH_AMVERA=false
+  elif [ "$arg" = "--skip-tests" ]; then
+    SKIP_TESTS=true
   else
     COMMIT_MSG="$arg"
   fi
@@ -70,19 +73,27 @@ fi
 # Тест автономен (свежие БД во временном каталоге, ничего не пишет в data/).
 # Если Chromium/playwright недоступны — тест сам делает SKIP (exit 0), деплой
 # продолжается. Реальный провал проверки (exit 1) — останавливает деплой.
-echo "0. Браузерные smoke-тесты веб-кабинета..."
-if ! ( cd "$SOURCE_DIR" && python3 -c "import playwright" ) >/dev/null 2>&1; then
-  # Самовосстановление после пересборки контейнера: тихо доустановить playwright.
-  ( cd "$SOURCE_DIR" && pip install -q playwright ) >/tmp/web_smoke_pipinstall.log 2>&1 \
-    || echo "   ⚠️  не удалось установить playwright — тест сделает SKIP"
-fi
-if ( cd "$SOURCE_DIR" && python3 test_web_smoke.py ) > /tmp/web_smoke_tests.log 2>&1; then
-  grep -E "✓|✅|SKIP|⚠️" /tmp/web_smoke_tests.log | sed 's/^/   /' || true
+# Экстренный обход: bash deploy.sh "msg" --skip-tests
+if $SKIP_TESTS; then
+  echo "0. Браузерные smoke-тесты: ⚠️  ПРОПУЩЕНО (--skip-tests)"
 else
-  echo "   ❌ Браузерные smoke-тесты НЕ прошли — деплой остановлен."
-  echo "   ── Вывод тестов ──────────────────────────────────────────────"
-  cat /tmp/web_smoke_tests.log
-  exit 1
+  echo "0. Браузерные smoke-тесты веб-кабинета..."
+  if ! ( cd "$SOURCE_DIR" && python3 -c "import playwright" ) >/dev/null 2>&1; then
+    # Самовосстановление после пересборки контейнера: тихо доустановить playwright.
+    ( cd "$SOURCE_DIR" && pip install -q playwright ) >/tmp/web_smoke_pipinstall.log 2>&1 \
+      || echo "   ⚠️  не удалось установить playwright — тест сделает SKIP"
+  fi
+  if ( cd "$SOURCE_DIR" && python3 test_web_smoke.py ) > /tmp/web_smoke_tests.log 2>&1; then
+    # Показываем каждую проверку и итоговую строку с подсчётом.
+    grep -E "✓|✅|✗|SKIP|⚠️|Провалено|прошли" /tmp/web_smoke_tests.log | sed 's/^/   /' || true
+  else
+    echo "   ❌ Браузерные smoke-тесты НЕ прошли — деплой остановлен."
+    echo "   ── Провалившиеся проверки ────────────────────────────────────"
+    grep -E "✗|❌|Провалено" /tmp/web_smoke_tests.log | sed 's/^/   /' || true
+    echo "   ── Полный вывод тестов ───────────────────────────────────────"
+    cat /tmp/web_smoke_tests.log
+    exit 1
+  fi
 fi
 
 # ─── Авто-сборка changelog (фрагменты + git-история) ─────────────────────────

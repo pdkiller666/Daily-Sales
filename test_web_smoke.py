@@ -23,7 +23,9 @@ test_web_smoke.py — браузерные smoke-тесты ключевых д�
  11. Форма ввода нового пароля (/auth/reset/confirm?t=…): токен сеется в БД,
      форма (password/password2/кнопка) видна, заполнение + отправка → редирект
      на /login?msg=password_reset.
- 12. POS-корзина: Alpine работает, товар добавляется, итог пересчитывается,
+ 12. 2FA TOTP-поток: кредентиал с totp_enabled=1 → /login → twofa.html →
+     pyotp.TOTP(secret).now() → /dashboard; CSP не ломает twofa.html.
+ 13. POS-корзина: Alpine работает, товар добавляется, итог пересчитывается,
      кнопка «Оформить» активна и продажа записывается.
 
 Изоляция: тест работает в собственном временном каталоге (свежие SQLite-БД),
@@ -56,6 +58,8 @@ _SMOKE_PASSWORD = "smoke-test-1234"
 _SMOKE_SHOP = "SmokeMag"
 _SMOKE_REG_EMAIL = "smoke_new@test.local"
 _SMOKE_REG_PASSWORD = "newpass-smoke-1234"
+_SMOKE_2FA_EMAIL = "smoke_2fa@test.local"
+_SMOKE_2FA_PASSWORD = "smoke-2fa-pass-5678"
 
 
 def _find_chromium() -> str:
@@ -173,7 +177,18 @@ def _seed_data():
         telegram_id=SUPER_ADMIN_TG,
     )
 
-    return org_db, int(product_id)
+    # ── Email-кредентиал с включённым TOTP (2FA) ──────────────────────────────
+    import pyotp
+    totp_secret = pyotp.random_base32()
+    pwd_hash_2fa = hash_password(_SMOKE_2FA_PASSWORD)
+    cred_id_2fa = shop_db.create_web_credential(
+        email=_SMOKE_2FA_EMAIL,
+        password_hash=pwd_hash_2fa,
+        telegram_id=SUPER_ADMIN_TG,
+    )
+    shop_db.set_web_totp(cred_id_2fa, totp_secret, 1, None)
+
+    return org_db, int(product_id), totp_secret
 
 
 def _start_server(org_db: str):
@@ -536,6 +551,70 @@ def check_register_flow(browser, base_url, console_errors):
         ctx.close()
 
 
+def check_2fa_flow(browser, base_url, console_errors, totp_secret):
+    """Вход с включённым TOTP: email+пароль → /auth/2fa форма → TOTP-код → /dashboard.
+
+    Проверяет:
+    - Отправка email/пароля для 2FA-аккаунта показывает форму ввода кода.
+    - Ввод корректного TOTP-кода (pyotp.TOTP(secret).now()) завершает вход.
+    - После успешного 2FA-подтверждения браузер попадает на /dashboard.
+    - Страница twofa.html не генерирует JS-ошибок (CSP не режет шаблон).
+    """
+    import pyotp as _pyotp
+
+    ctx = browser.new_context()
+    ctx.on("console", lambda m: console_errors.append(m.text)
+           if m.type == "error" else None)
+    page_errors: list[str] = []
+    page = ctx.new_page()
+    page.on("pageerror", lambda e: page_errors.append(f"pageerror: {e}"))
+    try:
+        # Шаг 1: открываем /login без сессионного cookie.
+        page.goto(f"{base_url}/login", wait_until="networkidle")
+        assert "/login" in page.url, \
+            f"Страница /login не открылась, URL={page.url}"
+
+        # Переключаемся на вкладку email.
+        email_tab = page.locator("#tab-email")
+        assert email_tab.count() >= 1, "Вкладка email не найдена на /login"
+        email_tab.click()
+
+        email_pane = page.locator("#pane-email")
+        email_pane.wait_for(state="visible", timeout=5000)
+
+        # Заполняем данные 2FA-аккаунта.
+        page.locator("input[name='email']").fill(_SMOKE_2FA_EMAIL)
+        page.locator("input[name='password']").fill(_SMOKE_2FA_PASSWORD)
+
+        # Отправляем форму — сервер вернёт twofa.html (200, не редирект).
+        page.locator("#pane-email form").evaluate("f => f.submit()")
+
+        # Шаг 2: ждём появления формы TOTP (action='/auth/2fa').
+        twofa_form = page.locator("form[action='/auth/2fa']")
+        twofa_form.wait_for(state="visible", timeout=8000)
+
+        assert not page_errors, \
+            f"JS-ошибки на twofa.html: {page_errors}"
+
+        code_input = page.locator("input[name='code']")
+        assert code_input.count() >= 1, \
+            "Поле ввода кода не найдено в форме /auth/2fa"
+
+        # Шаг 3: генерируем актуальный TOTP-код и вводим его.
+        totp_code = _pyotp.TOTP(totp_secret).now()
+        code_input.fill(totp_code)
+
+        # Отправляем форму 2FA → ожидаем редирект на /dashboard.
+        twofa_form.evaluate("f => f.submit()")
+        page.wait_for_url("**/dashboard", timeout=10000)
+
+        assert "/dashboard" in page.url, \
+            f"После 2FA ожидался /dashboard, получен {page.url}"
+    finally:
+        page.close()
+        ctx.close()
+
+
 def check_password_reset_form(browser, base_url, console_errors):
     """Страница /auth/reset открывается, форма присутствует, нет JS-ошибок при рендере.
 
@@ -651,7 +730,7 @@ def check_password_reset_confirm(browser, base_url, console_errors):
         ctx.close()
 
 
-def _run_checks(page, base_url, product_id, browser, console_errors):
+def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret):
     """Запустить все проверки, вернуть список (name, ok, error)."""
     checks = [
         ("inline handlers alive (CSP)", lambda: check_inline_handlers_alive(page, base_url)),
@@ -666,6 +745,7 @@ def _run_checks(page, base_url, product_id, browser, console_errors):
         ("register — new account flow", lambda: check_register_flow(browser, base_url, console_errors)),
         ("password reset form", lambda: check_password_reset_form(browser, base_url, console_errors)),
         ("password reset confirm form", lambda: check_password_reset_confirm(browser, base_url, console_errors)),
+        ("2FA TOTP flow", lambda: check_2fa_flow(browser, base_url, console_errors, totp_secret)),
         ("POS cart — add item + checkout", lambda: check_pos_cart(page, base_url, product_id)),
         ("Cyrillic filename → RFC 5987 Content-Disposition",
          lambda: check_cyrillic_content_disposition(page, base_url, product_id)),
@@ -695,7 +775,7 @@ def main() -> int:
 
     tmp = _setup_env_and_cwd()
     try:
-        org_db, product_id = _seed_data()
+        org_db, product_id, totp_secret = _seed_data()
         server, port = _start_server(org_db)
         base_url = f"http://127.0.0.1:{port}"
         if not _wait_for_server(f"{base_url}/login"):
@@ -717,7 +797,7 @@ def main() -> int:
                 "domain": "127.0.0.1", "path": "/",
             }])
             page = _new_page(context, base_url, console_errors)
-            results = _run_checks(page, base_url, product_id, browser, console_errors)
+            results = _run_checks(page, base_url, product_id, browser, console_errors, totp_secret)
             browser.close()
 
         # ── Отчёт ────────────────────────────────────────────────────────────

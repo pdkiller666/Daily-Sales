@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.251.0"
+CURRENT_VERSION = "1.252.0"
 
 ENTRIES = [
+    {
+        "version": "1.252.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Improve testing and deployment processes for better reliability",
+            "Добавить браузерный тест двухфакторной аутентификации (2FA TOTP)",
+        ],
+    },
     {
         "version": "1.251.0",
         "date": "26 июня 2026",
