@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.260.0"
+CURRENT_VERSION = "1.261.0"
 
 ENTRIES = [
+    {
+        "version": "1.261.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Enhance security by removing unsafe inline styles and updating documentation",
+            "Add check_schedule_page smoke test for /schedule",
+        ],
+    },
     {
         "version": "1.260.0",
         "date": "26 июня 2026",

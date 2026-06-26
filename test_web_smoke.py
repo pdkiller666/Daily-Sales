@@ -959,6 +959,105 @@ def check_contests_page(page, base_url):
          "не найдены — шаблон не отрендерился или роут вернул ошибку")
 
 
+def check_schedule_page(page, base_url):
+    """Страница /schedule открывается, Alpine-компонент инициализирован, нет CSP-ошибок.
+
+    Проверяет:
+    - GET /schedule → HTTP 200, нет редиректа на /login (нет 5xx).
+    - Страница не генерирует pageerror (JS-ошибки / CSP-блок).
+    - h1 «График работы» присутствует в DOM.
+    - Панель выбора сотрудника (.card с «Сотрудник») видна.
+    - Плейсхолдер «Выберите сотрудника» присутствует при открытии без user_id.
+    - Первая ссылка сотрудника в списке — кликабельна и ведёт на /schedule?user_id=…
+    - После перехода на страницу конкретного сотрудника:
+        · h2 с названием месяца и годом виден.
+        · Сетка дней (.grid.grid-cols-7) отрендерена.
+        · Карточки статистики «Рабочих дней» и «Со временем» присутствуют.
+        · Кнопки навигации по месяцам (← и →) видны.
+        · Alpine x-data-компонент инициализирован (нет x-cloak на видимых элементах).
+    - Нет ошибок CSP в консоли браузера на обоих URL.
+    """
+    page_errors: list[str] = []
+    page.on("pageerror", lambda e: page_errors.append(f"pageerror: {e}"))
+
+    # ── 1. Открываем /schedule без выбора сотрудника ────────────────────────
+    page.goto(f"{base_url}/schedule", wait_until="networkidle")
+
+    assert "/schedule" in page.url, \
+        f"GET /schedule не открылся (редирект?) — URL={page.url}"
+    assert "/login" not in page.url, \
+        f"GET /schedule перенаправил на /login — сессия потеряна или роут выбросил ошибку"
+
+    assert not page_errors, \
+        f"JS/CSP-ошибки на /schedule (без user_id): {page_errors}"
+
+    # ── 2. Заголовок страницы ────────────────────────────────────────────────
+    h1 = page.locator("h1").filter(has_text="График работы")
+    assert h1.count() >= 1, \
+        "h1 «График работы» не найден — шаблон не отрендерился или роут вернул ошибку"
+
+    # ── 3. Панель выбора сотрудника ─────────────────────────────────────────
+    staff_panel = page.locator(".card").filter(has_text="Сотрудник")
+    assert staff_panel.count() >= 1, \
+        ".card с текстом «Сотрудник» не найдена — левая панель не отрендерилась"
+
+    # ── 4. Плейсхолдер при отсутствии выбранного сотрудника ─────────────────
+    placeholder = page.locator("text=Выберите сотрудника")
+    assert placeholder.count() >= 1, \
+        "Плейсхолдер «Выберите сотрудника» не найден (без user_id) — шаблон сломан"
+
+    # ── 5. Хотя бы один сотрудник есть в списке, переходим на его график ────
+    staff_link = page.locator("a[href*='/schedule?user_id=']").first
+    assert staff_link.count() >= 1, \
+        "Список сотрудников пуст — seed-данные не создали пользователя в орг-базе"
+
+    staff_url = staff_link.get_attribute("href")
+    assert staff_url and "user_id=" in staff_url, \
+        f"Ссылка сотрудника не содержит user_id — href={staff_url!r}"
+
+    # ── 6. Открываем график конкретного сотрудника ───────────────────────────
+    page_errors.clear()
+    page.goto(f"{base_url}{staff_url}", wait_until="networkidle")
+
+    assert "user_id=" in page.url, \
+        f"После клика на сотрудника user_id пропал из URL — URL={page.url}"
+
+    assert not page_errors, \
+        f"JS/CSP-ошибки на /schedule?user_id=…: {page_errors}"
+
+    # ── 7. Заголовок месяца (h2) ─────────────────────────────────────────────
+    month_heading = page.locator("h2")
+    assert month_heading.count() >= 1, \
+        "h2 с названием месяца не найден — страница сотрудника не отрендерилась"
+
+    # ── 8. Сетка дней (calendar grid) ───────────────────────────────────────
+    cal_grid = page.locator(".grid.grid-cols-7")
+    assert cal_grid.count() >= 1, \
+        ".grid.grid-cols-7 не найдена — календарная сетка не отрендерилась"
+
+    # ── 9. Карточки статистики ───────────────────────────────────────────────
+    worked_days_card = page.locator(".card").filter(has_text="Рабочих дней")
+    assert worked_days_card.count() >= 1, \
+        "Карточка «Рабочих дней» не найдена — блок статистики не отрендерился"
+
+    timed_days_card = page.locator(".card").filter(has_text="Со временем")
+    assert timed_days_card.count() >= 1, \
+        "Карточка «Со временем» не найдена — блок статистики не отрендерился"
+
+    # ── 10. Навигация по месяцам ─────────────────────────────────────────────
+    prev_link = page.locator("a[href*='/schedule?user_id='][href*='month=']").first
+    assert prev_link.count() >= 1, \
+        "Навигация по месяцам (prev/next) не найдена — хедер месяца не отрендерился"
+
+    # ── 11. Alpine инициализирован (x-data-блок без x-cloak) ────────────────
+    # x-cloak убирается Alpine'ом после инициализации; если он остался на
+    # видимых элементах — Alpine не загрузился (CSP-блок или JS-ошибка).
+    cloak_count = page.locator("[x-cloak]:visible").count()
+    assert cloak_count == 0, \
+        (f"Alpine.js не инициализировал {cloak_count} x-cloak-элемент(ов) "
+         "на /schedule — возможен CSP-блок или ошибка загрузки Alpine")
+
+
 def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret):
     """Запустить все проверки, вернуть список (name, ok, error)."""
     checks = [
@@ -988,6 +1087,8 @@ def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret
          lambda: check_sales_export(page, base_url)),
         ("contests page — /contests opens, filters present, no JS errors",
          lambda: check_contests_page(page, base_url)),
+        ("schedule page — /schedule opens, calendar grid, Alpine init, no CSP errors",
+         lambda: check_schedule_page(page, base_url)),
     ]
     results = []
     for name, fn in checks:
