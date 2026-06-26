@@ -2163,6 +2163,17 @@ def task_change_status(
                                         f"🔁 <b>Создана следующая задача</b>\n\n"
                                         f"<b>{_html.escape(task['title'])}</b>"
                                     )
+                                    try:
+                                        from web.push_utils import send_web_push as _swp
+                                        import threading as _th
+                                        _th.Thread(
+                                            target=_swp,
+                                            args=(int(_r_tg), "🔁 Создана следующая задача",
+                                                  task['title'], "/tasks"),
+                                            daemon=True
+                                        ).start()
+                                    except Exception:
+                                        pass
                             except Exception:
                                 pass
             except Exception as _re:

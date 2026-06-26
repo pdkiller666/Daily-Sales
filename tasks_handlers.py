@@ -418,6 +418,14 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
                                 f"🔁 <b>Создана следующая задача</b>\n\n<b>{he(task['title'])}</b>",
                                 parse_mode="HTML"
                             )
+                            try:
+                                from web.push_utils import send_web_push
+                                await asyncio.to_thread(
+                                    send_web_push, int(_r_tg),
+                                    "🔁 Создана следующая задача", task['title'], "/tasks"
+                                )
+                            except Exception:
+                                pass
                     except Exception:
                         pass
             except Exception:
