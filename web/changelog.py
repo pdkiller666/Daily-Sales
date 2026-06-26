@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.255.0"
+CURRENT_VERSION = "1.256.0"
 
 ENTRIES = [
+    {
+        "version": "1.256.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Fix issue preventing two-factor login and update project documentation",
+            "Добавить браузерный smoke-тест страницы рейтингов (/rankings)",
+        ],
+    },
     {
         "version": "1.255.0",
         "date": "26 июня 2026",

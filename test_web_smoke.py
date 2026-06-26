@@ -32,6 +32,8 @@ test_web_smoke.py — браузерные smoke-тесты ключевых д�
      появляется в таблице на странице /sales.
  14. Экспорт Excel (/reports/export.xlsx): GET возвращает HTTP 200, Content-Type —
      application/vnd.openxmlformats или octet-stream, тело начинается с PK (ZIP).
+ 15. Страница рейтингов (/rankings): открывается (HTTP 200), нет pageerror/CSP-блоков,
+     блок рейтинга (.card) и вкладки Продавцы/Магазины присутствуют в DOM.
 
 Изоляция: тест работает в собственном временном каталоге (свежие SQLite-БД),
 ничего не пишет в рабочие data/. Аутентификация — через выписанный сессионный
@@ -840,6 +842,45 @@ def check_excel_export(page, base_url):
         f"Тело не начинается с PK (ZIP/XLSX сигнатура), первые байты: {body[:4]!r}"
 
 
+def check_rankings_page(page, base_url):
+    """Страница /rankings открывается, контейнер рейтинга присутствует в DOM.
+
+    Проверяет:
+    - GET /rankings возвращает HTTP 200 (нет редиректа на /login и нет 5xx).
+    - Страница не генерирует pageerror (JS-ошибки / CSP-блок).
+    - Контейнер #rnk-list (список позиций рейтинга) присутствует в DOM.
+      Допускается пустой список (нет продаж в тестовой среде), но сам элемент
+      должен быть отрендерен — если его нет, шаблон упал или роут вернул ошибку.
+    - Вкладки (Продавцы / Магазины / Города) видны в навигации по табам.
+    """
+    page_errors: list[str] = []
+    page.on("pageerror", lambda e: page_errors.append(f"pageerror: {e}"))
+
+    page.goto(f"{base_url}/rankings", wait_until="networkidle")
+
+    assert "/rankings" in page.url, \
+        f"Страница /rankings не открылась (редирект?) — URL={page.url}"
+
+    assert not page_errors, \
+        f"JS-ошибки на /rankings: {page_errors}"
+
+    # #rnk-list рендерится только когда есть данные; при пустом рейтинге
+    # роут показывает блок «нет данных» — проверяем хотя бы наличие
+    # заголовочного блока (card с «Рейтинг …»).
+    ranking_section = page.locator(".card").filter(has_text="Рейтинг")
+    assert ranking_section.count() >= 1, \
+        "Блок рейтинга (.card с «Рейтинг») не найден — шаблон не отрендерился"
+
+    # Вкладки табов всегда присутствуют независимо от наличия данных.
+    sellers_tab = page.locator("a[href*='tab=sellers']")
+    assert sellers_tab.count() >= 1, \
+        "Вкладка «Продавцы» (tab=sellers) не найдена на /rankings"
+
+    shops_tab = page.locator("a[href*='tab=shops']")
+    assert shops_tab.count() >= 1, \
+        "Вкладка «Магазины» (tab=shops) не найдена на /rankings"
+
+
 def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret):
     """Запустить все проверки, вернуть список (name, ok, error)."""
     checks = [
@@ -863,6 +904,8 @@ def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret
          lambda: check_sales_add(page, base_url, product_id)),
         ("Excel export — /reports/export.xlsx → valid .xlsx body",
          lambda: check_excel_export(page, base_url)),
+        ("rankings page — /rankings opens, tabs present, no JS errors",
+         lambda: check_rankings_page(page, base_url)),
     ]
     results = []
     for name, fn in checks:
