@@ -749,6 +749,11 @@ async def admin_download_backup(request: Request, filename: str):
         return RedirectResponse("/admin/backups?msg=error", 303)
     safe_name = os.path.basename(file_path)
     is_encrypted = safe_name.endswith(".enc")
+    try:
+        from web.audit import log_admin_action
+        log_admin_action(request, user, "backup_download", target=safe_name)
+    except Exception:
+        pass
     return FileResponse(
         file_path,
         media_type="application/octet-stream",
