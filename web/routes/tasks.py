@@ -2141,15 +2141,30 @@ def task_change_status(
                         else:
                             _new_dl = _new_date.isoformat()
                         _cl_items = [i.get('text', '') for i in (task.get('checklist') or []) if i.get('text', '').strip()]
+                        _new_assigned_to = task.get('assigned_to')
                         db.create_task(
                             title=task['title'], description=task.get('description', ''),
                             topic_id=task.get('topic_id'), created_by=task.get('created_by', 0),
-                            assigned_to=task.get('assigned_to'), assigned_shop=task.get('assigned_shop'),
+                            assigned_to=_new_assigned_to, assigned_shop=task.get('assigned_shop'),
                             assign_all=1 if task.get('assign_all') else 0,
                             priority=task.get('priority', 'normal'), deadline=_new_dl,
                             recurrence=_recurrence,
                             checklist=_cl_items or None,
                         )
+                        if _new_assigned_to:
+                            try:
+                                _r_tg = _get_user_tg_id(db, _new_assigned_to)
+                                if _r_tg:
+                                    db.add_notification_to_history(
+                                        _new_assigned_to, 'task_assigned',
+                                        f"🔁 Создана следующая задача: {task['title']}")
+                                    _send_tg_task_notify(
+                                        _r_tg,
+                                        f"🔁 <b>Создана следующая задача</b>\n\n"
+                                        f"<b>{_html.escape(task['title'])}</b>"
+                                    )
+                            except Exception:
+                                pass
             except Exception as _re:
                 logger.warning("task_change_status spawn recurring: %s", _re)
 

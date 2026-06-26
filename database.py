@@ -15726,54 +15726,127 @@ class Database:
             logger.error("delete_task_time_log: %s", e)
             return False
 
-    def get_tasks_with_deadline_today(self) -> list:
-        """Задачи с дедлайном сегодня (для APScheduler напоминаний)."""
+    def get_org_owner_timezone(self) -> str:
+        """Возвращает timezone первого (старейшего) пользователя org — приближение tz владельца."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT timezone FROM users WHERE timezone IS NOT NULL AND timezone != '' ORDER BY id LIMIT 1"
+            ).fetchone()
+            conn.close()
+            return (row[0] or 'UTC') if row else 'UTC'
+        except Exception:
+            return 'UTC'
+
+    def get_org_all_member_tg_ids(self) -> list:
+        """Telegram-id всех участников организации."""
         try:
             conn = self.get_connection()
             rows = conn.execute(
-                """
-                SELECT t.id, t.title, t.assigned_to, t.created_by,
-                       ua.telegram_id AS assigned_tg,
-                       uc.telegram_id AS creator_tg
-                FROM tasks t
-                LEFT JOIN users ua ON ua.id = t.assigned_to
-                LEFT JOIN users uc ON uc.id = t.created_by
-                WHERE t.deadline = date('now')
-                  AND t.status NOT IN ('done', 'cancelled')
-                """
+                "SELECT telegram_id FROM users WHERE telegram_id IS NOT NULL"
             ).fetchall()
+            conn.close()
+            return [r[0] for r in rows if r[0]]
+        except Exception:
+            return []
+
+    def get_org_shop_member_tg_ids(self, shop_name: str) -> list:
+        """Telegram-id участников конкретного магазина."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                "SELECT telegram_id FROM users WHERE shop_name = ? AND telegram_id IS NOT NULL",
+                (shop_name,)
+            ).fetchall()
+            conn.close()
+            return [r[0] for r in rows if r[0]]
+        except Exception:
+            return []
+
+    def get_tasks_with_deadline_today(self, local_date: str | None = None) -> list:
+        """Задачи с дедлайном сегодня (для APScheduler напоминаний).
+        local_date — строка YYYY-MM-DD в локальной TZ владельца; если None — UTC."""
+        try:
+            conn = self.get_connection()
+            if local_date:
+                rows = conn.execute(
+                    """
+                    SELECT t.id, t.title, t.assigned_to, t.created_by,
+                           ua.telegram_id AS assigned_tg,
+                           uc.telegram_id AS creator_tg,
+                           t.assign_all, t.assigned_shop
+                    FROM tasks t
+                    LEFT JOIN users ua ON ua.id = t.assigned_to
+                    LEFT JOIN users uc ON uc.id = t.created_by
+                    WHERE t.deadline = ?
+                      AND t.status NOT IN ('done', 'cancelled')
+                    """,
+                    (local_date,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT t.id, t.title, t.assigned_to, t.created_by,
+                           ua.telegram_id AS assigned_tg,
+                           uc.telegram_id AS creator_tg,
+                           t.assign_all, t.assigned_shop
+                    FROM tasks t
+                    LEFT JOIN users ua ON ua.id = t.assigned_to
+                    LEFT JOIN users uc ON uc.id = t.created_by
+                    WHERE t.deadline = date('now')
+                      AND t.status NOT IN ('done', 'cancelled')
+                    """
+                ).fetchall()
             conn.close()
             return [
                 {"id": r[0], "title": r[1], "assigned_to": r[2],
-                 "created_by": r[3], "assigned_tg": r[4], "creator_tg": r[5]}
+                 "created_by": r[3], "assigned_tg": r[4], "creator_tg": r[5],
+                 "assign_all": bool(r[6]), "assigned_shop": r[7] or ""}
                 for r in rows
             ]
         except Exception as e:
             logger.error("get_tasks_with_deadline_today: %s", e)
             return []
 
-    def get_overdue_tasks(self) -> list:
-        """Просроченные незавершённые задачи (дедлайн < сегодня)."""
+    def get_overdue_tasks(self, local_date: str | None = None) -> list:
+        """Просроченные незавершённые задачи (дедлайн < сегодня).
+        local_date — строка YYYY-MM-DD в локальной TZ владельца; если None — UTC."""
         try:
             conn = self.get_connection()
-            rows = conn.execute(
-                """
-                SELECT t.id, t.title, t.assigned_to, t.created_by,
-                       ua.telegram_id AS assigned_tg,
-                       uc.telegram_id AS creator_tg,
-                       t.deadline
-                FROM tasks t
-                LEFT JOIN users ua ON ua.id = t.assigned_to
-                LEFT JOIN users uc ON uc.id = t.created_by
-                WHERE t.deadline < date('now')
-                  AND t.status NOT IN ('done', 'cancelled')
-                """
-            ).fetchall()
+            if local_date:
+                rows = conn.execute(
+                    """
+                    SELECT t.id, t.title, t.assigned_to, t.created_by,
+                           ua.telegram_id AS assigned_tg,
+                           uc.telegram_id AS creator_tg,
+                           t.deadline, t.assign_all, t.assigned_shop
+                    FROM tasks t
+                    LEFT JOIN users ua ON ua.id = t.assigned_to
+                    LEFT JOIN users uc ON uc.id = t.created_by
+                    WHERE t.deadline < ?
+                      AND t.status NOT IN ('done', 'cancelled')
+                    """,
+                    (local_date,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT t.id, t.title, t.assigned_to, t.created_by,
+                           ua.telegram_id AS assigned_tg,
+                           uc.telegram_id AS creator_tg,
+                           t.deadline, t.assign_all, t.assigned_shop
+                    FROM tasks t
+                    LEFT JOIN users ua ON ua.id = t.assigned_to
+                    LEFT JOIN users uc ON uc.id = t.created_by
+                    WHERE t.deadline < date('now')
+                      AND t.status NOT IN ('done', 'cancelled')
+                    """
+                ).fetchall()
             conn.close()
             return [
                 {"id": r[0], "title": r[1], "assigned_to": r[2],
                  "created_by": r[3], "assigned_tg": r[4], "creator_tg": r[5],
-                 "deadline": r[6]}
+                 "deadline": r[6], "assign_all": bool(r[7]), "assigned_shop": r[8] or ""}
                 for r in rows
             ]
         except Exception as e:

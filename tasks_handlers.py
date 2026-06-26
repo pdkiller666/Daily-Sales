@@ -76,7 +76,7 @@ def _fmt_task_line(t: dict) -> str:
     return f"{status} {title}{dl}"
 
 
-def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0) -> InlineKeyboardMarkup:
+def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0, tg_id: int = 0) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     page_size = 5
     start = page * page_size
@@ -95,16 +95,7 @@ def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0) -> InlineKeyboar
     if is_admin:
         try:
             from billing_utils import has_module as _hm, has_extension as _he
-            _tg_id = None
-            # detect tg_id from calling context not easily available here; deferred check in handler
-            _tasks_ai_ok = False
-            try:
-                import threading
-                _tg_id = getattr(threading.current_thread(), '_tasks_ai_tg_id', None)
-            except Exception:
-                pass
-            if _tg_id:
-                _tasks_ai_ok = _hm(_tg_id, 'tasks_pro') and _he(_tg_id, 'tasks_ai')
+            _tasks_ai_ok = bool(tg_id and _hm(tg_id, 'tasks_pro') and _he(tg_id, 'tasks_ai'))
         except Exception:
             _tasks_ai_ok = False
         row_btns = [InlineKeyboardButton(text="➕ Создать задачу", callback_data="tsk_create")]
@@ -200,7 +191,7 @@ async def _show_tasks_list(target, state: FSMContext, page: int = 0):
         else:
             text = f"📋 <b>Мои задачи</b>\n<i>Всего активных: {len(active)}</i>"
 
-        kb = _tasks_keyboard(active, admin, page)
+        kb = _tasks_keyboard(active, admin, page, tg_id=tg_id)
         await state.update_data(tsk_list=active, tsk_page=page, tsk_my_db_id=my_db_id)
 
         if isinstance(target, Msg):
@@ -396,6 +387,11 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
 
         db.update_task_status(task_id, new_status)
 
+        try:
+            db.add_task_history(task_id, my_db_id, 'status', task['status'], new_status)
+        except Exception:
+            pass
+
         if new_status in ('done', 'review') and (assign_all or assigned_shop):
             try:
                 db.record_task_user_completion(task_id, my_db_id, new_status)
@@ -404,7 +400,26 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
 
         if new_status == 'done':
             try:
-                _spawn_recurring_task(db, task)
+                _new_assigned_to = _spawn_recurring_task(db, task)
+                if _new_assigned_to:
+                    try:
+                        _conn_r = db.get_connection()
+                        _r_row = _conn_r.execute(
+                            "SELECT telegram_id FROM users WHERE id = ?", (_new_assigned_to,)
+                        ).fetchone()
+                        _conn_r.close()
+                        _r_tg = _r_row[0] if _r_row else None
+                        if _r_tg:
+                            db.add_notification_to_history(
+                                _new_assigned_to, 'task_assigned',
+                                f"🔁 Создана следующая задача: {task['title']}")
+                            await callback.bot.send_message(
+                                _r_tg,
+                                f"🔁 <b>Создана следующая задача</b>\n\n<b>{he(task['title'])}</b>",
+                                parse_mode="HTML"
+                            )
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -487,12 +502,13 @@ def _spawn_recurring_task(db, task: dict):
     if old_checklist:
         checklist_items = [item.get('text', '') for item in old_checklist if item.get('text', '').strip()]
 
+    _assigned_to = task.get('assigned_to')
     db.create_task(
         title=task['title'],
         description=task.get('description', ''),
         topic_id=task.get('topic_id'),
         created_by=task.get('created_by', 0),
-        assigned_to=task.get('assigned_to'),
+        assigned_to=_assigned_to,
         assigned_shop=task.get('assigned_shop'),
         assign_all=1 if task.get('assign_all') else 0,
         priority=task.get('priority', 'normal'),
@@ -501,6 +517,7 @@ def _spawn_recurring_task(db, task: dict):
         checklist=checklist_items,
     )
     logger.info("_spawn_recurring_task: '%s' → %s", task['title'], new_deadline)
+    return _assigned_to
 
 
 # ── Фото-отчёт: пропустить ────────────────────────────────────────────────────
@@ -717,7 +734,22 @@ async def task_reopen_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Задача не найдена")
             return
 
+        try:
+            _conn_r = db.get_connection()
+            _my_row = _conn_r.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (tg_id,)
+            ).fetchone()
+            _conn_r.close()
+            my_db_id = _my_row[0] if _my_row else None
+        except Exception:
+            my_db_id = None
+
         db.update_task_status(task_id, 'in_progress')
+
+        try:
+            db.add_task_history(task_id, my_db_id, 'status', task['status'], 'in_progress')
+        except Exception:
+            pass
 
         # Уведомить исполнителя — Telegram + колокольчик + Web Push
         _assigned_to = task.get('assigned_to')

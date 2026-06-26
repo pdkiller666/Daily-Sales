@@ -476,6 +476,7 @@ def register_inline_jobs(
         import json as _json
         import urllib.request as _ureq
         import threading as _th
+        import datetime as _dt
         _token = _os.environ.get("BOT_TOKEN", "")
         if not _token:
             return
@@ -498,33 +499,92 @@ def register_inline_jobs(
             except Exception:
                 pass
 
+        def _local_today(tz_str: str) -> str:
+            """Текущая дата в заданной timezone (YYYY-MM-DD)."""
+            try:
+                from zoneinfo import ZoneInfo
+                return _dt.datetime.now(ZoneInfo(tz_str)).date().isoformat()
+            except Exception:
+                return _dt.date.today().isoformat()
+
+        async def _notify_team(db, task, notif_type: str, text: str, push_title: str):
+            """Уведомить всех участников командной задачи (assign_all / assigned_shop)."""
+            try:
+                if task.get('assign_all'):
+                    tg_ids = db.get_org_all_member_tg_ids()
+                elif task.get('assigned_shop'):
+                    tg_ids = db.get_org_shop_member_tg_ids(task['assigned_shop'])
+                else:
+                    return
+                title = task.get('title', '—')
+                seen = set()
+                for _tg in tg_ids:
+                    if not _tg or _tg in seen:
+                        continue
+                    seen.add(_tg)
+                    _push(_tg, text)
+                    try:
+                        _conn = db.get_connection()
+                        _row = _conn.execute(
+                            "SELECT id FROM users WHERE telegram_id = ?", (_tg,)
+                        ).fetchone()
+                        _conn.close()
+                        if _row:
+                            db.add_notification_to_history(
+                                _row[0], notif_type, f"{push_title}: {title}")
+                    except Exception:
+                        pass
+                    try:
+                        from web.push_utils import send_web_push
+                        await asyncio.to_thread(
+                            send_web_push, int(_tg), push_title, title, "/tasks")
+                    except Exception:
+                        pass
+            except Exception as _te:
+                logging.error(f"check_task_deadlines _notify_team: {_te}")
+
         try:
             from database import Database
-            import datetime as _dt
-            _yesterday = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
             db_paths = _get_scheduler_db_paths()
             for db_path in db_paths:
                 try:
                     db = Database(db_path)
+                    # Определить локальную дату из timezone владельца org
+                    _tz = db.get_org_owner_timezone()
+                    _today = _local_today(_tz)
+                    _yesterday = (
+                        _dt.date.fromisoformat(_today) - _dt.timedelta(days=1)
+                    ).isoformat()
+
                     # Дедлайн сегодня — Telegram + колокольчик + Web Push
-                    for t in db.get_tasks_with_deadline_today():
+                    for t in db.get_tasks_with_deadline_today(local_date=_today):
                         title = t.get('title', '—')
-                        if t.get('assigned_tg') and t.get('assigned_to'):
-                            _push(t['assigned_tg'],
-                                  f"📋 <b>Срок задачи сегодня!</b>\n<b>{title}</b>\n\n"
-                                  f"🌐 Откройте веб-кабинет для деталей.")
-                            try:
-                                db.add_notification_to_history(
-                                    t['assigned_to'], 'task_deadline',
-                                    f"📋 Срок задачи сегодня: {title}")
-                            except Exception:
-                                pass
-                            try:
-                                from web.push_utils import send_web_push
-                                await asyncio.to_thread(send_web_push, int(t['assigned_tg']),
-                                                        "📋 Срок задачи сегодня", title, "/tasks")
-                            except Exception:
-                                pass
+                        _is_team = t.get('assign_all') or t.get('assigned_shop')
+                        if _is_team:
+                            await _notify_team(
+                                db, t, 'task_deadline',
+                                f"📋 <b>Срок задачи сегодня!</b>\n<b>{title}</b>\n\n"
+                                f"🌐 Откройте веб-кабинет для деталей.",
+                                "📋 Срок задачи сегодня"
+                            )
+                        else:
+                            if t.get('assigned_tg') and t.get('assigned_to'):
+                                _push(t['assigned_tg'],
+                                      f"📋 <b>Срок задачи сегодня!</b>\n<b>{title}</b>\n\n"
+                                      f"🌐 Откройте веб-кабинет для деталей.")
+                                try:
+                                    db.add_notification_to_history(
+                                        t['assigned_to'], 'task_deadline',
+                                        f"📋 Срок задачи сегодня: {title}")
+                                except Exception:
+                                    pass
+                                try:
+                                    from web.push_utils import send_web_push
+                                    await asyncio.to_thread(
+                                        send_web_push, int(t['assigned_tg']),
+                                        "📋 Срок задачи сегодня", title, "/tasks")
+                                except Exception:
+                                    pass
                         if t.get('creator_tg') and t.get('creator_tg') != t.get('assigned_tg') and t.get('created_by'):
                             _push(t['creator_tg'],
                                   f"📋 <b>Срок задачи сегодня</b>\n<b>{title}</b>")
@@ -536,31 +596,43 @@ def register_inline_jobs(
                                 pass
                             try:
                                 from web.push_utils import send_web_push
-                                await asyncio.to_thread(send_web_push, int(t['creator_tg']),
-                                                        "📋 Срок задачи сегодня", title, "/tasks")
+                                await asyncio.to_thread(
+                                    send_web_push, int(t['creator_tg']),
+                                    "📋 Срок задачи сегодня", title, "/tasks")
                             except Exception:
                                 pass
+
                     # Задачи, ставшие просроченными вчера — по 1 уведомлению на задачу
-                    for t in db.get_overdue_tasks():
+                    for t in db.get_overdue_tasks(local_date=_today):
                         if t.get('deadline') != _yesterday:
                             continue
                         title = t.get('title', '—')
-                        if t.get('assigned_tg') and t.get('assigned_to'):
-                            _push(t['assigned_tg'],
-                                  f"⚠️ <b>Задача просрочена!</b>\n<b>{title}</b>\n\n"
-                                  f"🌐 Откройте веб-кабинет.")
-                            try:
-                                db.add_notification_to_history(
-                                    t['assigned_to'], 'task_overdue',
-                                    f"⚠️ Задача просрочена: {title}")
-                            except Exception:
-                                pass
-                            try:
-                                from web.push_utils import send_web_push
-                                await asyncio.to_thread(send_web_push, int(t['assigned_tg']),
-                                                        "⚠️ Задача просрочена", title, "/tasks")
-                            except Exception:
-                                pass
+                        _is_team = t.get('assign_all') or t.get('assigned_shop')
+                        if _is_team:
+                            await _notify_team(
+                                db, t, 'task_overdue',
+                                f"⚠️ <b>Задача просрочена!</b>\n<b>{title}</b>\n\n"
+                                f"🌐 Откройте веб-кабинет.",
+                                "⚠️ Задача просрочена"
+                            )
+                        else:
+                            if t.get('assigned_tg') and t.get('assigned_to'):
+                                _push(t['assigned_tg'],
+                                      f"⚠️ <b>Задача просрочена!</b>\n<b>{title}</b>\n\n"
+                                      f"🌐 Откройте веб-кабинет.")
+                                try:
+                                    db.add_notification_to_history(
+                                        t['assigned_to'], 'task_overdue',
+                                        f"⚠️ Задача просрочена: {title}")
+                                except Exception:
+                                    pass
+                                try:
+                                    from web.push_utils import send_web_push
+                                    await asyncio.to_thread(
+                                        send_web_push, int(t['assigned_tg']),
+                                        "⚠️ Задача просрочена", title, "/tasks")
+                                except Exception:
+                                    pass
                         if t.get('creator_tg') and t.get('creator_tg') != t.get('assigned_tg') and t.get('created_by'):
                             _push(t['creator_tg'],
                                   f"⚠️ <b>Задача просрочена</b>\n<b>{title}</b>")
@@ -572,8 +644,9 @@ def register_inline_jobs(
                                 pass
                             try:
                                 from web.push_utils import send_web_push
-                                await asyncio.to_thread(send_web_push, int(t['creator_tg']),
-                                                        "⚠️ Задача просрочена", title, "/tasks")
+                                await asyncio.to_thread(
+                                    send_web_push, int(t['creator_tg']),
+                                    "⚠️ Задача просрочена", title, "/tasks")
                             except Exception:
                                 pass
                 except Exception as _de:
@@ -626,12 +699,30 @@ def register_inline_jobs(
                 try:
                     _db = Database(_db_path)
                     for rem in _db.get_due_task_reminders():
+                        _title = rem['title']
+                        _tg_id = rem['telegram_id']
+                        _task_id = rem['task_id']
+                        _user_id = rem['user_id']
                         msg = (
                             f"⏰ <b>Напоминание о задаче</b>\n\n"
-                            f"📋 {rem['title']}\n\n"
+                            f"📋 {_title}\n\n"
                             f"Вы установили напоминание об этой задаче."
                         )
-                        _push(rem['telegram_id'], msg, rem['task_id'])
+                        _push(_tg_id, msg, _task_id)
+                        try:
+                            _db.add_notification_to_history(
+                                _user_id, 'task_reminder',
+                                f"⏰ Напоминание: {_title}")
+                        except Exception:
+                            pass
+                        try:
+                            from web.push_utils import send_web_push
+                            await asyncio.to_thread(
+                                send_web_push, int(_tg_id),
+                                "⏰ Напоминание о задаче", _title, "/tasks"
+                            )
+                        except Exception:
+                            pass
                         _db.mark_task_reminder_sent(rem['id'])
                 except Exception as _de:
                     logging.error(f"check_task_reminders db={_db_path}: {_de}")
