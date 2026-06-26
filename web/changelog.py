@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.212.0"
+CURRENT_VERSION = "1.213.0"
 
 ENTRIES = [
+    {
+        "version": "1.213.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Align chat swipe thresholds with base navigation settings",
+            "Fix 4 subscription/billing module bugs found in audit",
+            "Show correct expiry date on module/bundle/add-on receipts",
+        ],
+    },
     {
         "version": "1.212.0",
         "date": "25 июня 2026",

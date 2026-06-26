@@ -4462,6 +4462,29 @@ class Database:
         conn.close()
         return requests
 
+    def get_cancelled_payment_requests_count(self, since_days=None):
+        """Точный счётчик отозванных/отменённых заявок (без лимита).
+
+        Нужен для бейджа «Отозванных» — len(get_cancelled_payment_requests())
+        ограничен limit=20 и занижает реальное число.
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        if since_days is not None:
+            cursor.execute(
+                "SELECT COUNT(*) FROM payment_requests "
+                "WHERE status = 'cancelled' "
+                "AND created_at >= datetime('now', ? || ' days')",
+                (f'-{since_days}',)
+            )
+        else:
+            cursor.execute(
+                "SELECT COUNT(*) FROM payment_requests WHERE status = 'cancelled'"
+            )
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else 0
+
     def get_cancelled_payment_requests(self, limit=20, since_days=None):
         """Получение отозванных/отменённых заявок на оплату с данными пользователей.
 

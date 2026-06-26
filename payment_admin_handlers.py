@@ -57,8 +57,7 @@ async def pending_payments_menu(callback: CallbackQuery):
     await callback.answer()
     db = _get_payments_db()
     pending_requests = await db.get_pending_payment_requests()
-    cancelled_requests = await db.get_cancelled_payment_requests()
-    cancelled_count = len(cancelled_requests)
+    cancelled_count = await db.get_cancelled_payment_requests_count()
 
     text = "💳 <b>Заявки на оплату подписок</b>\n\n"
 
@@ -199,6 +198,7 @@ async def show_payment_proof(callback: CallbackQuery):
     user_id = request_info[1]
     plan_type = request_info[2]
     amount = request_info[3]
+    status = request_info[4]
     file_id = request_info[5]
     created_at = request_info[6]
     first_name = request_info[9]
@@ -211,13 +211,20 @@ async def show_payment_proof(callback: CallbackQuery):
     caption += f"👤 {he(first_name)} {he(last_name)}\n"
     caption += f"💎 {he(plan_name)} - {amount}₽"
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_payment_{req_id}"),
-            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_payment_{req_id}")
-        ],
-        [InlineKeyboardButton(text="⬅️ К заявке", callback_data=f"view_payment_{req_id}")]
-    ])
+    # Кнопки действий показываем только для ожидающих заявок.
+    # Для отозванных/подтверждённых/отклонённых — только возврат к заявке.
+    if status == 'pending':
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_payment_{req_id}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_payment_{req_id}")
+            ],
+            [InlineKeyboardButton(text="⬅️ К заявке", callback_data=f"view_payment_{req_id}")]
+        ])
+    else:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ К заявке", callback_data=f"view_payment_{req_id}")]
+        ])
 
     # Удаляем текущее текстовое сообщение перед отправкой фото,
     # чтобы в чате не оставался мусор из старых сообщений
@@ -279,11 +286,6 @@ async def confirm_payment_request(callback: CallbackQuery):
 
     if success:
         try:
-            from subscription_utils import invalidate_plan_cache
-            invalidate_plan_cache(callback.from_user.id)
-        except Exception:
-            pass
-        try:
             def _fetch_request_user():
                 import sqlite3 as _sql
                 c = _sql.connect('data/shop_bot.db')
@@ -302,6 +304,14 @@ async def confirm_payment_request(callback: CallbackQuery):
             if result:
                 user_id, plan_type, user_telegram_id, first_name, last_name = result
                 plan_name = plan_type
+
+                # Сбрасываем кэш тарифа ПЛАТЯЩЕГО пользователя (не админа),
+                # чтобы новый доступ применился сразу без задержки.
+                try:
+                    from subscription_utils import invalidate_plan_cache
+                    invalidate_plan_cache(user_telegram_id)
+                except Exception:
+                    pass
 
                 # Тариф организации (main.db) теперь продлевается ВНУТРИ
                 # confirm_payment_request → единый путь для бота и веб-кабинета
@@ -332,7 +342,58 @@ async def confirm_payment_request(callback: CallbackQuery):
                     except Exception:
                         pass
 
+                    # Реальная дата окончания доступа (single source of truth):
+                    # читаем то, что фактически записал грант — для модулей/пакетов/
+                    # расширений это billing_module_subs.end_date, для надстроек —
+                    # subscription_addons.expires_at. Никаких догадок про длительность.
+                    _grant_end_str = ''
+                    try:
+                        import sqlite3 as _sqle
+                        from datetime import datetime as _dte
+                        _ec = _sqle.connect('data/shop_bot.db')
+                        _ecur = _ec.cursor()
+                        _raw_end = None
+                        if plan_name and plan_name.startswith('addon_'):
+                            _ecur.execute(
+                                "SELECT expires_at FROM subscription_addons "
+                                "WHERE payment_request_id = ? ORDER BY id DESC LIMIT 1",
+                                (request_id,)
+                            )
+                            _erow = _ecur.fetchone()
+                            if _erow:
+                                _raw_end = _erow[0]
+                        elif plan_name and (
+                            plan_name.startswith('module_')
+                            or plan_name.startswith('bundle_')
+                        ):
+                            _ecur.execute(
+                                "SELECT end_date FROM billing_module_subs "
+                                "WHERE payment_request_id = ? ORDER BY id DESC LIMIT 1",
+                                (request_id,)
+                            )
+                            _erow = _ecur.fetchone()
+                            if _erow:
+                                _raw_end = _erow[0]
+                        _ec.close()
+                        if _raw_end:
+                            _ds = str(_raw_end).replace('T', ' ')[:10]
+                            _dobj = _dte.strptime(_ds, '%Y-%m-%d')
+                            _grant_end_str = (
+                                f"📅 <b>Действует до:</b> "
+                                f"{_dobj.strftime('%d.%m.%Y')}\n"
+                            )
+                    except Exception:
+                        pass
+
                     _fname = he(first_name or '')
+                    # Годовые модули/пакеты: plan_type вида module_annual_<key>
+                    _is_annual = bool(plan_name) and '_annual_' in plan_name
+                    _period_days_label = '365 дней' if _is_annual else '30 дней'
+                    # Предпочитаем реальную дату окончания; обобщённая длительность —
+                    # только запасной вариант, если дату не удалось прочитать.
+                    _duration_line = _grant_end_str or (
+                        f"📅 <b>Действует:</b> {_period_days_label}\n"
+                    )
                     # Различаем обычные подписки и надстройки (add-ons)
                     if plan_name and plan_name.startswith('addon_'):
                         _addon_labels = {
@@ -344,13 +405,15 @@ async def confirm_payment_request(callback: CallbackQuery):
                             f"✅ <b>{_fname}, надстройка активирована!</b>\n\n"
                             f"➕ <b>Надстройка:</b> {_addon_label}\n"
                             f"{_plan_price_str}"
-                            f"📅 <b>Действует:</b> 30 дней\n"
+                            f"{_duration_line}"
                             f"\n🎉 Надстройка добавлена к вашим лимитам прямо сейчас."
                         )
                     elif plan_name and (plan_name.startswith('module_') or plan_name.startswith('bundle_')):
                         # Модульный биллинг: красивое имя модуля/пакета
                         _is_bundle = plan_name.startswith('bundle_')
                         _bkey = plan_name[len('bundle_') if _is_bundle else len('module_'):]
+                        if _bkey.startswith('annual_'):
+                            _bkey = _bkey[len('annual_'):]
                         _bitem_name = _bkey
                         try:
                             from database import Database as _DBr
@@ -367,7 +430,7 @@ async def confirm_payment_request(callback: CallbackQuery):
                             f"✅ <b>{_fname}, {_kind.lower()} подключён!</b>\n\n"
                             f"🧩 <b>{_kind}:</b> {he(_bitem_name)}\n"
                             f"{_plan_price_str}"
-                            f"📅 <b>Действует:</b> 30 дней\n"
+                            f"{_duration_line}"
                             f"\n🎉 Все функции уже доступны в боте и веб-кабинете."
                         )
                     else:
