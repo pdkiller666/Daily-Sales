@@ -189,7 +189,7 @@ def _seed_data():
     cred_id_2fa = shop_db.create_web_credential(
         email=_SMOKE_2FA_EMAIL,
         password_hash=pwd_hash_2fa,
-        telegram_id=SUPER_ADMIN_TG,
+        telegram_id=None,
     )
     shop_db.set_web_totp(cred_id_2fa, totp_secret, 1, None)
 
