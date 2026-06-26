@@ -92,3 +92,4 @@
 - [Deploy after task-agent merge](deploy-after-merge.md) — при [MERGED] Task #N → сразу restart_workflow + bash deploy.sh; без ожидания команды пользователя
 - [Chat voice messages player](chat-voice-messages.md) — кастомный <voice-msg> заменил нативный <audio>; чинит webm Infinity-duration (currentTime=1e101); button НЕ наследует color → нужен color:inherit
 - [CSP nonce + JWT revocation](csp-nonce-jwt-revocation.md) — per-request nonce через SecurityHeadersMiddleware (до call_next); jti blacklist в-памяти+DB; sed нонсит ВСЕ <script> теги разом
+- [Chat swipe hint dismissal](chat-swipe-hint.md) — in-place свайп-хинт прятать на СМЕНЕ состояния через display:none + стабильный id, не opacity на touchend

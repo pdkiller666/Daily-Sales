@@ -2628,6 +2628,12 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             wrapper.addEventListener('touchstart', e => {
                 const t = e.touches[0];
                 ts = { x: t.clientX, y: t.clientY, tgt: e.target };
+                /* Чат сам обрабатывает все свайпы внутри #chat-wrapper. Гасим
+                   всплытие к base.html-обработчику навбара (он на document),
+                   иначе его пилюля («Отчёты ←») рисуется ПОВЕРХ нашей —
+                   обе на left:16px, наслаиваются. Глушим уже на старте, чтобы
+                   навбар не выставил свой _ts для этого жеста. */
+                e.stopPropagation();
             }, { passive: true });
 
             /* Лейбл предыдущего пункта боттом-нава (для хинта «← Назад») */
@@ -2640,6 +2646,9 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             /* Показываем пилюлю во время жеста */
             wrapper.addEventListener('touchmove', e => {
                 if (!ts) return;
+                /* Глушим всплытие, чтобы навбар-обработчик (document) не рисовал
+                   свою пилюлю поверх нашей во время того же жеста. */
+                e.stopPropagation();
                 const t  = e.touches[0];
                 const dx = t.clientX - ts.x;
                 const dy = t.clientY - ts.y;
