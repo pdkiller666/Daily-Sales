@@ -10,7 +10,9 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+
+from web.response_utils import content_disposition as _cd
 
 from backup_manager import BackupManager
 from database import Database
@@ -731,6 +733,26 @@ async def admin_delete_backup(
     except Exception:
         pass
     return RedirectResponse(f"/admin/backups?msg={msg}", 303)
+
+
+@router.get("/backups/{filename}/download")
+async def admin_download_backup(request: Request, filename: str):
+    """Serve a backup file for download with a safe Content-Disposition header."""
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+    bm = BackupManager()
+    backup_dir_abs = os.path.abspath(bm.backup_dir)
+    file_path = os.path.abspath(os.path.join(bm.backup_dir, filename))
+    # Path-traversal guard
+    if not file_path.startswith(backup_dir_abs + os.sep) or not os.path.isfile(file_path):
+        return RedirectResponse("/admin/backups?msg=error", 303)
+    safe_name = os.path.basename(file_path)
+    return FileResponse(
+        file_path,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": _cd(safe_name)},
+    )
 
 
 @router.post("/backups/{filename}/restore")

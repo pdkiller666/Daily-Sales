@@ -116,6 +116,10 @@
                 </td>
                 <td class="px-4 py-3 text-right">
                     <div class="flex items-center justify-end gap-1.5">
+                        <a href="/admin/backups/{{ b.filename|urlencode }}/download"
+                           class="text-xs px-3 py-1.5 bg-slate-50 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors border border-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700 dark:border-slate-600">
+                            ⬇️
+                        </a>
                         <button type="button"
                                 data-action="confirmRestore" data-arg="{{ b.filename|e }}"
                                 class="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-lg font-medium transition-colors border border-amber-200">
