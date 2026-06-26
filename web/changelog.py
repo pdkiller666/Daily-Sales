@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.258.0"
+CURRENT_VERSION = "1.259.0"
 
 ENTRIES = [
+    {
+        "version": "1.259.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Добавить браузерный smoke-тест для страницы /contests",
+        ],
+    },
     {
         "version": "1.258.0",
         "date": "26 июня 2026",

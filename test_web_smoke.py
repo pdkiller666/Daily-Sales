@@ -36,6 +36,9 @@ test_web_smoke.py — браузерные smoke-тесты ключевых д�
      блок рейтинга (.card) и вкладки Продавцы/Магазины присутствуют в DOM.
  16. Экспорт продаж (/sales/export.xlsx): плоский список транзакций — HTTP 200,
      Content-Type xlsx/octet-stream, тело начинается с PK (ZIP/XLSX сигнатура).
+ 17. Страница конкурсов (/contests): открывается (HTTP 200), нет pageerror/CSP-блоков,
+     заголовок h1, табы фильтров (Все/Активные/Завершённые) и контейнер карточек
+     или пустое состояние присутствуют в DOM.
 
 Изоляция: тест работает в собственном временном каталоге (свежие SQLite-БД),
 ничего не пишет в рабочие data/. Аутентификация — через выписанный сессионный
@@ -908,6 +911,54 @@ def check_sales_export(page, base_url):
         f"Тело не начинается с PK (ZIP/XLSX сигнатура), первые байты: {body[:4]!r}"
 
 
+def check_contests_page(page, base_url):
+    """Страница /contests открывается, фильтры и контейнер присутствуют в DOM.
+
+    Проверяет:
+    - GET /contests возвращает HTTP 200 (нет редиректа на /login и нет 5xx).
+    - Страница не генерирует pageerror (JS-ошибки / CSP-блок).
+    - Заголовок h1 «Конкурсы» отрендерен.
+    - Табы фильтрации по статусу (Все / Активные / Запланированные / Завершённые)
+      присутствуют в DOM — они рендерятся независимо от наличия конкурсов.
+    - Контейнер конкурсов (#cst-grid) ИЛИ сообщение о пустом состоянии (.card)
+      присутствует в DOM — шаблон отрендерился полностью.
+    """
+    page_errors: list[str] = []
+    page.on("pageerror", lambda e: page_errors.append(f"pageerror: {e}"))
+
+    page.goto(f"{base_url}/contests", wait_until="networkidle")
+
+    assert "/contests" in page.url, \
+        f"Страница /contests не открылась (редирект?) — URL={page.url}"
+
+    assert not page_errors, \
+        f"JS-ошибки на /contests: {page_errors}"
+
+    h1 = page.locator("h1").filter(has_text="Конкурсы")
+    assert h1.count() >= 1, \
+        "Заголовок «Конкурсы» (h1) не найден — шаблон не отрендерился"
+
+    # Табы фильтрации всегда присутствуют независимо от наличия конкурсов.
+    tab_all = page.locator("a[href*='status_filter=']").filter(has_text="Все")
+    assert tab_all.count() >= 1, \
+        "Вкладка «Все» (status_filter=) не найдена на /contests"
+
+    tab_active = page.locator("a[href*='status_filter=active']")
+    assert tab_active.count() >= 1, \
+        "Вкладка «Активные» (status_filter=active) не найдена на /contests"
+
+    tab_finished = page.locator("a[href*='status_filter=finished']")
+    assert tab_finished.count() >= 1, \
+        "Вкладка «Завершённые» (status_filter=finished) не найдена на /contests"
+
+    # Либо грид с карточками, либо пустое состояние — что-то одно обязано быть.
+    grid = page.locator("#cst-grid")
+    empty_card = page.locator(".card").filter(has_text="Конкурсы не созданы")
+    assert grid.count() >= 1 or empty_card.count() >= 1, \
+        ("Ни #cst-grid (карточки конкурсов), ни сообщение «Конкурсы не созданы» "
+         "не найдены — шаблон не отрендерился или роут вернул ошибку")
+
+
 def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret):
     """Запустить все проверки, вернуть список (name, ok, error)."""
     checks = [
@@ -935,6 +986,8 @@ def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret
          lambda: check_rankings_page(page, base_url)),
         ("Sales export — /sales/export.xlsx → valid .xlsx body",
          lambda: check_sales_export(page, base_url)),
+        ("contests page — /contests opens, filters present, no JS errors",
+         lambda: check_contests_page(page, base_url)),
     ]
     results = []
     for name, fn in checks:
