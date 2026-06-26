@@ -76,7 +76,7 @@ def _get_pending(limit: int = 200) -> list[dict]:
             cur.execute(
                 """
                 SELECT pr.id, pr.user_id, pr.plan_type, pr.amount, pr.created_at,
-                       u.first_name, u.last_name, u.shop_name
+                       u.first_name, u.last_name, u.shop_name, pr.payment_proof_file_id
                 FROM payment_requests pr
                 JOIN users u ON pr.user_id = u.id
                 WHERE pr.status = 'pending'
@@ -98,6 +98,7 @@ def _get_pending(limit: int = 200) -> list[dict]:
                 "created_at": (r[4] or "")[:16].replace("T", " "),
                 "user_name": f"{r[5] or ''} {r[6] or ''}".strip() or "—",
                 "shop_name": r[7] or "—",
+                "has_proof": bool(r[8] and str(r[8]).startswith("web_proof:")),
             }
             for r in rows
         ]
@@ -115,7 +116,7 @@ def _get_history(limit: int = 50) -> list[dict]:
                 SELECT pr.id, pr.plan_type, pr.amount, pr.status,
                        pr.created_at, pr.processed_at,
                        u.first_name, u.last_name, u.shop_name,
-                       a.first_name, a.last_name
+                       a.first_name, a.last_name, pr.payment_proof_file_id
                 FROM payment_requests pr
                 JOIN users u ON pr.user_id = u.id
                 LEFT JOIN users a ON pr.processed_by = a.id
@@ -140,6 +141,7 @@ def _get_history(limit: int = 50) -> list[dict]:
                 "user_name": f"{r[6] or ''} {r[7] or ''}".strip() or "—",
                 "shop_name": r[8] or "—",
                 "admin_name": f"{r[9] or ''} {r[10] or ''}".strip() or "—",
+                "has_proof": bool(r[11] and str(r[11]).startswith("web_proof:")),
             }
             for r in rows
         ]

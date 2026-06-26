@@ -44,7 +44,10 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
         else:
             from web.routes.sales import _get_user_allowed_shops
             allowed = _get_user_allowed_shops(telegram_id, db)
-            shops = [s for s in all_inv_shops if s in allowed] or all_inv_shops
+            shops = [s for s in all_inv_shops if s in allowed]
+            # If user's shop has no inventory records yet, still show it
+            if not shops and allowed:
+                shops = [s for s in allowed if s]
             user_editable_shops = shops
 
         if not shop or shop not in shops:

@@ -116,6 +116,9 @@ def _recipients_label(rtype: str, rfilter) -> str:
         return f"🏪 Магазин: {rfilter}"
     if rtype == "role" and rfilter:
         return f"🎭 Роль: {ROLE_LABELS.get(rfilter, rfilter)}"
+    if rtype == "users" and rfilter:
+        n = len(rfilter) if isinstance(rfilter, list) else 1
+        return f"👤 {n} сотр."
     return "👥 Всем сотрудникам"
 
 
@@ -218,6 +221,68 @@ def notifications_page(
     )
 
 
+@router.get("/notifications/search-users")
+def notifications_search_users(request: Request, q: str = ""):
+    """Return JSON list of org users matching search query (name / @username)."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"error": "Нет доступа"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, telegram_id, first_name, last_name, username, shop_name "
+                "FROM users WHERE telegram_id IS NOT NULL ORDER BY first_name, last_name LIMIT 200"
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        q_lower = q.strip().lower()
+        result = []
+        _skip_shops = {"системный", "system", ""}
+        for r in rows:
+            tid = r[1]
+            try:
+                tid_int = int(tid)
+            except (TypeError, ValueError):
+                continue
+            if tid_int <= 0:
+                continue
+            fname = (r[2] or "").strip()
+            lname = (r[3] or "").strip()
+            uname = (r[4] or "").strip()
+            shop = (r[5] or "").strip()
+            if shop.lower() in _skip_shops:
+                shop = ""
+            name = f"{fname} {lname}".strip() or f"id{r[0]}"
+            if q_lower and q_lower not in name.lower() and q_lower not in uname.lower():
+                continue
+            result.append({
+                "id": r[0],
+                "telegram_id": tid_int,
+                "name": name,
+                "username": uname,
+                "shop": shop,
+            })
+            if len(result) >= 30:
+                break
+        return JSONResponse(result)
+    except Exception as exc:
+        logger.error(f"search_users error: {exc}")
+        return JSONResponse([], status_code=500)
+
+
 @router.post("/notifications/send")
 def notifications_send(
     request: Request,
@@ -228,6 +293,7 @@ def notifications_send(
     role_filter: str = Form(default=""),
     send_when: str = Form(default="now"),
     scheduled_at: str = Form(default=""),
+    target_telegram_ids_json: str = Form(default="[]"),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -267,6 +333,17 @@ def notifications_send(
             rcpt_info = {"type": "shop", "filter": shop_filter}
         elif recipients_type == "role" and role_filter:
             rcpt_info = {"type": "role", "filter": role_filter}
+        elif recipients_type == "users":
+            try:
+                tids = [int(t) for t in json.loads(target_telegram_ids_json) if t]
+            except Exception:
+                tids = []
+            if not tids:
+                return RedirectResponse(
+                    url="/notifications?error=Выберите+хотя+бы+одного+сотрудника",
+                    status_code=303,
+                )
+            rcpt_info = {"type": "users", "filter": tids}
         else:
             rcpt_info = {"type": "all"}
 

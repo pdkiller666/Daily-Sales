@@ -22,9 +22,27 @@
 <div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200">✅ Резервная копия создана.</div>
 {% elif msg == 'deleted' %}
 <div class="mb-4 px-4 py-3 rounded-xl text-sm bg-slate-50 text-slate-700 border border-slate-200">🗑 Файл удалён.</div>
+{% elif msg == 'restored' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200">
+    ✅ <strong>База данных восстановлена.</strong>
+    Перезапустите бота, чтобы изменения вступили в силу: <code class="bg-emerald-100 px-1 rounded">python start.py</code>
+</div>
+{% elif msg == 'restore_error' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-700 border border-red-200">
+    <p class="font-semibold">⚠️ Ошибка восстановления. Данные не изменены.</p>
+    {% if restore_detail %}
+    <p class="mt-1 font-mono text-xs break-all text-red-600">{{ restore_detail }}</p>
+    {% else %}
+    <p class="mt-1 text-xs">Проверьте лог приложения.</p>
+    {% endif %}
+</div>
 {% elif msg == 'error' %}
 <div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-700 border border-red-200">⚠️ Ошибка операции.</div>
 {% endif %}
+
+<div class="card p-4 mb-4 text-xs text-slate-500 dark:text-slate-400 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-800/30 rounded-xl">
+    ⚠️ После восстановления необходимо вручную перезапустить бот/сервис, чтобы новые данные вступили в силу. Перед восстановлением автоматически создаётся защитный бэкап текущей БД.
+</div>
 
 <!-- Delete confirm modal -->
 <div id="del-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -42,8 +60,31 @@
     </div>
 </div>
 
-<div class="card p-4 mb-4 text-xs text-slate-500 dark:text-slate-400 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-800/30 rounded-xl">
-    ⚠️ Восстановление из резервной копии доступно только через Telegram-бот (системная панель → Бэкапы → Восстановить). Здесь можно только создавать и удалять.
+<!-- Restore confirm modal -->
+<div id="rst-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-md w-full shadow-xl">
+        <p class="font-semibold text-slate-800 dark:text-slate-100 mb-1">⚠️ Восстановить из резервной копии?</p>
+        <p class="font-mono text-xs text-slate-500 dark:text-slate-400 mb-3 break-all" id="rst-filename"></p>
+        <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-3 mb-4 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+            <p>• Соответствующая БД будет полностью заменена данными из копии.</p>
+            <p>• Изменения после создания этой копии будут потеряны.</p>
+            <p>• Автоматически создастся защитный бэкап текущей БД.</p>
+            <p>• <strong>После восстановления потребуется ручной перезапуск бота.</strong></p>
+        </div>
+        <form id="rst-form" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="flex gap-2">
+                <button type="submit"
+                        class="flex-1 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
+                    ✅ Восстановить
+                </button>
+                <button type="button" onclick="document.getElementById('rst-modal').classList.add('hidden')"
+                        class="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold py-2.5 rounded-xl transition-colors">
+                    Отмена
+                </button>
+            </div>
+        </form>
+    </div>
 </div>
 
 {% if backups %}
@@ -55,7 +96,7 @@
                 <th class="text-right px-4 py-3 font-semibold hidden sm:table-cell">Размер</th>
                 <th class="text-right px-4 py-3 font-semibold hidden md:table-cell">Возраст</th>
                 <th class="text-right px-4 py-3 font-semibold">Создан</th>
-                <th class="text-right px-4 py-3 font-semibold">Действие</th>
+                <th class="text-right px-4 py-3 font-semibold">Действия</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
@@ -74,11 +115,18 @@
                     {{ b.created.strftime('%d.%m.%Y %H:%M') }}
                 </td>
                 <td class="px-4 py-3 text-right">
-                    <button type="button"
-                            onclick="confirmDel('{{ b.filename|e }}')"
-                            class="text-xs px-3 py-1.5 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg font-medium transition-colors">
-                        🗑
-                    </button>
+                    <div class="flex items-center justify-end gap-1.5">
+                        <button type="button"
+                                onclick="confirmRestore('{{ b.filename|e }}')"
+                                class="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-lg font-medium transition-colors border border-amber-200">
+                            🔄 Восстановить
+                        </button>
+                        <button type="button"
+                                onclick="confirmDel('{{ b.filename|e }}')"
+                                class="text-xs px-3 py-1.5 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg font-medium transition-colors">
+                            🗑
+                        </button>
+                    </div>
                 </td>
             </tr>
             {% endfor %}
@@ -99,6 +147,12 @@ function confirmDel(filename) {
     const enc = encodeURIComponent(filename);
     document.getElementById('del-form').action = '/admin/backups/' + enc + '/delete';
     document.getElementById('del-modal').classList.remove('hidden');
+}
+function confirmRestore(filename) {
+    document.getElementById('rst-filename').textContent = filename;
+    const enc = encodeURIComponent(filename);
+    document.getElementById('rst-form').action = '/admin/backups/' + enc + '/restore';
+    document.getElementById('rst-modal').classList.remove('hidden');
 }
 </script>
 {% endblock %}

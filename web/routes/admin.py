@@ -675,6 +675,7 @@ async def admin_backups(request: Request):
             "backups": backups,
             "csrf_token": get_csrf_token(request),
             "msg": _flash(request),
+            "restore_detail": request.query_params.get("detail", ""),
         }),
     )
 
@@ -729,6 +730,43 @@ async def admin_delete_backup(
                          target=filename, details=f"result={msg}")
     except Exception:
         pass
+    return RedirectResponse(f"/admin/backups?msg={msg}", 303)
+
+
+@router.post("/backups/{filename}/restore")
+async def admin_restore_backup(
+    request: Request,
+    filename: str,
+    csrf_token: str = Form(""),
+):
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/admin/backups?msg=error", 303)
+    bm = BackupManager()
+    # Path traversal protection
+    backup_dir_abs = os.path.abspath(bm.backup_dir)
+    file_path = os.path.abspath(os.path.join(bm.backup_dir, filename))
+    if not file_path.startswith(backup_dir_abs + os.sep) or not os.path.isfile(file_path):
+        return RedirectResponse("/admin/backups?msg=error", 303)
+    try:
+        success, message = bm.restore_backup(filename)
+        msg = "restored" if success else "restore_error"
+    except Exception as exc:
+        success = False
+        message = str(exc)
+        msg = "restore_error"
+    try:
+        from web.audit import log_admin_action
+        log_admin_action(request, user, "backup_restore",
+                         target=filename, details=f"success={success} msg={message[:120]}")
+    except Exception:
+        pass
+    if not success:
+        from urllib.parse import quote
+        detail_enc = quote(message[:300], safe="")
+        return RedirectResponse(f"/admin/backups?msg={msg}&detail={detail_enc}", 303)
     return RedirectResponse(f"/admin/backups?msg={msg}", 303)
 
 
