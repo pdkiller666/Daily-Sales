@@ -15,6 +15,9 @@ test_web_smoke.py — браузерные smoke-тесты ключевых д�
   5. Быстрый перенос карточки в канбане меняет статус (POST /tasks/kanban/move).
   6. Кнопки push-уведомлений присутствуют и их обработчики определены.
   7. Скачивание PDF ценника отдаёт настоящий application/pdf.
+  8. Вход по email/паролю устанавливает сессию и ведёт в /dashboard.
+  9. POS-корзина: Alpine работает, товар добавляется, итог пересчитывается,
+     кнопка «Оформить» активна и продажа записывается.
 
 Изоляция: тест работает в собственном временном каталоге (свежие SQLite-БД),
 ничего не пишет в рабочие data/. Аутентификация — через выписанный сессионный
@@ -39,6 +42,11 @@ import urllib.request
 # ── Супер-админ зашит в env_manager.is_super_admin → полный доступ к модулям ──
 SUPER_ADMIN_TG = 921098636
 WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Константы для тестовых данных
+_SMOKE_EMAIL = "smoke@test.local"
+_SMOKE_PASSWORD = "smoke-test-1234"
+_SMOKE_SHOP = "SmokeMag"
 
 
 def _find_chromium() -> str:
@@ -93,12 +101,16 @@ def _setup_env_and_cwd() -> str:
 
 
 def _seed_data():
-    """Создать организацию, товар и задачу. Вернуть (org_db_path, product_id)."""
+    """Создать организацию, товар, задачу, магазин, склад и email-кредентиал.
+
+    Возвращает (org_db_path, product_id).
+    """
     from tenant_manager import tenant_manager
     from database import Database
 
     # Базовые централизованные БД (revocation/billing-таблицы и т.п.).
-    Database("data/shop_bot.db").create_tables()
+    shop_db = Database("data/shop_bot.db")
+    shop_db.create_tables()
 
     ok, result = tenant_manager.create_organization("Smoke Test Org", SUPER_ADMIN_TG)
     if not ok:
@@ -116,6 +128,7 @@ def _seed_data():
     db = Database(org_db)
     db.create_tables()
 
+    # ── Базовый товар ────────────────────────────────────────────────────────
     product_id = db.add_product(
         name="Тестовый товар", category="Тест", price=199.0,
         article="SMOKE-001", barcode="4600000000017",
@@ -124,6 +137,30 @@ def _seed_data():
         title="Smoke-задача для канбана", description="перенос статуса",
         created_by=0, assign_all=1, priority="normal",
     )
+
+    # ── Магазин + пользователь + склад для POS-теста ─────────────────────────
+    db.add_shop(_SMOKE_SHOP)
+    db.add_user(
+        telegram_id=SUPER_ADMIN_TG,
+        first_name="Smoke",
+        last_name="Admin",
+        shop_name=_SMOKE_SHOP,
+    )
+    db.add_inventory(
+        shop_name=_SMOKE_SHOP,
+        product_id=int(product_id),
+        quantity=100,
+    )
+
+    # ── Email-кредентиал для теста логина ────────────────────────────────────
+    from web.auth import hash_password
+    pwd_hash = hash_password(_SMOKE_PASSWORD)
+    shop_db.create_web_credential(
+        email=_SMOKE_EMAIL,
+        password_hash=pwd_hash,
+        telegram_id=SUPER_ADMIN_TG,
+    )
+
     return org_db, int(product_id)
 
 
@@ -259,7 +296,141 @@ def check_pdf_download(page, base_url, product_id):
     assert body[:4] == b"%PDF", "Тело ответа не начинается с %PDF"
 
 
-def _run_checks(page, base_url, product_id):
+def check_login_email_flow(browser, base_url, console_errors):
+    """Вход по email/паролю: форма видна, отправка ведёт в /dashboard.
+
+    Использует свежий browser-context без сессионного cookie, чтобы
+    проверить полный путь: /login → POST /auth/email → /dashboard.
+    """
+    ctx = browser.new_context()
+    ctx.on("console", lambda m: console_errors.append(m.text)
+           if m.type == "error" else None)
+    page = ctx.new_page()
+    try:
+        # Открываем страницу логина.
+        page.goto(f"{base_url}/login", wait_until="networkidle")
+        assert page.url.endswith("/login") or "/login" in page.url, \
+            f"Страница /login не открылась, URL={page.url}"
+
+        # Переключаемся на вкладку email.
+        email_tab = page.locator("#tab-email")
+        assert email_tab.count() >= 1, "Вкладка email не найдена на /login"
+        email_tab.click()
+
+        # Email-форма должна стать видимой.
+        email_pane = page.locator("#pane-email")
+        email_pane.wait_for(state="visible", timeout=5000)
+
+        # Заполняем поля.
+        page.locator("input[name='email']").fill(_SMOKE_EMAIL)
+        page.locator("input[name='password']").fill(_SMOKE_PASSWORD)
+
+        # Отправляем форму.
+        page.locator("#pane-email form").evaluate("f => f.submit()")
+        page.wait_for_url("**/dashboard", timeout=10000)
+
+        assert "/dashboard" in page.url, \
+            f"После успешного логина ожидался /dashboard, получен {page.url}"
+    finally:
+        page.close()
+        ctx.close()
+
+
+def check_pos_cart(page, base_url, product_id):
+    """POS-корзина: Alpine работает, товар добавляется, итог пересчитывается,
+    кнопка «Оформить» активна, продажа отправляется на сервер.
+
+    Проверяет:
+    - Alpine.js инициализировался на странице /pos.
+    - x-cloak: мобильная кнопка корзины скрыта, пока корзина пуста.
+    - addToCart добавляет товар: cart.length == 1, cartTotal > 0.
+    - Кнопка «Оформить» становится активной (не disabled).
+    - POST /pos/checkout проходит без ошибки (ok=true или «Продано N поз.»).
+    """
+    page.goto(f"{base_url}/pos?shop={_SMOKE_SHOP}", wait_until="networkidle")
+
+    # Alpine должен инициализироваться.
+    page.wait_for_function("typeof window.Alpine !== 'undefined'", timeout=10000)
+    page.wait_for_function(
+        "document.querySelector('[x-data]') && "
+        "typeof Alpine.$data(document.querySelector('[x-data]')).cart !== 'undefined'",
+        timeout=10000,
+    )
+
+    # x-cloak: пока корзина пуста, мобильная кнопка с x-cloak должна быть скрыта.
+    mobile_cart_btn = page.locator("button[x-cloak][x-show*='cart.length > 0']")
+    if mobile_cart_btn.count() > 0:
+        hidden = page.evaluate(
+            "(() => {"
+            "  const el = document.querySelector('button[x-cloak]');"
+            "  if (!el) return true;"
+            "  return el.style.display === 'none' || !el.offsetParent;"
+            "})()"
+        )
+        assert hidden, \
+            "Элемент с x-cloak виден до добавления товара — Alpine не скрыл его"
+
+    # Ждём загрузки товаров из API.
+    page.wait_for_function(
+        "Alpine.$data(document.querySelector('[x-data]')).allProducts.length > 0",
+        timeout=12000,
+    )
+
+    # Добавляем первый доступный товар в корзину через Alpine.
+    added = page.evaluate(
+        "(() => {"
+        "  const comp = Alpine.$data(document.querySelector('[x-data]'));"
+        "  if (!comp.allProducts.length) return false;"
+        "  comp.addToCart(comp.allProducts[0]);"
+        "  return true;"
+        "})()"
+    )
+    assert added, "allProducts пуст — товары не загрузились через API"
+
+    # Короткая пауза, чтобы Alpine обновил реактивные данные.
+    time.sleep(0.3)
+
+    # cart.length == 1, cartTotal > 0.
+    cart_len = page.evaluate(
+        "Alpine.$data(document.querySelector('[x-data]')).cart.length"
+    )
+    assert cart_len >= 1, f"После addToCart корзина пуста: cart.length={cart_len}"
+
+    cart_total = page.evaluate(
+        "Alpine.$data(document.querySelector('[x-data]')).cartTotal"
+    )
+    assert cart_total > 0, f"cartTotal не пересчитался: {cart_total}"
+
+    # Кнопка «Провести продажу» должна стать активной.
+    checkout_btn = page.locator("button").filter(has_text="Провести продажу").first
+    assert checkout_btn.count() >= 1, "Кнопка «Провести продажу» не найдена"
+    assert not checkout_btn.is_disabled(), \
+        "Кнопка «Провести продажу» всё ещё disabled после добавления товара"
+
+    # Отправляем корзину через Alpine checkout() и ждём результата.
+    # Результат: либо successData появился, либо checkoutError (пишем в assert).
+    page.evaluate(
+        "Alpine.$data(document.querySelector('[x-data]')).checkout()"
+    )
+    # Ждём либо successData (ok), либо checkoutError (fail) — максимум 8 сек.
+    page.wait_for_function(
+        "(() => {"
+        "  const c = Alpine.$data(document.querySelector('[x-data]'));"
+        "  return !!c.successData || !!c.checkoutError;"
+        "})()",
+        timeout=8000,
+    )
+    result_state = page.evaluate(
+        "(() => {"
+        "  const c = Alpine.$data(document.querySelector('[x-data]'));"
+        "  return { ok: !!c.successData, err: c.checkoutError || '' };"
+        "})()"
+    )
+    assert result_state["ok"], \
+        f"POS checkout не прошёл: {result_state['err']!r}"
+
+
+def _run_checks(page, base_url, product_id, browser, console_errors):
     """Запустить все проверки, вернуть список (name, ok, error)."""
     checks = [
         ("inline handlers alive (CSP)", lambda: check_inline_handlers_alive(page, base_url)),
@@ -270,6 +441,8 @@ def _run_checks(page, base_url, product_id):
         ("kanban quick move", lambda: check_kanban_quick_move(page, base_url)),
         ("push buttons present", lambda: check_push_buttons_present(page, base_url)),
         ("PDF label download", lambda: check_pdf_download(page, base_url, product_id)),
+        ("login — email/password flow", lambda: check_login_email_flow(browser, base_url, console_errors)),
+        ("POS cart — add item + checkout", lambda: check_pos_cart(page, base_url, product_id)),
     ]
     results = []
     for name, fn in checks:
@@ -318,7 +491,7 @@ def main() -> int:
                 "domain": "127.0.0.1", "path": "/",
             }])
             page = _new_page(context, base_url, console_errors)
-            results = _run_checks(page, base_url, product_id)
+            results = _run_checks(page, base_url, product_id, browser, console_errors)
             browser.close()
 
         # ── Отчёт ────────────────────────────────────────────────────────────
