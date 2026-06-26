@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.230.0"
+CURRENT_VERSION = "1.231.0"
 
 ENTRIES = [
+    {
+        "version": "1.231.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Fix beta testing banner closing issue in web interface",
+            "Add aliases to map Cyrillic and Latin network names",
+        ],
+    },
     {
         "version": "1.230.0",
         "date": "26 июня 2026",

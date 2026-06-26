@@ -798,7 +798,7 @@ async def motiv_ym_selected(callback: CallbackQuery, state: FSMContext):
     year, month = int(parts[2]), int(parts[3])
     await _apply_product_motivation_month(callback, state, year, month)
 
-def _build_motiv_view_text_markup(cat_comms: dict, total: int, page: int):
+def _build_motiv_view_text_markup(cat_comms: dict, total: int, page: int, targeted_count: int = 0):
     """Строит текст + разметку для страницы просмотра мотиваций (плоская пагинация по товарам)."""
     flat = []
     for cat_name in sorted(cat_comms.keys()):
@@ -810,7 +810,10 @@ def _build_motiv_view_text_markup(cat_comms: dict, total: int, page: int):
     text = f"📊 <b>Установленные мотивации</b> · {total} тов."
     if total_pages > 1:
         text += f" · стр. {page + 1}/{total_pages}"
-    text += "\n\n"
+    text += "\n"
+    if targeted_count:
+        text += f"<i>🕸️ + {targeted_count} таргетированных правил (сети/магазины/сотрудники)</i>"
+    text += "\n"
 
     cur_cat = None
     for item in page_items:
@@ -828,6 +831,8 @@ def _build_motiv_view_text_markup(cat_comms: dict, total: int, page: int):
     nav = page_nav_row("view_all_motiv_p", page, has_prev, has_next, total_pages)
     if nav:
         builder.row(*nav)
+    if targeted_count:
+        builder.button(text=f"🎯 Таргетированные правила ({targeted_count})", callback_data="targeted_rules")
     builder.button(text="📝 Установить мотивацию", callback_data="set_motivation")
     builder.button(text="⬅️ Назад", callback_data="admin_motivation")
     builder.adjust(1)
@@ -842,13 +847,14 @@ async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    commissions, all_products = await asyncio.gather(
+    commissions, all_products, targeted_rules = await asyncio.gather(
         current_db.get_all_product_motivations(),
-        current_db.get_all_products()
+        current_db.get_all_products(),
+        current_db.get_all_motivation_rules(),
     )
     products_with_comm = [c for c in commissions if c[2] is not None]
 
-    if not products_with_comm:
+    if not products_with_comm and not targeted_rules:
         await callback.message.edit_text(
             "📊 <b>Мотивации по товарам</b>\n\n"
             "❌ Мотивации не установлены",
@@ -866,7 +872,7 @@ async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
         cat = prod_cat_map.get(product_id, "Без категории")
         cat_comms.setdefault(cat, []).append((product_name, comm_type, comm_value, admin_first, admin_last))
 
-    text, markup = _build_motiv_view_text_markup(cat_comms, len(products_with_comm), 0)
+    text, markup = _build_motiv_view_text_markup(cat_comms, len(products_with_comm), 0, len(targeted_rules))
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     await callback.answer()
 
@@ -884,9 +890,10 @@ async def view_all_motivations_page(callback: CallbackQuery, state: FSMContext):
         page = 0
 
     current_db = await get_db(callback.from_user.id, state)
-    commissions, all_products = await asyncio.gather(
+    commissions, all_products, targeted_rules = await asyncio.gather(
         current_db.get_all_product_motivations(),
-        current_db.get_all_products()
+        current_db.get_all_products(),
+        current_db.get_all_motivation_rules(),
     )
     products_with_comm = [c for c in commissions if c[2] is not None]
 
@@ -897,7 +904,7 @@ async def view_all_motivations_page(callback: CallbackQuery, state: FSMContext):
         cat = prod_cat_map.get(product_id, "Без категории")
         cat_comms.setdefault(cat, []).append((product_name, comm_type, comm_value, admin_first, admin_last))
 
-    text, markup = _build_motiv_view_text_markup(cat_comms, len(products_with_comm), page)
+    text, markup = _build_motiv_view_text_markup(cat_comms, len(products_with_comm), page, len(targeted_rules))
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     await callback.answer()
 

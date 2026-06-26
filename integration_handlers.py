@@ -1502,13 +1502,17 @@ async def _mtv_finalize(state: FSMContext, user_id: int, edit):
                          f"или задайте псевдонимы.")
         warn_line += _mtv_chains_warning(unmatched_chains)
 
+        gs_note = (
+            "\n\n💡 <i>GS-правила применяются при продаже автоматически. "
+            "Увидеть их можно в боте: Мотивация → 🎯 Таргетированные правила.</i>"
+        ) if rules_written > 0 else ""
         await edit(
             f"✅ <b>Мотивация синхронизирована!</b>\n\n"
             f"📋 Лист: <code>{he(actual)}</code>\n"
             f"🔢 Моделей в таблице: <b>{synced}</b>\n"
             f"🏷 Сети: {he(', '.join(chains)) or '—'}{alias_line}"
             f"{rules_line}\n"
-            f"📦 {he(models_preview)}{warn_line}\n\n"
+            f"📦 {he(models_preview)}{warn_line}{gs_note}\n\n"
             f"Настройка сохранена — в следующий раз жми «⚡ Быстрая синхронизация».",
             InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📊 Кэш мотивации",
@@ -1679,13 +1683,17 @@ async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
                              f"для них НЕ записана.\n<code>{he(un_prev)}</code>\n"
                              f"Сверьте названия с товарами в боте или задайте псевдонимы.")
             warn_line += _mtv_chains_warning(result.get('unmatched_chains', []))
+            _gs_note2 = (
+                "\n\n💡 <i>GS-правила применяются при продаже автоматически. "
+                "Увидеть их: Мотивация → 🎯 Таргетированные правила.</i>"
+            ) if _rw > 0 else ""
             await msg.edit_text(
                 f"✅ <b>Мотивация обновлена!</b>\n\n"
                 f"📋 Лист: <code>{he(result['sheet'])}</code>\n"
                 f"🔢 Моделей в таблице: <b>{result['synced']}</b>\n"
                 f"🏷 Сети: {he(', '.join(result.get('chains', []))) or '—'}"
                 f"{rules_line}\n"
-                f"📦 {he(models_preview)}{warn_line}",
+                f"📦 {he(models_preview)}{warn_line}{_gs_note2}",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="📊 Кэш мотивации",
                                           callback_data=f"gs_show_motiv_{conn_id}")],
