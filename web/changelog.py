@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.214.0"
+CURRENT_VERSION = "1.215.0"
 
 ENTRIES = [
+    {
+        "version": "1.215.0",
+        "date": "26 июня 2026",
+        "items": [
+            "tasks delete cascade, team task comments/checklist, bot status guard",
+        ],
+    },
     {
         "version": "1.214.0",
         "date": "26 июня 2026",

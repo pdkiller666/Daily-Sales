@@ -387,8 +387,8 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Нет доступа")
             return
 
-        # Для не-admin: только допустимый следующий шаг по цепочке
-        if not admin and new_status != 'cancelled':
+        # Для не-admin: только допустимый следующий шаг по цепочке (cancelled — только admin)
+        if not admin:
             allowed_next = _STATUS_NEXT.get(task.get('status', ''))
             if new_status != allowed_next:
                 await callback.answer("Недопустимый переход статуса")
