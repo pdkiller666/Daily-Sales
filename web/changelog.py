@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.243.0"
+CURRENT_VERSION = "1.244.0"
 
 ENTRIES = [
+    {
+        "version": "1.244.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Saved progress at the end of the loop",
+            "add breadcrumb header to AI insights, notifications, motivation, support pages",
+        ],
+    },
     {
         "version": "1.243.0",
         "date": "26 июня 2026",
