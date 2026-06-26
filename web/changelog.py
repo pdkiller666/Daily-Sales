@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.237.0"
+CURRENT_VERSION = "1.238.0"
 
 ENTRIES = [
+    {
+        "version": "1.238.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Add scheduled synchronization and detailed statistics for motivation data",
+            "Fix rankings sort buttons unresponsive on mobile (Task #78)",
+            "Keep chat input bar visible when keyboard opens on older Android browsers",
+        ],
+    },
     {
         "version": "1.237.0",
         "date": "26 июня 2026",

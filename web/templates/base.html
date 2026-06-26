@@ -260,8 +260,8 @@
         html.dark .bnav-item.bn-active::before{background:linear-gradient(90deg,#60a5fa,#818cf8)}
 
         /* Card hover lift */
-        .card{transition:box-shadow .18s ease,transform .18s ease}
-        .card:hover{box-shadow:0 4px 20px rgba(0,0,0,.09);transform:translateY(-1px)}
+        .card{transition:box-shadow .18s ease}
+        .card:hover{box-shadow:0 4px 20px rgba(0,0,0,.09)}
         html.dark .card:hover{box-shadow:0 4px 20px rgba(0,0,0,.35)}
 
         /* Sidebar section labels */
@@ -2696,7 +2696,7 @@ function mainApp() {
     window.addEventListener('mousemove', pointerMove);
     window.addEventListener('mouseup', pointerUp);
     wrap.addEventListener('touchstart', pointerDown, { passive: false });
-    window.addEventListener('touchmove', pointerMove, { passive: false });
+    window.addEventListener('touchmove', pointerMove, { passive: true });
     window.addEventListener('touchend', pointerUp);
 
     /* ── unread badge: authoritative server unread ──

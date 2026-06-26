@@ -140,15 +140,18 @@
         <!-- Sort buttons -->
         <div class="flex items-center gap-1">
             <span class="text-xs text-slate-400 mr-0.5">Сорт:</span>
-            <button id="rnk-btn-revenue" onclick="rnkSort('revenue')"
+            <button id="rnk-btn-revenue" @click="rnkSort('revenue')"
+                    style="touch-action:manipulation"
                     class="px-2 py-1 rounded text-xs font-medium transition-colors border border-slate-200 text-slate-500 hover:border-blue-300">
                 Выручка<span id="rnk-arrow-revenue" class="ml-0.5"></span>
             </button>
-            <button id="rnk-btn-count" onclick="rnkSort('count')"
+            <button id="rnk-btn-count" @click="rnkSort('count')"
+                    style="touch-action:manipulation"
                     class="px-2 py-1 rounded text-xs font-medium transition-colors border border-slate-200 text-slate-500 hover:border-blue-300">
                 Продаж<span id="rnk-arrow-count" class="ml-0.5"></span>
             </button>
-            <button id="rnk-btn-qty" onclick="rnkSort('qty')"
+            <button id="rnk-btn-qty" @click="rnkSort('qty')"
+                    style="touch-action:manipulation"
                     class="px-2 py-1 rounded text-xs font-medium transition-colors border border-slate-200 text-slate-500 hover:border-blue-300">
                 Шт<span id="rnk-arrow-qty" class="ml-0.5"></span>
             </button>

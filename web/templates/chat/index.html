@@ -1875,11 +1875,15 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             }
             /* Клавиатура на мобильных: focus/blur поля ввода меняет видимый viewport.
                focusout: запускаем пересчёт дважды — 60 мс (Android/Chrome)
-               и 350 мс (iOS Safari восстанавливает viewport медленнее). */
-            document.addEventListener('focusin', this._fitHandler);
+               и 350 мс (iOS Safari восстанавливает viewport медленнее).
+               Polling-fallback (5 × 100 мс) — для старых Android WebView (<90),
+               где visualViewport не стреляет resize при открытии клавиатуры. */
+            const _kbPoll = (n) => { if (n <= 0) return; this._fitHeight(); setTimeout(() => _kbPoll(n - 1), 100); };
+            document.addEventListener('focusin', () => { this._fitHandler(); _kbPoll(5); });
             document.addEventListener('focusout', () => {
                 setTimeout(this._fitHandler, 60);
                 setTimeout(this._fitHandler, 350);
+                setTimeout(() => _kbPoll(5), 60);
             });
             this.scrollBottom(true);
             this.startPolling();
