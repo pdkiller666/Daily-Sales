@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.229.0"
+CURRENT_VERSION = "1.230.0"
 
 ENTRIES = [
+    {
+        "version": "1.230.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Add swipe navigation with visual hints for chat module transitions",
+        ],
+    },
     {
         "version": "1.229.0",
         "date": "26 июня 2026",
