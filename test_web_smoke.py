@@ -20,7 +20,10 @@ test_web_smoke.py — браузерные smoke-тесты ключевых д�
      отправка с инвайт-кодом создаёт аккаунт и ведёт в /dashboard.
  10. Форма сброса пароля (/auth/reset): страница открывается, поля и кнопка
      присутствуют, рендер не порождает JS-ошибок (pageerror).
- 11. POS-корзина: Alpine работает, товар добавляется, итог пересчитывается,
+ 11. Форма ввода нового пароля (/auth/reset/confirm?t=…): токен сеется в БД,
+     форма (password/password2/кнопка) видна, заполнение + отправка → редирект
+     на /login?msg=password_reset.
+ 12. POS-корзина: Alpine работает, товар добавляется, итог пересчитывается,
      кнопка «Оформить» активна и продажа записывается.
 
 Изоляция: тест работает в собственном временном каталоге (свежие SQLite-БД),
@@ -356,10 +359,13 @@ def check_pos_cart(page, base_url, product_id):
     page.goto(f"{base_url}/pos?shop={_SMOKE_SHOP}", wait_until="networkidle")
 
     # Alpine должен инициализироваться.
+    # NOTE: base.html has <body x-data="mainApp()"> so document.querySelector('[x-data]')
+    # returns the body, not the POS component. Use the specific posApp() selector.
+    _POS_ROOT = "document.querySelector('[x-data=\"posApp()\"]')"
     page.wait_for_function("typeof window.Alpine !== 'undefined'", timeout=10000)
     page.wait_for_function(
-        "document.querySelector('[x-data]') && "
-        "typeof Alpine.$data(document.querySelector('[x-data]')).cart !== 'undefined'",
+        f"{_POS_ROOT} && "
+        f"typeof Alpine.$data({_POS_ROOT}).cart !== 'undefined'",
         timeout=10000,
     )
 
@@ -378,18 +384,18 @@ def check_pos_cart(page, base_url, product_id):
 
     # Ждём загрузки товаров из API.
     page.wait_for_function(
-        "Alpine.$data(document.querySelector('[x-data]')).allProducts.length > 0",
+        f"Alpine.$data({_POS_ROOT}).allProducts.length > 0",
         timeout=12000,
     )
 
     # Добавляем первый доступный товар в корзину через Alpine.
     added = page.evaluate(
-        "(() => {"
-        "  const comp = Alpine.$data(document.querySelector('[x-data]'));"
-        "  if (!comp.allProducts.length) return false;"
-        "  comp.addToCart(comp.allProducts[0]);"
-        "  return true;"
-        "})()"
+        f"(() => {{"
+        f"  const comp = Alpine.$data({_POS_ROOT});"
+        f"  if (!comp.allProducts.length) return false;"
+        f"  comp.addToCart(comp.allProducts[0]);"
+        f"  return true;"
+        f"}})()"
     )
     assert added, "allProducts пуст — товары не загрузились через API"
 
@@ -398,12 +404,12 @@ def check_pos_cart(page, base_url, product_id):
 
     # cart.length == 1, cartTotal > 0.
     cart_len = page.evaluate(
-        "Alpine.$data(document.querySelector('[x-data]')).cart.length"
+        f"Alpine.$data({_POS_ROOT}).cart.length"
     )
     assert cart_len >= 1, f"После addToCart корзина пуста: cart.length={cart_len}"
 
     cart_total = page.evaluate(
-        "Alpine.$data(document.querySelector('[x-data]')).cartTotal"
+        f"Alpine.$data({_POS_ROOT}).cartTotal"
     )
     assert cart_total > 0, f"cartTotal не пересчитался: {cart_total}"
 
@@ -416,21 +422,21 @@ def check_pos_cart(page, base_url, product_id):
     # Отправляем корзину через Alpine checkout() и ждём результата.
     # Результат: либо successData появился, либо checkoutError (пишем в assert).
     page.evaluate(
-        "Alpine.$data(document.querySelector('[x-data]')).checkout()"
+        f"Alpine.$data({_POS_ROOT}).checkout()"
     )
     # Ждём либо successData (ok), либо checkoutError (fail) — максимум 8 сек.
     page.wait_for_function(
-        "(() => {"
-        "  const c = Alpine.$data(document.querySelector('[x-data]'));"
-        "  return !!c.successData || !!c.checkoutError;"
-        "})()",
+        f"(() => {{"
+        f"  const c = Alpine.$data({_POS_ROOT});"
+        f"  return !!c.successData || !!c.checkoutError;"
+        f"}})()",
         timeout=8000,
     )
     result_state = page.evaluate(
-        "(() => {"
-        "  const c = Alpine.$data(document.querySelector('[x-data]'));"
-        "  return { ok: !!c.successData, err: c.checkoutError || '' };"
-        "})()"
+        f"(() => {{"
+        f"  const c = Alpine.$data({_POS_ROOT});"
+        f"  return {{ ok: !!c.successData, err: c.checkoutError || '' }};"
+        f"}})()"
     )
     assert result_state["ok"], \
         f"POS checkout не прошёл: {result_state['err']!r}"
@@ -552,6 +558,74 @@ def check_password_reset_form(browser, base_url, console_errors):
         ctx.close()
 
 
+def check_password_reset_confirm(browser, base_url, console_errors):
+    """Форма подтверждения сброса пароля (/auth/reset/confirm?t=…): поля видны,
+    заполнение и отправка ведут на /login?msg=password_reset.
+
+    Проверяет:
+    - Токен сброса сеется напрямую в БД (без SMTP).
+    - GET /auth/reset/confirm?t=<токен> рендерит форму с полями password/password2
+      и кнопкой submit.
+    - Страница не генерирует pageerror (CSP-регрессия).
+    - POST с корректными паролями (≥8 символов, совпадают) редиректит на
+      /login?msg=password_reset.
+    """
+    import uuid as _uuid, time as _time, sqlite3 as _sl3
+
+    tok = str(_uuid.uuid4())
+    expire = int(_time.time()) + 3600
+
+    conn = _sl3.connect("data/shop_bot.db")
+    try:
+        conn.execute(
+            "UPDATE web_credentials SET reset_token=?, reset_expires=? WHERE email=?",
+            (tok, expire, _SMOKE_EMAIL),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    ctx = browser.new_context()
+    ctx.on("console", lambda m: console_errors.append(m.text)
+           if m.type == "error" else None)
+    page_errors: list[str] = []
+    page = ctx.new_page()
+    page.on("pageerror", lambda e: page_errors.append(f"pageerror: {e}"))
+    try:
+        url = f"{base_url}/auth/reset/confirm?t={tok}"
+        page.goto(url, wait_until="networkidle")
+
+        assert "/auth/reset/confirm" in page.url, \
+            f"/auth/reset/confirm не открылась, URL={page.url}"
+
+        form = page.locator("form[action='/auth/reset/confirm']")
+        assert form.count() >= 1, \
+            "Форма смены пароля не найдена на /auth/reset/confirm"
+
+        for field in ("password", "password2"):
+            assert page.locator(f"input[name='{field}']").count() >= 1, \
+                f"Поле {field!r} не найдено в форме смены пароля"
+
+        submit_btn = page.locator("button[type='submit']")
+        assert submit_btn.count() >= 1, \
+            "Кнопка submit не найдена в форме смены пароля"
+
+        assert not page_errors, \
+            f"JS-ошибки на /auth/reset/confirm при загрузке: {page_errors}"
+
+        new_password = "new-smoke-pass-5678"
+        page.locator("input[name='password']").fill(new_password)
+        page.locator("input[name='password2']").fill(new_password)
+        form.evaluate("f => f.submit()")
+
+        page.wait_for_url(f"{base_url}/login*", timeout=8000)
+        assert "msg=password_reset" in page.url, \
+            f"После сброса пароля ожидался /login?msg=password_reset, получен {page.url}"
+    finally:
+        page.close()
+        ctx.close()
+
+
 def _run_checks(page, base_url, product_id, browser, console_errors):
     """Запустить все проверки, вернуть список (name, ok, error)."""
     checks = [
@@ -566,6 +640,7 @@ def _run_checks(page, base_url, product_id, browser, console_errors):
         ("login — email/password flow", lambda: check_login_email_flow(browser, base_url, console_errors)),
         ("register — new account flow", lambda: check_register_flow(browser, base_url, console_errors)),
         ("password reset form", lambda: check_password_reset_form(browser, base_url, console_errors)),
+        ("password reset confirm form", lambda: check_password_reset_confirm(browser, base_url, console_errors)),
         ("POS cart — add item + checkout", lambda: check_pos_cart(page, base_url, product_id)),
         ("Cyrillic filename → RFC 5987 Content-Disposition",
          lambda: check_cyrillic_content_disposition(page, base_url, product_id)),
