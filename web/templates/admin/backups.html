@@ -93,6 +93,7 @@
         <thead>
             <tr class="border-b border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
                 <th class="text-left px-4 py-3 font-semibold">Файл</th>
+                <th class="text-center px-4 py-3 font-semibold hidden sm:table-cell">Шифрование</th>
                 <th class="text-right px-4 py-3 font-semibold hidden sm:table-cell">Размер</th>
                 <th class="text-right px-4 py-3 font-semibold hidden md:table-cell">Возраст</th>
                 <th class="text-right px-4 py-3 font-semibold">Создан</th>
@@ -104,6 +105,17 @@
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
                 <td class="px-4 py-3">
                     <p class="font-mono text-xs text-slate-700 dark:text-slate-300 break-all">{{ b.filename }}</p>
+                </td>
+                <td class="px-4 py-3 text-center hidden sm:table-cell">
+                    {% if b.encrypted %}
+                    <span title="Файл зашифрован — данные защищены" class="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                        🔒 <span class="hidden md:inline">Зашифрован</span>
+                    </span>
+                    {% else %}
+                    <span title="Файл не зашифрован — сырая SQLite БД. Скачивайте только по защищённому каналу." class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                        🔓 <span class="hidden md:inline">Открытый</span>
+                    </span>
+                    {% endif %}
                 </td>
                 <td class="px-4 py-3 text-right hidden sm:table-cell text-slate-500 text-xs">{{ b.size_mb }} МБ</td>
                 <td class="px-4 py-3 text-right hidden md:table-cell text-slate-400 text-xs">

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.252.0"
+CURRENT_VERSION = "1.253.0"
 
 ENTRIES = [
+    {
+        "version": "1.253.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Show encryption status on backup list + X-Backup-Encrypted header",
+        ],
+    },
     {
         "version": "1.252.0",
         "date": "26 июня 2026",
