@@ -1,6 +1,18 @@
-CURRENT_VERSION = "1.235.0"
+CURRENT_VERSION = "1.236.0"
 
 ENTRIES = [
+    {
+        "version": "1.236.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Improve swipe hint behavior in chat to prevent overlapping elements",
+            "Add screenshot for motivation sync feature explanation",
+            "Git commit prior to merge",
+            "Fix beta banner hidden and chat header clipping in chat page",
+            "Keep chat layout correct when beta banner is dismissed while chat is open",
+            "Fix chat layout misalignment when soft keyboard opens/closes on mobile",
+        ],
+    },
     {
         "version": "1.235.0",
         "date": "26 июня 2026",

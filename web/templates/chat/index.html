@@ -13,6 +13,11 @@
 main.ds-main { padding:0 !important; overflow:hidden; }
 footer { display:none !important; }
 
+/* Шапка становится статичной: body/html заблокированы от прокрутки,
+   поэтому sticky не нужен. Это позволяет бета-баннеру оставаться
+   видимым над шапкой, а _fitHeight() учтёт реальный top обёртки. */
+.ds-topbar { position: static !important; }
+
 #chat-wrapper {
     /* Высота вычисляется в _fitHeight(): видимый viewport − верх обёртки − нижнее меню.
        Фолбэк (пока JS не отработал): мобильный — минус шапка(3.5rem) и нижнее меню(4rem),
@@ -1853,16 +1858,29 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             /* Фиксируем высоту строго между шапкой и нижним меню */
             this._fitHeight();
             this.$nextTick(() => this._fitHeight());
-            this._fitHandler = () => this._fitHeight();
+            /* rAF-дебаунс: пачкуем частые resize-события в один кадр отрисовки,
+               чтобы промежуточные значения viewport не применялись к DOM. */
+            let _fitRaf = null;
+            this._fitHandler = () => {
+                if (_fitRaf) cancelAnimationFrame(_fitRaf);
+                _fitRaf = requestAnimationFrame(() => { _fitRaf = null; this._fitHeight(); });
+            };
             window.addEventListener('resize', this._fitHandler);
-            window.addEventListener('orientationchange', this._fitHandler);
+            /* orientationchange: браузер завершает поворот асинхронно —
+               запускаем пересчёт с задержкой 300 мс, чтобы размеры устоялись. */
+            window.addEventListener('orientationchange', () => setTimeout(this._fitHandler, 300));
             if (window.visualViewport) {
                 window.visualViewport.addEventListener('resize', this._fitHandler);
                 window.visualViewport.addEventListener('scroll', this._fitHandler);
             }
-            /* Клавиатура на мобильных: focus/blur поля ввода меняет видимый viewport */
+            /* Клавиатура на мобильных: focus/blur поля ввода меняет видимый viewport.
+               focusout: запускаем пересчёт дважды — 60 мс (Android/Chrome)
+               и 350 мс (iOS Safari восстанавливает viewport медленнее). */
             document.addEventListener('focusin', this._fitHandler);
-            document.addEventListener('focusout', () => setTimeout(this._fitHandler, 60));
+            document.addEventListener('focusout', () => {
+                setTimeout(this._fitHandler, 60);
+                setTimeout(this._fitHandler, 350);
+            });
             this.scrollBottom(true);
             this.startPolling();
             /* Список участников — для @-упоминаний (автокомплит в группах и ЛС) */
@@ -1927,6 +1945,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             });
             /* Auto-switch to DM mode from URL */
             this.dmAutoModeFromUrl();
+            /* Перерасчёт высоты при скрытии beta-баннера */
+            window.addEventListener('ds-beta-dismissed', () => this._fitHeight());
         },
 
         /* Высота обёртки = видимый viewport − верх обёртки (шапка+баннер) − нижнее меню (на мобильных).

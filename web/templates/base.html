@@ -620,6 +620,7 @@ function toastMgr() {
         if(btn) btn.addEventListener('click', function(){
             if(bar) bar.style.display = 'none';
             sessionStorage.setItem('ds_beta_dismissed', '1');
+            window.dispatchEvent(new CustomEvent('ds-beta-dismissed'));
         });
     })();
     </script>

@@ -19,4 +19,14 @@ The chat group↔DM swipe shows a hint pill (`💬 Личные сообщени
 
 **How to apply:** any future in-place (non-navigating) swipe/drag affordance — hide on the state mutation that the gesture triggers, use display toggling, and target a stable id.
 
+## Overlapping pills (DM→group): suppress the navbar swipe inside the chat
+
+Symptom: during a chat swipe, TWO pills stack at `left:16px` — the chat's own (`💬 Групповой чат ←`) and the navbar's (`Отчёты ←`).
+
+Cause: the navbar swipe handler (base.html, on `document`) and the chat swipe handler (on `#chat-wrapper`) both run on the same `touchmove`. The chat handler only called `stopImmediatePropagation()` on `touchend`, never on touchstart/touchmove, so the navbar handler also drew its own pill during the drag.
+
+Fix: the chat wrapper handlers `e.stopPropagation()` on **touchstart AND touchmove** so the gesture never bubbles to the navbar handler on `document`. touchstart-stop keeps the navbar from setting its `_ts`; touchmove-stop keeps the navbar from drawing its pill on a stale `_ts`. The chat fully owns horizontal swipes inside `#chat-wrapper` (group→DM, DM→group, group→back), so the navbar swipe is correctly inert there. The bottom-nav swipe-up (open More) is unaffected — its target is the nav bar, outside the wrapper.
+
+**Rule:** when two swipe handlers live on nested elements (child + document), the child must stopPropagation on the WHOLE gesture (touchstart+touchmove+touchend), not just touchend — otherwise the ancestor's touchmove still fires and renders competing UI mid-drag.
+
 Note: SW (`web/static/sw.js`) is network-first for navigations and never caches page HTML, so chat inline-JS changes are NOT subject to SW cache — deploy lag on Amvera is the only staleness source.
