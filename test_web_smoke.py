@@ -34,6 +34,8 @@ test_web_smoke.py — браузерные smoke-тесты ключевых д�
      application/vnd.openxmlformats или octet-stream, тело начинается с PK (ZIP).
  15. Страница рейтингов (/rankings): открывается (HTTP 200), нет pageerror/CSP-блоков,
      блок рейтинга (.card) и вкладки Продавцы/Магазины присутствуют в DOM.
+ 16. Экспорт продаж (/sales/export.xlsx): плоский список транзакций — HTTP 200,
+     Content-Type xlsx/octet-stream, тело начинается с PK (ZIP/XLSX сигнатура).
 
 Изоляция: тест работает в собственном временном каталоге (свежие SQLite-БД),
 ничего не пишет в рабочие data/. Аутентификация — через выписанный сессионный
@@ -881,6 +883,31 @@ def check_rankings_page(page, base_url):
         "Вкладка «Магазины» (tab=shops) не найдена на /rankings"
 
 
+def check_sales_export(page, base_url):
+    """GET /sales/export.xlsx → плоский Excel-список транзакций.
+
+    Проверяет:
+    - Эндпоинт /sales/export.xlsx доступен для суперадмина (HTTP 200).
+    - Content-Type — application/vnd.openxmlformats-officedocument или
+      application/octet-stream (Excel via openpyxl).
+    - Тело ответа непустое (файл реально сгенерирован).
+    - Первые 2 байта — PK (ZIP/XLSX сигнатура OOXML).
+    """
+    resp = page.request.get(f"{base_url}/sales/export.xlsx")
+    assert resp.status == 200, \
+        f"GET /sales/export.xlsx вернул {resp.status} (ожидался 200)"
+    ctype = resp.headers.get("content-type", "")
+    assert (
+        "application/vnd.openxmlformats" in ctype
+        or "application/octet-stream" in ctype
+    ), f"Content-Type не Excel: {ctype!r}"
+    body = resp.body()
+    assert len(body) > 0, \
+        "Тело /sales/export.xlsx пустое — файл не сгенерирован"
+    assert body[:2] == b"PK", \
+        f"Тело не начинается с PK (ZIP/XLSX сигнатура), первые байты: {body[:4]!r}"
+
+
 def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret):
     """Запустить все проверки, вернуть список (name, ok, error)."""
     checks = [
@@ -906,6 +933,8 @@ def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret
          lambda: check_excel_export(page, base_url)),
         ("rankings page — /rankings opens, tabs present, no JS errors",
          lambda: check_rankings_page(page, base_url)),
+        ("Sales export — /sales/export.xlsx → valid .xlsx body",
+         lambda: check_sales_export(page, base_url)),
     ]
     results = []
     for name, fn in checks:

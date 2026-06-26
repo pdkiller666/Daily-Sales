@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.257.0"
+CURRENT_VERSION = "1.258.0"
 
 ENTRIES = [
+    {
+        "version": "1.258.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Add browser smoke test for /sales/export.xlsx (task #27)",
+        ],
+    },
     {
         "version": "1.257.0",
         "date": "26 июня 2026",
