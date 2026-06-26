@@ -597,7 +597,7 @@
                                     class="text-xs text-blue-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-1.5 py-1 rounded transition-colors"
                                     title="Редактировать">✏️</button>
                             <form method="post" action="/sales/{{ s[0] }}/delete"
-                                  onsubmit="return confirm('Удалить продажу? Остатки будут восстановлены.')">
+                                  data-confirm="Удалить продажу? Остатки будут восстановлены.">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <button type="submit"
                                         class="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 px-1.5 py-1 rounded transition-colors"

@@ -41,7 +41,7 @@
     <form method="POST" action="/plans/{{ plan.id }}/toggle">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit"
-                onclick="dsOnce(this)"
+                data-once
                 class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors
                        {% if plan.is_active %}border-amber-300 text-amber-700 hover:bg-amber-50{% else %}border-emerald-300 text-emerald-700 hover:bg-emerald-50{% endif %}">
             {% if plan.is_active %}
@@ -62,7 +62,7 @@
     <form method="POST" action="/plans/{{ plan.id }}/delete" id="deleteForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="button"
-                onclick="confirmDelete()"
+                data-action="confirmDelete"
                 class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl border-2 border-red-200 text-red-600 hover:bg-red-50 transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -171,7 +171,7 @@
     </div>
     <button type="button"
             id="ai-btn-{{ plan.id }}"
-            onclick="aiAnalyzePlan({{ plan.id }}, this)"
+            data-action="aiAnalyzePlan" data-arg="{{ plan.id }}"
             class="inline-flex items-center gap-1.5 self-start px-4 py-2 text-sm font-medium
                    bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200
                    rounded-xl transition-colors">
@@ -180,7 +180,7 @@
     {% else %}
     <button type="button"
             id="ai-btn-{{ plan.id }}"
-            onclick="aiAnalyzePlan({{ plan.id }}, this)"
+            data-action="aiAnalyzePlan" data-arg="{{ plan.id }}"
             class="inline-flex items-center gap-1.5 self-start px-4 py-2 text-sm font-medium
                    bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200
                    rounded-xl transition-colors">
@@ -206,7 +206,7 @@
     <div class="divide-y divide-slate-50">
         {% for s in sellers %}
         <div class="px-5 py-3.5 flex items-center gap-4 hover:bg-slate-50/60 transition-colors cursor-pointer"
-             onclick="window.location='/staff/{{ s.user_db_id }}'">
+             data-href="/staff/{{ s.user_db_id }}">
             <div class="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
                 <span class="text-xs font-bold text-indigo-600">{{ loop.index }}</span>
             </div>

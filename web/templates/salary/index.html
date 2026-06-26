@@ -94,28 +94,28 @@
             <thead>
                 <tr class="bg-slate-50 border-b border-slate-100">
                     <th class="text-left px-5 py-3 text-xs font-semibold uppercase">
-                        <button onclick="salarySort('name')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="name">Сотрудник <span class="sal-arrow" data-col="name"></span></button>
+                        <button data-action="salarySort" data-arg="name" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="name">Сотрудник <span class="sal-arrow" data-col="name"></span></button>
                     </th>
                     <th class="text-left px-3 py-3 text-xs font-semibold uppercase hidden sm:table-cell">
-                        <button onclick="salarySort('rate')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="rate">Ставка/день <span class="sal-arrow" data-col="rate"></span></button>
+                        <button data-action="salarySort" data-arg="rate" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="rate">Ставка/день <span class="sal-arrow" data-col="rate"></span></button>
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold uppercase">
-                        <button onclick="salarySort('shifts')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="shifts">Смен <span class="sal-arrow" data-col="shifts"></span></button>
+                        <button data-action="salarySort" data-arg="shifts" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="shifts">Смен <span class="sal-arrow" data-col="shifts"></span></button>
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold uppercase hidden md:table-cell">
-                        <button onclick="salarySort('base')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="base">Оклад <span class="sal-arrow" data-col="base"></span></button>
+                        <button data-action="salarySort" data-arg="base" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="base">Оклад <span class="sal-arrow" data-col="base"></span></button>
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold uppercase hidden md:table-cell">
-                        <button onclick="salarySort('motiv')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="motiv">Мотивация <span class="sal-arrow" data-col="motiv"></span></button>
+                        <button data-action="salarySort" data-arg="motiv" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="motiv">Мотивация <span class="sal-arrow" data-col="motiv"></span></button>
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold uppercase hidden md:table-cell">
-                        <button onclick="salarySort('adj')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="adj">Корр. <span class="sal-arrow" data-col="adj"></span></button>
+                        <button data-action="salarySort" data-arg="adj" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="adj">Корр. <span class="sal-arrow" data-col="adj"></span></button>
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold uppercase hidden lg:table-cell">
-                        <button onclick="salarySort('contests')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="contests">Конкурсы <span class="sal-arrow" data-col="contests"></span></button>
+                        <button data-action="salarySort" data-arg="contests" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="contests">Конкурсы <span class="sal-arrow" data-col="contests"></span></button>
                     </th>
                     <th class="text-right px-5 py-3 text-xs font-semibold uppercase">
-                        <button onclick="salarySort('total')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="total">Итого <span class="sal-arrow" data-col="total"></span></button>
+                        <button data-action="salarySort" data-arg="total" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="total">Итого <span class="sal-arrow" data-col="total"></span></button>
                     </th>
                 </tr>
             </thead>
@@ -131,7 +131,7 @@
                     data-sv-adj="{{ s.adj_sum|int }}"
                     data-sv-contests="{{ s.contest_rewards|int }}"
                     data-sv-total="{{ s.total|int }}"
-                    onclick="window.location='/salary?year={{ year }}&month={{ month }}&user_id={{ s.user_id }}'">
+                    data-href="/salary?year={{ year }}&month={{ month }}&user_id={{ s.user_id }}">
                     <td class="px-5 py-3">
                         <p class="font-medium text-slate-800">
                             {{ s.first_name }} {{ s.last_name }}
@@ -144,7 +144,7 @@
                             {% endif %}
                         </p>
                     </td>
-                    <td class="px-3 py-3 hidden sm:table-cell" onclick="event.stopPropagation()">
+                    <td class="px-3 py-3 hidden sm:table-cell" data-stop>
                         {% if is_admin %}
                         <div x-data="rateEdit({{ s.user_id }}, {{ s.daily_rate|int }})" x-cloak>
                             <div x-show="!editing" @click="startEdit()" class="flex items-center gap-1 cursor-pointer group">
@@ -526,7 +526,7 @@
                     </span>
                     {% if is_admin %}
                     <form method="post" action="/salary/adjustment/{{ adj[0] }}/delete"
-                          onsubmit="return confirm('Удалить корректировку?')">
+                          data-confirm="Удалить корректировку?">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="year" value="{{ year }}">
                         <input type="hidden" name="month" value="{{ month }}">

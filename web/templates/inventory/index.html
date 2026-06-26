@@ -11,13 +11,13 @@
 <!-- History modal -->
 <div id="inv-history-modal"
      class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm"
-     onclick="if(event.target===this)closeInvHistory()">
+     data-backdrop-action="closeInvHistory">
     <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden flex flex-col max-h-[85vh]">
         <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700">
             <h3 class="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
                 📋 <span id="inv-hist-title">История изменений</span>
             </h3>
-            <button onclick="closeInvHistory()"
+            <button data-action="closeInvHistory"
                     class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-600 transition-colors text-lg">✕</button>
         </div>
         <div id="inv-hist-body" class="p-4 overflow-y-auto flex-1">
@@ -33,13 +33,13 @@
 {% if can_edit %}
 <div id="inv-edit-modal"
      class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm"
-     onclick="if(event.target===this)closeInvEdit()">
+     data-backdrop-action="closeInvEdit">
     <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
         <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700">
             <h3 class="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
                 ✏️ <span id="inv-edit-title">Изменить остаток</span>
             </h3>
-            <button onclick="closeInvEdit()"
+            <button data-action="closeInvEdit"
                     class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-lg">✕</button>
         </div>
         <div class="p-5">
@@ -48,15 +48,15 @@
             </div>
             <!-- Mode tabs -->
             <div class="flex gap-1 mb-4 bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
-                <button id="inv-mode-add" onclick="setInvMode('add')"
+                <button id="inv-mode-add" data-action="setInvMode" data-arg="add"
                         class="flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors bg-white dark:bg-slate-600 text-emerald-600 dark:text-emerald-400 shadow-sm">
                     + Приход
                 </button>
-                <button id="inv-mode-subtract" onclick="setInvMode('subtract')"
+                <button id="inv-mode-subtract" data-action="setInvMode" data-arg="subtract"
                         class="flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors text-slate-500 dark:text-slate-400 hover:bg-white/60 dark:hover:bg-slate-600/60">
                     − Списание
                 </button>
-                <button id="inv-mode-set" onclick="setInvMode('set')"
+                <button id="inv-mode-set" data-action="setInvMode" data-arg="set"
                         class="flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors text-slate-500 dark:text-slate-400 hover:bg-white/60 dark:hover:bg-slate-600/60">
                     = Итог
                 </button>
@@ -79,11 +79,11 @@
             <div id="inv-edit-error" class="hidden mb-3 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2"></div>
             <!-- Actions -->
             <div class="flex gap-2">
-                <button id="inv-edit-submit" onclick="submitInvEdit()"
+                <button id="inv-edit-submit" data-action="submitInvEdit"
                         class="flex-1 bg-slate-800 dark:bg-blue-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-700 dark:hover:bg-blue-500 transition-colors">
                     Применить
                 </button>
-                <button onclick="closeInvEdit()"
+                <button data-action="closeInvEdit"
                         class="py-2.5 px-4 border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 rounded-xl text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                     Отмена
                 </button>
@@ -141,7 +141,7 @@
         <button type="submit" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">Найти</button>
         {% if q or selected_category %}
         <a href="/inventory?shop={{ selected_shop|urlencode }}"
-           onclick="try{localStorage.setItem('inv_q_{{ user.sub }}','');}catch(e){}"
+           data-action="dsSetLs" data-arg="inv_q_{{ user.sub }}" data-arg2=""
            class="text-sm text-slate-400 hover:text-slate-600">× Сбросить</a>
         {% endif %}
     </form>
@@ -149,7 +149,7 @@
     {% if categories %}
     <div class="flex flex-wrap gap-2">
         <a href="/inventory?shop={{ selected_shop|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}"
-           onclick="try{localStorage.setItem('inv_category_{{ user.sub }}','');}catch(e){}"
+           data-action="dsSetLs" data-arg="inv_category_{{ user.sub }}" data-arg2=""
            class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
                   {{ 'bg-indigo-600 text-white border-indigo-600' if not selected_category else 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-indigo-300' }}">
             Все категории
@@ -170,19 +170,19 @@
 {% set _inv_base = "/inventory?shop=" ~ (selected_shop|urlencode) ~ ("&q=" ~ (q|urlencode) if q else "") ~ ("&category=" ~ (selected_category|urlencode) if selected_category else "") %}
 <div class="grid grid-cols-3 gap-4 mb-5">
     <a href="{{ _inv_base }}"
-       onclick="try{localStorage.setItem('inv_status_{{ user.sub }}','');}catch(e){}"
+       data-action="dsSetLs" data-arg="inv_status_{{ user.sub }}" data-arg2=""
        class="card p-4 transition-all hover:-translate-y-0.5 {{ 'ring-2 ring-blue-300 dark:ring-blue-700' if not selected_status else 'hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800' }}">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Позиций</p>
         <p class="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100">{{ total_items }}</p>
     </a>
     <a href="{{ _inv_base }}&status=out"
-       onclick="try{localStorage.setItem('inv_status_{{ user.sub }}','out');}catch(e){}"
+       data-action="dsSetLs" data-arg="inv_status_{{ user.sub }}" data-arg2="out"
        class="card p-4 transition-all hover:-translate-y-0.5 {{ 'ring-2 ring-red-300 dark:ring-red-700' if selected_status == 'out' else 'hover:ring-2 hover:ring-red-200 dark:hover:ring-red-800' }}">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Нет в наличии</p>
         <p class="text-xl sm:text-2xl font-bold {{ 'text-red-500' if out_of_stock > 0 else 'text-slate-800 dark:text-slate-100' }}">{{ out_of_stock }}</p>
     </a>
     <a href="{{ _inv_base }}&status=low"
-       onclick="try{localStorage.setItem('inv_status_{{ user.sub }}','low');}catch(e){}"
+       data-action="dsSetLs" data-arg="inv_status_{{ user.sub }}" data-arg2="low"
        class="card p-4 transition-all hover:-translate-y-0.5 {{ 'ring-2 ring-orange-300 dark:ring-orange-700' if selected_status == 'low' else 'hover:ring-2 hover:ring-orange-200 dark:hover:ring-orange-800' }}">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Мало (≤5 шт.)</p>
         <p class="text-xl sm:text-2xl font-bold {{ 'text-orange-500' if low_stock > 0 else 'text-slate-800 dark:text-slate-100' }}">{{ low_stock }}</p>
@@ -192,7 +192,7 @@
 <div class="-mt-2 mb-4 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
     <span>Фильтр: <span class="font-semibold">{{ 'нет в наличии' if selected_status == 'out' else 'мало (≤5 шт.)' }}</span></span>
     <a href="{{ _inv_base }}"
-       onclick="try{localStorage.setItem('inv_status_{{ user.sub }}','');}catch(e){}"
+       data-action="dsSetLs" data-arg="inv_status_{{ user.sub }}" data-arg2=""
        class="text-blue-600 dark:text-blue-300 hover:underline">✕ Сбросить</a>
 </div>
 {% endif %}
@@ -222,21 +222,21 @@
             <thead>
                 <tr class="bg-slate-50 dark:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700">
                     <th class="text-left px-5 py-3 text-xs font-semibold uppercase">
-                        <button onclick="invSort('name')" class="inv-th text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" data-col="name">Товар <span class="inv-arrow" data-col="name"></span></button>
+                        <button data-action="invSort" data-arg="name" class="inv-th text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" data-col="name">Товар <span class="inv-arrow" data-col="name"></span></button>
                     </th>
                     {% if not selected_shop %}
                     <th class="text-left px-3 py-3 text-xs font-semibold uppercase hidden sm:table-cell">
-                        <button onclick="invSort('shop')" class="inv-th text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" data-col="shop">Магазин <span class="inv-arrow" data-col="shop"></span></button>
+                        <button data-action="invSort" data-arg="shop" class="inv-th text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" data-col="shop">Магазин <span class="inv-arrow" data-col="shop"></span></button>
                     </th>
                     {% endif %}
                     <th class="text-left px-3 py-3 text-xs font-semibold uppercase hidden sm:table-cell">
-                        <button onclick="invSort('cat')" class="inv-th text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" data-col="cat">Категория <span class="inv-arrow" data-col="cat"></span></button>
+                        <button data-action="invSort" data-arg="cat" class="inv-th text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" data-col="cat">Категория <span class="inv-arrow" data-col="cat"></span></button>
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold uppercase">
-                        <button onclick="invSort('qty')" class="inv-th text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" data-col="qty">Остаток <span class="inv-arrow" data-col="qty"></span></button>
+                        <button data-action="invSort" data-arg="qty" class="inv-th text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" data-col="qty">Остаток <span class="inv-arrow" data-col="qty"></span></button>
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold uppercase hidden md:table-cell">
-                        <button onclick="invSort('price')" class="inv-th text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" data-col="price">Цена <span class="inv-arrow" data-col="price"></span></button>
+                        <button data-action="invSort" data-arg="price" class="inv-th text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" data-col="price">Цена <span class="inv-arrow" data-col="price"></span></button>
                     </th>
                     <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Статус</th>
                     {% if can_edit %}
@@ -257,29 +257,29 @@
                     data-sv-cat="{{ r[7] or '' }}"
                     data-sv-qty="{{ qty }}"
                     data-sv-price="{{ r[8]|int }}">
-                    <td class="px-5 py-3 cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
+                    <td class="px-5 py-3 cursor-pointer" data-href="/products/{{ r[1] }}">
                         <p class="font-medium text-slate-800 dark:text-slate-100 max-w-[200px] truncate hover:text-blue-600 transition-colors" title="{{ r[6] }}">{{ r[6] }}</p>
                     </td>
                     {% if not selected_shop %}
-                    <td class="px-3 py-3 hidden sm:table-cell cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
+                    <td class="px-3 py-3 hidden sm:table-cell cursor-pointer" data-href="/products/{{ r[1] }}">
                         <span class="text-xs bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full">{{ r[2] }}</span>
                     </td>
                     {% endif %}
-                    <td class="px-3 py-3 hidden sm:table-cell cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
+                    <td class="px-3 py-3 hidden sm:table-cell cursor-pointer" data-href="/products/{{ r[1] }}">
                         {% if r[7] %}
                         <span class="text-xs bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500 px-2 py-0.5 rounded-full">{{ r[7] }}</span>
                         {% else %}
                         <span class="text-slate-300">—</span>
                         {% endif %}
                     </td>
-                    <td class="px-3 py-3 text-right cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
+                    <td class="px-3 py-3 text-right cursor-pointer" data-href="/products/{{ r[1] }}">
                         <span id="qty-{{ r[1] }}" class="text-lg font-bold {{ 'text-red-500' if qty <= 0 else 'text-orange-500' if qty <= 5 else 'text-slate-800 dark:text-slate-100' }}">
                             {{ qty }}
                         </span>
                         <span class="text-xs text-slate-400">&thinsp;шт.</span>
                     </td>
-                    <td class="px-3 py-3 text-right text-slate-500 hidden md:table-cell cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">{{ r[8]|int|fmt_currency }}</td>
-                    <td class="px-5 py-3 text-right cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
+                    <td class="px-3 py-3 text-right text-slate-500 hidden md:table-cell cursor-pointer" data-href="/products/{{ r[1] }}">{{ r[8]|int|fmt_currency }}</td>
+                    <td class="px-5 py-3 text-right cursor-pointer" data-href="/products/{{ r[1] }}">
                         {% if qty <= 0 %}
                         <span class="inline-flex items-center gap-1 text-xs bg-red-50 text-red-600 border border-red-100 px-2.5 py-1 rounded-full font-medium">
                             ❌ Нет
@@ -295,12 +295,12 @@
                         {% endif %}
                     </td>
                     {% if can_edit %}
-                    <td class="px-3 py-3 text-center" onclick="event.stopPropagation()">
+                    <td class="px-3 py-3 text-center" data-stop>
                         <div class="flex items-center gap-1 justify-center">
-                            <button onclick="openInvEdit('{{ r[2]|e }}', {{ r[1] }}, '{{ r[6]|e }}', {{ qty }}, '{{ csrf_token }}')"
+                            <button data-action="openInvEdit" data-shop="{{ r[2]|e }}" data-pid="{{ r[1] }}" data-name="{{ r[6]|e }}" data-qty="{{ qty }}" data-csrf="{{ csrf_token }}"
                                     class="w-7 h-7 inline-flex items-center justify-center rounded border border-slate-200 dark:border-slate-600 text-slate-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-200 hover:text-blue-600 transition-colors text-sm"
                                     title="Изменить остаток">✏️</button>
-                            <button onclick="openInvHistory('{{ r[2]|e }}', {{ r[1] }}, '{{ r[6]|e }}')"
+                            <button data-action="openInvHistory" data-shop="{{ r[2]|e }}" data-pid="{{ r[1] }}" data-name="{{ r[6]|e }}"
                                     class="w-7 h-7 inline-flex items-center justify-center rounded border border-slate-200 dark:border-slate-600 text-slate-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:border-indigo-200 hover:text-indigo-600 transition-colors text-sm"
                                     title="История изменений">📋</button>
                         </div>
@@ -315,11 +315,11 @@
     <div id="inv-pager" class="px-5 py-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-sm text-slate-500 hidden">
         <span id="inv-pager-info"></span>
         <div class="flex items-center gap-1">
-            <button id="inv-pager-prev" onclick="invPaginate(-1)"
+            <button id="inv-pager-prev" data-action="invPaginate" data-arg="-1"
                     class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
                 ← Пред.
             </button>
-            <button id="inv-pager-next" onclick="invPaginate(1)"
+            <button id="inv-pager-next" data-action="invPaginate" data-arg="1"
                     class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
                 След. →
             </button>
@@ -348,7 +348,8 @@
 </div>
 
 <script nonce="{{ csp_nonce(request) }}">
-function openInvHistory(shop, pid, productName) {
+function openInvHistory(el) {
+    const shop = el.dataset.shop, pid = el.dataset.pid, productName = el.dataset.name;
     const modal = document.getElementById('inv-history-modal');
     const title = document.getElementById('inv-hist-title');
     const body = document.getElementById('inv-hist-body');
@@ -393,7 +394,9 @@ function showInvToast(msg, type) {
     }, 4000);
 }
 
-function openInvEdit(shop, pid, name, currentQty, csrf) {
+function openInvEdit(el) {
+    const shop = el.dataset.shop, pid = Number(el.dataset.pid), name = el.dataset.name,
+          currentQty = Number(el.dataset.qty), csrf = el.dataset.csrf;
     _invEditState = {shop: shop, pid: pid, name: name, current: currentQty, mode: 'add', csrf: csrf};
     document.getElementById('inv-edit-title').textContent = name || 'Изменить остаток';
     document.getElementById('inv-edit-current').textContent = currentQty;

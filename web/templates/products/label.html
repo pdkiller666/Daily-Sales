@@ -290,7 +290,7 @@
 
   {# Action bar #}
   <div class="action-bar">
-    <button onclick="window.print()" class="btn-primary">🖨 Печать</button>
+    <button data-print class="btn-primary">🖨 Печать</button>
     <button @click="downloadPdf()" class="btn-secondary">📄 PDF</button>
     <button @click="copyLink()" class="btn-secondary">🔗 Ссылка</button>
     {% if is_owner %}

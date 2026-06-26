@@ -986,7 +986,7 @@
                 <span class="text-xs px-2 py-0.5 rounded-full font-bold {{ h.status_css }}">{{ h.status_label }}</span>
                 {% if h.status == 'pending' %}
                 <form method="post" action="/subscription/withdraw-request"
-                      onsubmit="return confirm('Отозвать заявку?');">
+                      data-confirm="Отозвать заявку?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="request_id" value="{{ h.id }}">
                     <button type="submit"

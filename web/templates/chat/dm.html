@@ -250,7 +250,7 @@ html.dark .dm-row.ai .dm-bubble {
           <div class="dm-meta">{{ m.created_at }}</div>
         </div>
         {% if m.can_delete %}
-        <button class="dm-del-btn text-slate-400 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 self-center flex-shrink-0 text-xs p-1 rounded transition-colors leading-none" onclick="dmDeleteMsg({{ m.id }}, this)" title="Удалить">✕</button>
+        <button class="dm-del-btn text-slate-400 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 self-center flex-shrink-0 text-xs p-1 rounded transition-colors leading-none" data-action="dmDeleteMsg" data-arg="{{ m.id }}" title="Удалить">✕</button>
         {% endif %}
       </div>
       {% endfor %}
@@ -262,7 +262,7 @@ html.dark .dm-row.ai .dm-bubble {
     <div id="dm-input-wrap">
       <div id="dm-attach-preview" class="hidden items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
         <span id="dm-attach-name" class="truncate max-w-[200px]"></span>
-        <button onclick="dmClearFile()" class="text-red-500 font-bold">✕</button>
+        <button data-action="dmClearFile" class="text-red-500 font-bold">✕</button>
       </div>
       <div class="flex items-end gap-2">
         <label class="flex-shrink-0 cursor-pointer text-slate-400 hover:text-blue-500 transition-colors" title="Прикрепить файл">
@@ -298,7 +298,7 @@ html.dark .dm-row.ai .dm-bubble {
   <div class="dm-modal-box">
     <div class="flex items-center justify-between mb-3">
       <h2 class="font-semibold text-slate-800 dark:text-slate-100">Новое сообщение</h2>
-      <button onclick="document.getElementById('dm-new-modal').classList.add('hidden')" class="text-slate-400 hover:text-slate-700 text-xl leading-none">✕</button>
+      <button data-modal-close="dm-new-modal" class="text-slate-400 hover:text-slate-700 text-xl leading-none">✕</button>
     </div>
     <input id="dm-member-search" type="search" placeholder="Поиск сотрудника…" autocomplete="off"
            class="w-full text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-slate-200 px-3 py-2 outline-none focus:border-blue-400 mb-2">
@@ -306,7 +306,7 @@ html.dark .dm-row.ai .dm-bubble {
       {% set all_people = contacts + members %}
       {% for p in all_people %}
       <div class="contact-item" data-id="{{ p.id }}" data-name="{{ p.display_name|e }}"
-           onclick="dmOpenConversation({{ p.id }}, '{{ p.display_name|replace("'","\\'")|e }}')">
+           data-action="dmOpenConversation" data-arg="{{ p.id }}" data-arg2="{{ p.display_name|e }}">
         <div class="contact-avatar">{{ p.initial }}</div>
         <div class="flex-1 min-w-0">
           <div class="font-medium text-sm text-slate-800 dark:text-slate-100 truncate">{{ p.display_name }}</div>
@@ -448,7 +448,7 @@ function appendMessage(m) {
     if (m.message) bodyHtml += `<span>${escHtml(m.message)}</span>`;
 
     const delBtnHtml = m.can_delete
-        ? `<button class="dm-del-btn text-slate-400 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 self-center flex-shrink-0 text-xs p-1 rounded transition-colors leading-none" onclick="dmDeleteMsg(${m.id}, this)" title="Удалить">✕</button>`
+        ? `<button class="dm-del-btn text-slate-400 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 self-center flex-shrink-0 text-xs p-1 rounded transition-colors leading-none" data-action="dmDeleteMsg" data-arg="${m.id}" title="Удалить">✕</button>`
         : '';
 
     row.innerHTML = `
@@ -609,7 +609,7 @@ async function dmLoadMore() {
                 let bodyHtml = m.has_file && m.is_image ? `<a href="${m.file_url}" target="_blank"><img src="${m.file_url}" class="dm-img-preview"></a>`
                              : m.has_file ? `<a href="${m.file_url}" target="_blank" class="dm-file-chip">📎 ${escHtml(m.file_name)}</a>` : '';
                 if (m.message) bodyHtml += `<span>${escHtml(m.message)}</span>`;
-                const delBtn = m.can_delete ? `<button class="dm-del-btn text-slate-400 hover:text-red-500 dark:text-slate-600 self-center flex-shrink-0 text-xs p-1 rounded transition-colors leading-none" onclick="dmDeleteMsg(${m.id},this)" title="Удалить">✕</button>` : '';
+                const delBtn = m.can_delete ? `<button class="dm-del-btn text-slate-400 hover:text-red-500 dark:text-slate-600 self-center flex-shrink-0 text-xs p-1 rounded transition-colors leading-none" data-action="dmDeleteMsg" data-arg="${m.id}" title="Удалить">✕</button>` : '';
                 row.innerHTML = `${avatarHtml}<div><div class="dm-bubble">${bodyHtml}</div><div class="dm-meta">${escHtml(m.created_at)}</div></div>${delBtn}`;
                 scroll.insertBefore(row, scroll.querySelector('.dm-row'));
             });

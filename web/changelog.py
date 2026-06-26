@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.246.0"
+CURRENT_VERSION = "1.247.0"
 
 ENTRIES = [
+    {
+        "version": "1.247.0",
+        "date": "26 июня 2026",
+        "items": [
+            "Update documentation and version for file handling improvements",
+            "Re-enable strict nonce-based CSP (remove 'unsafe-inline' from script-src)",
+        ],
+    },
     {
         "version": "1.246.0",
         "date": "26 июня 2026",

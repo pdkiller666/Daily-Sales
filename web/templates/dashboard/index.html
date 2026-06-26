@@ -34,7 +34,7 @@
         <h1 class="text-2xl font-bold text-slate-800">Дашборд</h1>
         <p class="text-sm text-slate-500 mt-0.5">📅 {{ today_label }}</p>
     </div>
-    <button onclick="location.reload()"
+    <button data-reload
             class="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 hover:text-blue-600 bg-white border border-slate-200 px-3 py-2 rounded-lg hover:border-blue-300 transition-colors">
         🔄 Обновить
     </button>
@@ -50,7 +50,7 @@
     </div>
     <a href="/download/android"
        class="shrink-0 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap">Скачать</a>
-    <button onclick="document.getElementById('apk-update-banner').remove();localStorage.setItem('ds_apk_seen_v','{{ apk_new_version }}')"
+    <button data-action="dsApkSeen" data-arg="{{ apk_new_version }}"
             class="shrink-0 text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 ml-1 transition-colors" aria-label="Закрыть">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
     </button>
@@ -65,7 +65,7 @@
         <span class="text-emerald-700 dark:text-emerald-300 hidden sm:inline"> — быстрый доступ прямо с телефона</span>
     </div>
     <a href="/download/android" class="shrink-0 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap">Скачать APK</a>
-    <button onclick="document.getElementById('apk-banner').remove();localStorage.setItem('ds_apk_banner','1')"
+    <button data-action="dsApkBannerHide"
             class="shrink-0 text-emerald-500 hover:text-emerald-700 dark:hover:text-emerald-300 ml-1 transition-colors" aria-label="Закрыть">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
     </button>
@@ -525,6 +525,8 @@
 
 <!-- Chart.js + dark mode + drill-down -->
 <script nonce="{{ csp_nonce(request) }}">
+window.dsApkSeen=function(ver){var b=document.getElementById('apk-update-banner');if(b)b.remove();try{localStorage.setItem('ds_apk_seen_v',ver==null?'':String(ver));}catch(e){}};
+window.dsApkBannerHide=function(){var b=document.getElementById('apk-banner');if(b)b.remove();try{localStorage.setItem('ds_apk_banner','1');}catch(e){}};
 (function(){
     const labelsAll = {{ chart_labels | tojson }};
     const dataAll   = {{ chart_data   | tojson }};

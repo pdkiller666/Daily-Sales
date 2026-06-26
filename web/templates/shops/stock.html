@@ -127,7 +127,7 @@
                         <td class="px-4 py-3">
                             <div class="flex items-center justify-center gap-1.5">
                                 <button type="button"
-                                        onclick="adjustQty('qty_{{ pid }}', -1)"
+                                        data-action="adjustQty" data-arg="qty_{{ pid }}" data-arg2="-1"
                                         class="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 hover:border-slate-300 transition-colors text-lg font-medium select-none">−</button>
                                 <input type="number"
                                        name="qty_{{ pid }}"
@@ -136,9 +136,9 @@
                                        min="0"
                                        max="999999"
                                        class="w-16 text-center border border-slate-200 rounded-lg px-2 py-1.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                       oninput="this.value=Math.max(0,parseInt(this.value||0))">
+                                       data-input-transform="int-min0">
                                 <button type="button"
-                                        onclick="adjustQty('qty_{{ pid }}', 1)"
+                                        data-action="adjustQty" data-arg="qty_{{ pid }}" data-arg2="1"
                                         class="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 hover:border-slate-300 transition-colors text-lg font-medium select-none">+</button>
                             </div>
                         </td>
@@ -156,7 +156,7 @@
             💾 Сохранить остатки
         </button>
         <button type="button"
-                onclick="resetAll()"
+                data-action="resetAll"
                 class="flex items-center gap-2 px-4 py-2.5 border border-slate-200 text-slate-500 rounded-xl text-sm hover:bg-slate-50 transition-colors">
             🔄 Сбросить в 0
         </button>

@@ -115,7 +115,7 @@
                                         data-name="{{ m.product_name|e }}"
                                         data-type="{{ m.type }}"
                                         data-val="{{ m.value }}"
-                                        onclick="openEditBtn(this)"
+                                        data-action="openEditBtn"
                                         class="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-blue-100 hover:text-blue-700 transition-colors font-medium">
                                         ✏️ Изменить
                                     </button>
@@ -124,7 +124,7 @@
                                         data-pid="{{ m.product_id }}"
                                         data-name="{{ m.product_name|e }}"
                                         data-csrf="{{ csrf_token }}"
-                                        onclick="removeMotivBtn(this)"
+                                        data-action="removeMotivBtn"
                                         class="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-red-100 hover:text-red-600 transition-colors font-medium">
                                         🗑️
                                     </button>
@@ -139,11 +139,11 @@
             <div id="motiv-pager" class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hidden">
                 <span id="motiv-pager-info"></span>
                 <div class="flex items-center gap-1">
-                    <button id="motiv-pager-prev" onclick="motivPaginate(-1)"
+                    <button id="motiv-pager-prev" data-action="motivPaginate" data-arg="-1"
                             class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
                         ← Пред.
                     </button>
-                    <button id="motiv-pager-next" onclick="motivPaginate(1)"
+                    <button id="motiv-pager-next" data-action="motivPaginate" data-arg="1"
                             class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
                         След. →
                     </button>
@@ -390,7 +390,7 @@
                         </div>
                     </div>
                     <button type="submit"
-                            onclick="dsOnce(this,'⏳ Сохранение…')"
+                            data-once="⏳ Сохранение…"
                             class="w-full bg-slate-700 text-white font-medium py-2.5 rounded-lg text-sm hover:bg-slate-800 transition-colors">
                         ✅ Сохранить условия на текущий месяц
                     </button>
@@ -455,7 +455,7 @@
                     });
                     </script>
                     <button type="submit"
-                            onclick="dsOnce(this,'⏳ Сохранение…')"
+                            data-once="⏳ Сохранение…"
                             class="w-full bg-emerald-600 text-white font-medium py-2.5 rounded-lg text-sm hover:bg-emerald-700 transition-colors">
                         💾 Сохранить
                     </button>
@@ -516,7 +516,7 @@
                         </div>
                     </div>
                     <button type="submit"
-                            onclick="dsOnce(this,'⏳ Применение…')"
+                            data-once="⏳ Применение…"
                             class="w-full bg-blue-600 text-white font-medium py-2.5 rounded-lg text-sm hover:bg-blue-700 transition-colors">
                         ✅ Применить ко всем товарам категории
                     </button>
@@ -559,7 +559,7 @@
                             data-rid="{{ r.id }}"
                             data-label="{{ r.product_name }} · {{ r.scope_label }}"
                             data-csrf="{{ csrf_token }}"
-                            onclick="removeRuleBtn(this)"
+                            data-action="removeRuleBtn"
                             class="text-rose-500 hover:text-rose-700 text-xs font-medium">✕ Удалить</button>
                     </td>
                 </tr>

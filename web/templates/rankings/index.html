@@ -164,7 +164,7 @@
     {% if tab == 'shops' and selected_city %}
     <div class="px-5 py-2.5 bg-blue-50/60 border-b border-blue-100 flex items-center gap-2 text-sm text-slate-600">
         <span>Город: <span class="font-semibold text-slate-800">{{ selected_city }}</span></span>
-        <a href="/rankings?tab=shops&period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}" class="text-blue-600 hover:underline" onclick="try{localStorage.removeItem('ds_rnk_city');}catch(e){}">✕ Сбросить</a>
+        <a href="/rankings?tab=shops&period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}" class="text-blue-600 hover:underline" data-action="dsRmLs" data-arg="ds_rnk_city">✕ Сбросить</a>
     </div>
     {% endif %}
 
@@ -178,9 +178,9 @@
                     {% elif tab == 'shops' and r.label %}hover:bg-blue-50/40 cursor-pointer
                     {% elif tab == 'cities' and r.label %}hover:bg-blue-50/40 cursor-pointer
                     {% else %}hover:bg-slate-50/60{% endif %}"
-             {% if tab == 'sellers' and r.user_db_id %}onclick="window.location='/staff/{{ r.user_db_id }}{% if period != 'all' and date_from %}?year={{ date_from[:4] }}&month={{ date_from[5:7]|int }}{% endif %}'"
-             {% elif tab == 'shops' and r.label %}onclick="window.location='/inventory?shop={{ r.label|urlencode }}'"
-             {% elif tab == 'cities' and r.label %}onclick="window.location='/rankings?tab=shops&period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}&city={{ r.label|urlencode }}'"
+             {% if tab == 'sellers' and r.user_db_id %}data-href="/staff/{{ r.user_db_id }}{% if period != 'all' and date_from %}?year={{ date_from[:4] }}&month={{ date_from[5:7]|int }}{% endif %}"
+             {% elif tab == 'shops' and r.label %}data-href="/inventory?shop={{ r.label|urlencode }}"
+             {% elif tab == 'cities' and r.label %}data-href="/rankings?tab=shops&period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}&city={{ r.label|urlencode }}"
              {% endif %}
              data-label="{{ r.label|lower }}"
              data-sv-revenue="{{ r.revenue }}"

@@ -41,7 +41,7 @@
       <input name="user_telegram_id" type="number" placeholder="123456789" required
              class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 mb-2">
       {% if users %}
-      <select onchange="if(this.value) document.querySelector('[name=user_telegram_id]').value=this.value; this.value=''"
+      <select data-change="dsGrantPickUser"
               class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
         <option value="">— или выбрать из списка ({{ users|length }}) —</option>
         {% for u in users %}<option value="{{ u.telegram_id }}">{{ u.name }} · {{ u.telegram_id }}</option>{% endfor %}
@@ -69,21 +69,21 @@
           Ключ (что выдаём) <span class="text-red-500">*</span>
         </label>
         <div x-show="itemType==='module'" style="display:none">
-          <select name="item_key_mod" onchange="document.getElementById('item_key_val').value=this.value"
+          <select name="item_key_mod" data-set-value="item_key_val"
                   class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
             <option value="">— выберите модуль —</option>
             {% for m in modules %}<option value="{{ m.key }}">{{ m.name }} — {{ m.price_monthly|int }}₽/мес</option>{% endfor %}
           </select>
         </div>
         <div x-show="itemType==='extension'">
-          <select name="item_key_ext" onchange="document.getElementById('item_key_val').value=this.value"
+          <select name="item_key_ext" data-set-value="item_key_val"
                   class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
             <option value="">— выберите расширение —</option>
             {% for e in extensions %}<option value="{{ e.key }}">{{ e.icon }} {{ e.name }} ({{ e.module_key }}) — {{ e.price_monthly|int }}₽/мес</option>{% endfor %}
           </select>
         </div>
         <div x-show="itemType==='bundle'">
-          <select name="item_key_bnd" onchange="document.getElementById('item_key_val').value=this.value"
+          <select name="item_key_bnd" data-set-value="item_key_val"
                   class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
             <option value="">— выберите пакет —</option>
             {% for b in bundles %}<option value="{{ b.key }}">{{ b.icon }} {{ b.name }} — {{ b.price_monthly|int }}₽/мес</option>{% endfor %}
@@ -321,6 +321,7 @@
 {% endif %}
 
 <script nonce="{{ csp_nonce(request) }}">
+window.dsGrantPickUser=function(el){if(el.value){var t=document.querySelector('[name=user_telegram_id]');if(t)t.value=el.value;}el.value='';};
 function revokeModal() {
   return {
     open: false,

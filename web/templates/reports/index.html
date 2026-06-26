@@ -81,7 +81,7 @@
             {% if shops %}
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium text-slate-500">Магазин</label>
-                <select name="shop" onchange="this.form.submit()"
+                <select name="shop" data-autosubmit
                         class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[140px]">
                     <option value="">Все магазины</option>
                     {% for s in shops %}

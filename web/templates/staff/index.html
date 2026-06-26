@@ -50,7 +50,7 @@
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Код приглашения</p>
             <div class="flex items-center gap-2 mt-0.5">
                 <code id="inv-code" class="text-sm font-mono text-slate-800 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">{{ invite_code }}</code>
-                <button onclick="navigator.clipboard.writeText('{{ invite_code }}').then(()=>{this.textContent='✅';setTimeout(()=>{this.textContent='Копировать'},1200)})"
+                <button data-copy="{{ invite_code }}" data-copy-feedback
                         class="text-xs text-blue-500 hover:text-blue-700 transition-colors">Копировать</button>
             </div>
             {% if bot_link %}
@@ -60,7 +60,7 @@
         </div>
     </div>
     <form method="post" action="/staff/invite-code/rotate"
-          onsubmit="return confirm('Сгенерировать новый код? Старые ссылки перестанут работать.')">
+          data-confirm="Сгенерировать новый код? Старые ссылки перестанут работать.">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit"
                 class="text-xs text-slate-500 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 hover:text-slate-700 transition-colors shrink-0">
@@ -143,7 +143,7 @@
             <tbody class="divide-y divide-slate-50" id="stf-tbody">
                 {% for s in staff %}
                 <tr class="hover:bg-slate-50/70 transition-colors cursor-pointer"
-                    onclick="window.location='/staff/{{ s.id }}'">
+                    data-href="/staff/{{ s.id }}">
                     <td class="px-5 py-3">
                         <div class="flex items-center gap-2.5">
                             <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
@@ -187,7 +187,7 @@
                         <span class="font-semibold text-emerald-600">{{ s.month_revenue|int|fmt_currency }}</span>
                     </td>
                     {% if chat_available %}
-                    <td class="px-3 py-3 text-center" onclick="event.stopPropagation()">
+                    <td class="px-3 py-3 text-center" data-stop>
                         {% if s.telegram_id != current_tg_id and s.telegram_id > 0 %}
                         <a href="/chat?dm=1&peer={{ s.id }}"
                            title="Написать в ЛС"
@@ -208,11 +208,11 @@
     <div id="stf-pager" class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hidden">
         <span id="stf-pager-info"></span>
         <div class="flex items-center gap-1">
-            <button id="stf-pager-prev" onclick="stfPaginate(-1)"
+            <button id="stf-pager-prev" data-action="stfPaginate" data-arg="-1"
                     class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
                 ← Пред.
             </button>
-            <button id="stf-pager-next" onclick="stfPaginate(1)"
+            <button id="stf-pager-next" data-action="stfPaginate" data-arg="1"
                     class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
                 След. →
             </button>

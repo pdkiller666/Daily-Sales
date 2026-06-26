@@ -499,7 +499,7 @@
                     <input type="hidden" name="module_key" value="{{ key }}">
                     <span class="text-sm text-slate-700 truncate">{{ lbl }}</span>
                     <div class="flex items-center gap-1 shrink-0">
-                        <select name="access" onchange="this.form.submit()"
+                        <select name="access" data-autosubmit
                                 class="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500">
                             <option value="inherit" {% if not cur or cur == 'inherit' %}selected{% endif %}>По тарифу</option>
                             <option value="allow" {% if cur == 'allow' %}selected{% endif %}>✓ Открыт</option>

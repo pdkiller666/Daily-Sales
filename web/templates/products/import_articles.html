@@ -115,7 +115,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="session_id" value="{{ session_id }}">
         <button type="submit"
-                onclick="dsOnce(this,'⏳ Сохранение…')"
+                data-once="⏳ Сохранение…"
                 class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl transition-colors">
             ✅ Назначить артикулы ({{ total }} строк)
         </button>

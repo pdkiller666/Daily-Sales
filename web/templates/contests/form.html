@@ -107,7 +107,7 @@
                 <input type="radio" name="contest_type" value="{{ val }}"
                        {% if cur_type == val %}checked{% endif %}
                        {% if is_edit %}disabled{% endif %}
-                       class="accent-indigo-600 type-radio" {% if not is_edit %}onchange="onTypeChange()"{% endif %}>
+                       class="accent-indigo-600 type-radio" {% if not is_edit %}data-change="onTypeChange"{% endif %}>
                 <span class="text-sm font-medium text-slate-700">{{ lbl }}</span>
             </label>
             {% endfor %}
@@ -172,7 +172,7 @@
                            {% if cur_metric == val %}checked{% endif %}
                            {% if is_edit %}disabled{% endif %}
                            class="accent-indigo-600 metric-radio"
-                           {% if not is_edit %}onchange="onMetricChange()"{% endif %}>
+                           {% if not is_edit %}data-change="onMetricChange"{% endif %}>
                     <div>
                         <p class="text-sm font-medium text-slate-700">{{ lbl }}</p>
                         <p class="text-xs text-slate-400">{{ sub }}</p>
@@ -291,7 +291,7 @@
                               {% if cur_reward_type == val %}border-indigo-400 bg-indigo-50{% else %}border-slate-200 hover:border-slate-300{% endif %}">
                     <input type="radio" name="reward_type" value="{{ val }}"
                            {% if cur_reward_type == val %}checked{% endif %}
-                           class="accent-indigo-600 reward-radio" onchange="onRewardTypeChange()">
+                           class="accent-indigo-600 reward-radio" data-change="onRewardTypeChange">
                     <span class="text-sm font-medium text-slate-700">{{ lbl }}</span>
                 </label>
                 {% endfor %}
@@ -403,7 +403,7 @@
     <!-- ─── Submit ─── -->
     <div class="flex items-center gap-3">
         <button type="submit"
-                onclick="dsOnce(this,'⏳ Сохранение…')"
+                data-once="⏳ Сохранение…"
                 class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors">
             {% if is_edit %}Сохранить изменения{% else %}Создать конкурс{% endif %}
         </button>

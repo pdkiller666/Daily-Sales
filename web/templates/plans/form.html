@@ -80,14 +80,14 @@
                           {% if cur_target_type == 'seller' %}border-indigo-400 bg-indigo-50{% else %}border-slate-200 hover:border-slate-300{% endif %}">
                 <input type="radio" name="target_type" value="seller"
                        {% if cur_target_type == 'seller' %}checked{% endif %}
-                       class="accent-indigo-600 target-radio" onchange="onTargetChange()">
+                       class="accent-indigo-600 target-radio" data-change="onTargetChange">
                 <span class="text-sm font-medium text-slate-700">Продавец</span>
             </label>
             <label class="flex items-center gap-3 p-3 border-2 rounded-xl cursor-pointer transition-all target-radio-label
                           {% if cur_target_type == 'shop' %}border-indigo-400 bg-indigo-50{% else %}border-slate-200 hover:border-slate-300{% endif %}">
                 <input type="radio" name="target_type" value="shop"
                        {% if cur_target_type == 'shop' %}checked{% endif %}
-                       class="accent-indigo-600 target-radio" onchange="onTargetChange()">
+                       class="accent-indigo-600 target-radio" data-change="onTargetChange">
                 <span class="text-sm font-medium text-slate-700">Магазин</span>
             </label>
         </div>
@@ -95,7 +95,7 @@
         <!-- Seller select -->
         <div id="sellerSection" {% if cur_target_type == 'shop' %}class="hidden"{% endif %}>
             <label class="block text-xs font-medium text-slate-600 mb-1.5">Продавец</label>
-            <select name="seller_id" id="sellerSelect" onchange="triggerAiRefresh()"
+            <select name="seller_id" id="sellerSelect" data-change="triggerAiRefresh"
                     class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
                 <option value="">— выберите продавца —</option>
                 {% for s in sellers %}
@@ -109,7 +109,7 @@
         <!-- Shop select -->
         <div id="shopSection" {% if cur_target_type != 'shop' %}class="hidden"{% endif %}>
             <label class="block text-xs font-medium text-slate-600 mb-1.5">Магазин</label>
-            <select name="shop_name_val" id="shopSelect" onchange="triggerAiRefresh()"
+            <select name="shop_name_val" id="shopSelect" data-change="triggerAiRefresh"
                     class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
                 <option value="">— выберите магазин —</option>
                 {% for sh in shops %}
@@ -129,7 +129,7 @@
                     <input type="radio" name="plan_type" value="weekly"
                            {% if cur_plan_type == 'weekly' %}checked{% endif %}
                            class="accent-indigo-600 period-radio"
-                           onchange="onRadioHighlight('period-radio-label','plan_type')">
+                           data-change="onRadioHighlight" data-arg="period-radio-label" data-arg2="plan_type">
                     <div>
                         <p class="text-sm font-medium text-slate-700">Недельный</p>
                         <p class="text-xs text-slate-400">Пн — Вс текущей недели</p>
@@ -140,7 +140,7 @@
                     <input type="radio" name="plan_type" value="monthly"
                            {% if cur_plan_type == 'monthly' %}checked{% endif %}
                            class="accent-indigo-600 period-radio"
-                           onchange="onRadioHighlight('period-radio-label','plan_type')">
+                           data-change="onRadioHighlight" data-arg="period-radio-label" data-arg2="plan_type">
                     <div>
                         <p class="text-sm font-medium text-slate-700">Месячный</p>
                         <p class="text-xs text-slate-400">1-е по последнее число месяца</p>
@@ -157,7 +157,7 @@
                     <input type="radio" name="metric_type" value="turnover"
                            {% if cur_metric_type == 'turnover' %}checked{% endif %}
                            class="accent-indigo-600 metric-radio"
-                           onchange="onRadioHighlight('metric-radio-label','metric_type')">
+                           data-change="onRadioHighlight" data-arg="metric-radio-label" data-arg2="metric_type">
                     <div>
                         <p class="text-sm font-medium text-slate-700">Выручка (₽)</p>
                         <p class="text-xs text-slate-400">Сумма продаж в рублях</p>
@@ -168,7 +168,7 @@
                     <input type="radio" name="metric_type" value="quantity"
                            {% if cur_metric_type == 'quantity' %}checked{% endif %}
                            class="accent-indigo-600 metric-radio"
-                           onchange="onRadioHighlight('metric-radio-label','metric_type')">
+                           data-change="onRadioHighlight" data-arg="metric-radio-label" data-arg2="metric_type">
                     <div>
                         <p class="text-sm font-medium text-slate-700">Количество (шт.)</p>
                         <p class="text-xs text-slate-400">Число проданных единиц</p>
@@ -284,21 +284,21 @@
                           {% if cur_filter_type == 'all' %}border-indigo-400 bg-indigo-50 text-indigo-700{% else %}border-slate-200 text-slate-500 hover:border-slate-300{% endif %}">
                 <input type="radio" name="filter_type" value="all"
                        {% if cur_filter_type == 'all' %}checked{% endif %}
-                       class="sr-only filter-tab-radio" onchange="onFilterTypeChange()">
+                       class="sr-only filter-tab-radio" data-change="onFilterTypeChange">
                 Все товары
             </label>
             <label class="filter-tab-label px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer border-2 transition-all
                           {% if cur_filter_type == 'category' %}border-indigo-400 bg-indigo-50 text-indigo-700{% else %}border-slate-200 text-slate-500 hover:border-slate-300{% endif %}">
                 <input type="radio" name="filter_type" value="category"
                        {% if cur_filter_type == 'category' %}checked{% endif %}
-                       class="sr-only filter-tab-radio" onchange="onFilterTypeChange()">
+                       class="sr-only filter-tab-radio" data-change="onFilterTypeChange">
                 По категориям
             </label>
             <label class="filter-tab-label px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer border-2 transition-all
                           {% if cur_filter_type == 'product' %}border-indigo-400 bg-indigo-50 text-indigo-700{% else %}border-slate-200 text-slate-500 hover:border-slate-300{% endif %}">
                 <input type="radio" name="filter_type" value="product"
                        {% if cur_filter_type == 'product' %}checked{% endif %}
-                       class="sr-only filter-tab-radio" onchange="onFilterTypeChange()">
+                       class="sr-only filter-tab-radio" data-change="onFilterTypeChange">
                 По товарам
             </label>
         </div>
@@ -316,7 +316,7 @@
                 <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-50 cursor-pointer border border-slate-100">
                     <input type="checkbox" name="filter_categories" value="{{ cat }}"
                            {% if cat in cur_sel_cats %}checked{% endif %}
-                           onchange="onFilterCheckboxChange()"
+                           data-change="onFilterCheckboxChange"
                            class="accent-indigo-600 shrink-0">
                     <span class="text-xs text-slate-700 truncate">{{ cat }}</span>
                 </label>
@@ -341,7 +341,7 @@
                     <label class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer">
                         <input type="checkbox" name="filter_products" value="{{ prod.id }}"
                                {% if prod.id|string in cur_sel_prods %}checked{% endif %}
-                               onchange="onFilterCheckboxChange()"
+                               data-change="onFilterCheckboxChange"
                                class="accent-indigo-600 shrink-0">
                         <span class="text-xs text-slate-700 truncate">{{ prod.name }}</span>
                     </label>
@@ -356,7 +356,7 @@
     <!-- ─── Submit ─── -->
     <div class="flex items-center gap-3">
         <button type="submit"
-                onclick="dsOnce(this,'⏳ Сохранение…')"
+                data-once="⏳ Сохранение…"
                 class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors">
             {% if is_edit %}Сохранить изменения{% else %}Создать план{% endif %}
         </button>

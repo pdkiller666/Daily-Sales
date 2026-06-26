@@ -15,7 +15,7 @@
         <h1 class="text-2xl font-bold text-slate-800">🗂️ Категории</h1>
         <p class="text-sm text-slate-500 mt-0.5">{{ categories|length }} категор{{ 'ия' if categories|length == 1 else ('ии' if categories|length in (2,3,4) else 'ий') }}</p>
     </div>
-    <button onclick="document.getElementById('createModal').classList.remove('hidden')"
+    <button data-modal-open="createModal"
             class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
@@ -98,11 +98,11 @@
     <div id="cat-pager" class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hidden">
         <span id="cat-pager-info"></span>
         <div class="flex items-center gap-1">
-            <button id="cat-pager-prev" onclick="catPaginate(-1)"
+            <button id="cat-pager-prev" data-action="catPaginate" data-arg="-1"
                     class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
                 ← Пред.
             </button>
-            <button id="cat-pager-next" onclick="catPaginate(1)"
+            <button id="cat-pager-next" data-action="catPaginate" data-arg="1"
                     class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
                 След. →
             </button>
@@ -196,8 +196,8 @@
 
 <!-- Create modal (top-level, outside Alpine tree) -->
 <div id="createModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-     onclick="if(event.target===this)this.classList.add('hidden')">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+     data-backdrop-close>
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" data-stop>
         <h3 class="text-lg font-bold text-slate-800 mb-1">🗂️ Новая категория</h3>
         <p class="text-sm text-slate-500 mb-4">
             Вы будете перенаправлены на форму создания товара с предзаполненной категорией.
@@ -211,7 +211,7 @@
                        placeholder="Например: Электроника" maxlength="80" required>
             </div>
             <div class="flex gap-3">
-                <button type="button" onclick="document.getElementById('createModal').classList.add('hidden')"
+                <button type="button" data-modal-close="createModal"
                         class="flex-1 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
                     Отмена
                 </button>

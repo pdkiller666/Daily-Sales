@@ -6,6 +6,7 @@
     <title>Новый пароль — DailySales</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%232563eb'/><text x='50' y='57' text-anchor='middle' font-size='44' font-family='Arial,sans-serif' font-weight='bold' fill='white'>DS</text><text x='50' y='75' text-anchor='middle' font-size='21' font-family='Arial,sans-serif' font-weight='bold' fill='white' letter-spacing='1'>CRM</text></svg>">
     <link rel="stylesheet" href="/static/app.css?v=a102dbda84">
+    <script defer src="/static/ds-delegate.js?v=20260626"></script>
 </head>
 <body class="h-full min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
 <div class="relative w-full max-w-sm mx-4">
@@ -49,7 +50,7 @@
                            class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50">
                 </div>
                 <button type="submit"
-                        onclick="dsOnce(this,'⏳ Сохраняем…')"
+                        data-once="⏳ Сохраняем…"
                         class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors text-sm">
                     Сохранить пароль
                 </button>

@@ -53,7 +53,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="flex gap-2">
                 <button type="submit" class="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2.5 rounded-xl">Удалить</button>
-                <button type="button" onclick="document.getElementById('del-modal').classList.add('hidden')"
+                <button type="button" data-modal-close="del-modal"
                         class="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold py-2.5 rounded-xl">Отмена</button>
             </div>
         </form>
@@ -78,7 +78,7 @@
                         class="flex-1 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
                     ✅ Восстановить
                 </button>
-                <button type="button" onclick="document.getElementById('rst-modal').classList.add('hidden')"
+                <button type="button" data-modal-close="rst-modal"
                         class="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold py-2.5 rounded-xl transition-colors">
                     Отмена
                 </button>
@@ -117,12 +117,12 @@
                 <td class="px-4 py-3 text-right">
                     <div class="flex items-center justify-end gap-1.5">
                         <button type="button"
-                                onclick="confirmRestore('{{ b.filename|e }}')"
+                                data-action="confirmRestore" data-arg="{{ b.filename|e }}"
                                 class="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-lg font-medium transition-colors border border-amber-200">
                             🔄 Восстановить
                         </button>
                         <button type="button"
-                                onclick="confirmDel('{{ b.filename|e }}')"
+                                data-action="confirmDel" data-arg="{{ b.filename|e }}"
                                 class="text-xs px-3 py-1.5 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg font-medium transition-colors">
                             🗑
                         </button>

@@ -98,7 +98,7 @@
                    value="{{ form_data.article if form_data and form_data.article else '' }}"
                    placeholder="Оставьте пустым — сгенерируется автоматически"
                    maxlength="25"
-                   oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9А-ЯЁ\-_]/g,'')"
+                   data-input-transform="upper-code"
                    class="w-full border border-amber-200 dark:border-amber-700/50 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm font-mono text-slate-800
                           focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent tracking-wide">
             <p class="mt-1 text-xs text-slate-400">Буквы, цифры, дефис. Оставьте пустым — артикул создастся по категории автоматически. По нему продавцы находят товар через сканер.</p>
@@ -258,7 +258,7 @@
             </div>
             <textarea id="f-desc" name="description" rows="5"
                       placeholder="Дополнительная информация о товаре (необязательно)"
-                      oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
+                      data-input-transform="autoheight"
                       class="w-full border border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm text-slate-800
                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y min-h-[120px]">{{ form_data.description if form_data else '' }}</textarea>
             <p x-show="aiError" x-text="aiError" class="mt-1 text-xs text-red-500"></p>

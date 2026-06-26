@@ -43,7 +43,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="flex gap-2">
                 <button type="submit" class="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2.5 rounded-xl">Сбросить</button>
-                <button type="button" onclick="document.getElementById('cancel-modal').classList.add('hidden')"
+                <button type="button" data-modal-close="cancel-modal"
                         class="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold py-2.5 rounded-xl">Отмена</button>
             </div>
         </form>
@@ -84,7 +84,7 @@
                 </td>
                 <td class="px-4 py-3 text-right">
                     <button type="button"
-                            onclick="confirmCancel({{ s.user_id }}, '{{ s.name|replace("'","\\'")|e }}')"
+                            data-action="confirmCancel" data-arg="{{ s.user_id }}" data-arg2="{{ s.name|e }}"
                             class="text-xs px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors font-medium">
                         Сбросить
                     </button>

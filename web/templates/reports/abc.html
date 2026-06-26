@@ -43,7 +43,7 @@
             {% if shops %}
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium text-slate-500">Магазин</label>
-                <select name="shop" onchange="this.form.submit()"
+                <select name="shop" data-autosubmit
                         class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[140px]">
                     <option value="">Все магазины</option>
                     {% for s in shops %}
@@ -136,27 +136,27 @@
                 <tr class="bg-slate-50 border-b border-slate-100">
                     <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500">#</th>
                     <th class="text-left px-3 py-3 text-xs font-semibold">
-                        <button class="abc-th" data-col="name" onclick="abcSort('name')">
+                        <button class="abc-th" data-col="name" data-action="abcSort" data-arg="name">
                             Товар<span class="abc-arrow ml-0.5"></span>
                         </button>
                     </th>
                     <th class="text-left px-3 py-3 text-xs font-semibold hidden sm:table-cell">
-                        <button class="abc-th" data-col="category" onclick="abcSort('category')">
+                        <button class="abc-th" data-col="category" data-action="abcSort" data-arg="category">
                             Категория<span class="abc-arrow ml-0.5"></span>
                         </button>
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold">
-                        <button class="abc-th" data-col="revenue" onclick="abcSort('revenue')">
+                        <button class="abc-th" data-col="revenue" data-action="abcSort" data-arg="revenue">
                             Выручка<span class="abc-arrow ml-0.5"></span>
                         </button>
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold hidden sm:table-cell">
-                        <button class="abc-th" data-col="pct" onclick="abcSort('pct')">
+                        <button class="abc-th" data-col="pct" data-action="abcSort" data-arg="pct">
                             Доля<span class="abc-arrow ml-0.5"></span>
                         </button>
                     </th>
                     <th class="text-center px-5 py-3 text-xs font-semibold">
-                        <button class="abc-th" data-col="group" onclick="abcSort('group')">
+                        <button class="abc-th" data-col="group" data-action="abcSort" data-arg="group">
                             Группа<span class="abc-arrow ml-0.5"></span>
                         </button>
                     </th>

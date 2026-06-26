@@ -28,7 +28,7 @@
             🏷 Импорт артикулов
         </a>
         <button id="btn-bulk-articles"
-                onclick="dsBulkAssignArticles()"
+                data-action="dsBulkAssignArticles"
                 class="flex items-center gap-1.5 text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors">
             🏷 Авто-артикулы
         </button>
@@ -447,7 +447,7 @@
                 <tr class="hover:bg-slate-50/70 transition-colors cursor-pointer"
                     data-pst="{{ ((p[1] or '') ~ ' ' ~ (p[2] or '') ~ ' ' ~ (p[7] if p|length > 7 and p[7] else '') ~ ' ' ~ (p[8] if p|length > 8 and p[8] else ''))|lower }}"
                     data-pid="{{ p[0] }}"
-                    onclick="if(!event.target.closest('[data-noclk]')) window.location='/products/{{ p[0] }}'">
+                    data-href="/products/{{ p[0] }}">
                     {% if is_admin %}
                     <td class="px-3 py-3 w-8" data-noclk @click.stop>
                         <input type="checkbox" data-id="{{ p[0] }}"
@@ -502,8 +502,8 @@
                         {% endif %}
                     </td>
                     <td class="px-3 py-3 text-right font-semibold text-slate-700" id="pc-{{ p[0] }}"
-                        data-noclk
-                        ondblclick="dsEditPrice({{ p[0] }}, {{ p[3]|int }}, this)" title="Дважды нажмите для изменения цены">{{ p[3]|int|fmt_currency }}</td>
+                        data-noclk data-price-edit data-pid="{{ p[0] }}" data-price="{{ p[3]|int }}"
+                        title="Дважды нажмите для изменения цены">{{ p[3]|int|fmt_currency }}</td>
                     <td class="px-3 py-3 text-right hidden md:table-cell">
                         <span class="font-medium {{ 'text-red-500' if qty <= 0 else 'text-orange-500' if qty <= 5 else 'text-slate-700' }}">
                             {{ qty }}&thinsp;шт.
@@ -817,15 +817,20 @@
 <script nonce="{{ csp_nonce(request) }}">
 (function(){
 const _csrf = '{{ csrf_token_for(request) }}';
+document.addEventListener('dblclick', function(e){
+    const cell = e.target.closest('[data-price-edit]');
+    if (!cell) return;
+    window.dsEditPrice(Number(cell.dataset.pid), Number(cell.dataset.price), cell);
+});
 window.dsEditPrice = function(pid, curPrice, cell) {
     if (cell.querySelector('form')) return;
     const orig = cell.textContent.trim();
-    cell.innerHTML = '<form onsubmit="window.dsSavePrice(event,' + pid + ',this)" style="display:flex;align-items:center;justify-content:flex-end;gap:4px" onclick="event.stopPropagation()">' +
+    cell.innerHTML = '<form data-submit="dsSavePrice" data-arg="' + pid + '" style="display:flex;align-items:center;justify-content:flex-end;gap:4px" data-stop>' +
         '<input type="number" name="p" value="' + curPrice + '" min="0" step="1" ' +
         'style="width:90px;border:1.5px solid #3b82f6;border-radius:6px;padding:2px 6px;font-size:.85rem;text-align:right;outline:none" ' +
         'autofocus>' +
         '<button type="submit" style="font-size:.75rem;color:#059669;font-weight:600;cursor:pointer;background:none;border:none" title="Сохранить">✓</button>' +
-        '<button type="button" onclick="window.dsCancelPrice(' + pid + ',\'' + orig.replace(/'/g,"\\'") + '\')" style="font-size:.75rem;color:#94a3b8;cursor:pointer;background:none;border:none" title="Отмена">✕</button>' +
+        '<button type="button" data-action="dsCancelPrice" data-arg="' + pid + '" data-arg2="' + orig.replace(/"/g,'&quot;') + '" style="font-size:.75rem;color:#94a3b8;cursor:pointer;background:none;border:none" title="Отмена">✕</button>' +
         '</form>';
     const inp = cell.querySelector('input');
     inp.select();
@@ -920,7 +925,6 @@ window.dsSavePrice = async function(e, pid, form) {
             if (data.ok) {
                 cell.textContent = data.price_fmt;
                 cell.dataset.price = price;
-                cell.setAttribute('ondblclick', 'dsEditPrice(' + pid + ',' + price + ',this)');
             } else {
                 cell.textContent = data.error || 'Ошибка';
                 setTimeout(() => { if(cell) cell.textContent = price.toLocaleString('ru-RU') + '\u00a0₽'; }, 1500);

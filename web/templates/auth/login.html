@@ -9,6 +9,7 @@
     <style>
         .circuit-line{position:absolute;background:rgba(220,38,38,.12);border-radius:2px}
     </style>
+    <script defer src="/static/ds-delegate.js?v=20260626"></script>
 </head>
 <body class="h-full min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden">
 
@@ -68,12 +69,12 @@
                 <!-- Tab switcher -->
                 <div class="flex rounded-xl bg-slate-100 p-1 mb-5 gap-1" id="authTabs">
                     <button type="button" id="tab-tg"
-                            onclick="switchTab('tg')"
+                            data-action="switchTab" data-arg="tg"
                             class="flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all tab-active">
                         📱 Telegram
                     </button>
                     <button type="button" id="tab-email"
-                            onclick="switchTab('email')"
+                            data-action="switchTab" data-arg="email"
                             class="flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all">
                         ✉️ Email
                     </button>
@@ -121,7 +122,7 @@
                                    class="w-full text-center text-2xl font-mono tracking-[0.5em] px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
                         </div>
                         <button type="submit"
-                                onclick="dsOnce(this,'⏳ Проверка…')"
+                                data-once="⏳ Проверка…"
                                 class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors text-sm">
                             Войти
                         </button>
@@ -202,7 +203,7 @@
                                    class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50">
                         </div>
                         <button type="submit"
-                                onclick="dsOnce(this,'⏳ Проверка…')"
+                                data-once="⏳ Проверка…"
                                 class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors text-sm">
                             Войти
                         </button>

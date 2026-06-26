@@ -46,7 +46,7 @@
 <!-- Filters bar -->
 <div class="flex flex-wrap gap-2 mb-5">
   {% if topics %}
-  <select id="topicFilter" onchange="applyFilters()"
+  <select id="topicFilter" data-change="applyFilters"
           class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
     <option value="0" {% if not topic_filter %}selected{% endif %}>Все темы</option>
     {% for t in topics %}
@@ -56,7 +56,7 @@
   {% endif %}
 
   {% if is_admin and shops_list %}
-  <select id="shopFilter" onchange="applyFilters()"
+  <select id="shopFilter" data-change="applyFilters"
           class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
     <option value="" {% if not shop_filter %}selected{% endif %}>Все магазины</option>
     {% for sh in shops_list %}
@@ -66,7 +66,7 @@
   {% endif %}
 
   {% if is_admin and staff_list %}
-  <select id="staffFilter" onchange="applyFilters()"
+  <select id="staffFilter" data-change="applyFilters"
           class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
     <option value="0" {% if not assigned_filter %}selected{% endif %}>Все сотрудники</option>
     {% for s in staff_list %}
@@ -89,8 +89,7 @@
     <div class="w-72 flex-shrink-0 flex flex-col"
          id="col-{{ col.key }}"
          data-status="{{ col.key }}"
-         ondragover="event.preventDefault()"
-         ondrop="onDrop(event, '{{ col.key }}')">
+         data-drop-status="{{ col.key }}">
 
       <!-- Column header -->
       {% set header_css = {
@@ -121,7 +120,6 @@
         <div class="kanban-card bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 shadow-sm hover:shadow-md transition-shadow group relative"
              id="card-{{ t.id }}"
              draggable="true"
-             ondragstart="onDragStart(event, {{ t.id }}, '{{ col.key }}')"
              data-task-id="{{ t.id }}"
              data-status="{{ col.key }}">
 
@@ -180,7 +178,7 @@
               {% endif %}
               {% for st_key, st_icon in all_cols %}
               {% if st_key != col.key %}
-              <button onclick="moveCard({{ t.id }}, '{{ st_key }}', event)"
+              <button data-action="moveCard" data-arg="{{ t.id }}" data-arg2="{{ st_key }}"
                       title="{{ status_labels.get(st_key, st_key) }}"
                       class="px-2 py-0.5 text-[11px] rounded-lg border transition-colors
                         {% if st_key == 'done' %}border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-400
@@ -222,28 +220,36 @@ const CSRF_TOKEN = {{ csrf_token | tojson }};
 let draggingId = null;
 let draggingFrom = null;
 
-function onDragStart(e, taskId, fromStatus) {
-  draggingId = taskId;
-  draggingFrom = fromStatus;
-  e.dataTransfer.effectAllowed = 'move';
-  document.getElementById('card-' + taskId).classList.add('opacity-50');
-}
-
-document.querySelectorAll('.kanban-card').forEach(card => {
-  card.addEventListener('dragend', () => {
-    card.classList.remove('opacity-50');
-    draggingId = null; draggingFrom = null;
-  });
+document.addEventListener('dragstart', function (e) {
+  var card = e.target.closest('.kanban-card');
+  if (!card) return;
+  draggingId = Number(card.dataset.taskId);
+  draggingFrom = card.dataset.status;
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  card.classList.add('opacity-50');
 });
 
-function onDrop(e, toStatus) {
+document.addEventListener('dragend', function (e) {
+  var card = e.target.closest('.kanban-card');
+  if (card) card.classList.remove('opacity-50');
+  draggingId = null; draggingFrom = null;
+});
+
+document.addEventListener('dragover', function (e) {
+  if (e.target.closest('[data-drop-status]')) e.preventDefault();
+});
+
+document.addEventListener('drop', function (e) {
+  var col = e.target.closest('[data-drop-status]');
+  if (!col) return;
   e.preventDefault();
+  var toStatus = col.dataset.dropStatus;
   if (!draggingId || draggingFrom === toStatus) return;
   if (draggingFrom === 'cancelled') return;
   moveCard(draggingId, toStatus, null);
-}
+});
 
-function moveCard(taskId, newStatus, e) {
+function moveCard(taskId, newStatus, el, e) {
   if (e) { e.stopPropagation(); e.preventDefault(); }
 
   const fd = new FormData();

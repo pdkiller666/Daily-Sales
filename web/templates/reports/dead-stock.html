@@ -41,7 +41,7 @@
             {% if shops %}
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium text-slate-500">Магазин</label>
-                <select name="shop" onchange="this.form.submit()"
+                <select name="shop" data-autosubmit
                         class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[140px]">
                     <option value="">Все магазины</option>
                     {% for s in shops %}
@@ -87,28 +87,28 @@
             <thead>
                 <tr class="bg-slate-50 border-b border-slate-100">
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide">
-                        <button class="ds-th" data-col="name" onclick="dsSort('name')">
+                        <button class="ds-th" data-col="name" data-action="dsSort" data-arg="name">
                             Товар<span class="ds-arrow ml-0.5"></span>
                         </button>
                     </th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell">
-                        <button class="ds-th" data-col="category" onclick="dsSort('category')">
+                        <button class="ds-th" data-col="category" data-action="dsSort" data-arg="category">
                             Категория<span class="ds-arrow ml-0.5"></span>
                         </button>
                     </th>
                     {% if not shop %}<th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Магазин</th>{% endif %}
                     <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide">
-                        <button class="ds-th" data-col="stock" onclick="dsSort('stock')">
+                        <button class="ds-th" data-col="stock" data-action="dsSort" data-arg="stock">
                             Остаток<span class="ds-arrow ml-0.5"></span>
                         </button>
                     </th>
                     <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell">
-                        <button class="ds-th" data-col="stock_value" onclick="dsSort('stock_value')">
+                        <button class="ds-th" data-col="stock_value" data-action="dsSort" data-arg="stock_value">
                             Сумма<span class="ds-arrow ml-0.5"></span>
                         </button>
                     </th>
                     <th class="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wide">
-                        <button class="ds-th" data-col="last_sale" onclick="dsSort('last_sale')">
+                        <button class="ds-th" data-col="last_sale" data-action="dsSort" data-arg="last_sale">
                             Последняя продажа<span class="ds-arrow ml-0.5"></span>
                         </button>
                     </th>

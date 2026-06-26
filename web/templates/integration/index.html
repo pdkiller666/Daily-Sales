@@ -192,7 +192,7 @@
                 </form>
 
                 <form method="post" action="/integration/{{ c.id }}/delete"
-                      onsubmit="return confirm('Удалить подключение «{{ c.name }}» и все его настройки?')">
+                      data-confirm="Удалить подключение «{{ c.name }}» и все его настройки?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit"
                             class="text-xs px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg font-medium transition-colors">
@@ -278,7 +278,7 @@
                                 </button>
                             </form>
                             <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/delete"
-                                  onsubmit="return confirm('Удалить правило «{{ e.export_type }}»?')">
+                                  data-confirm="Удалить правило «{{ e.export_type }}»?">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <button type="submit" title="Удалить"
                                         class="text-[10px] px-2 py-0.5 bg-red-50 hover:bg-red-100 text-red-500 border border-red-200 rounded font-medium transition-colors">
@@ -681,7 +681,7 @@
                 <p class="text-[11px] text-amber-600 mb-2">⚠️ Сначала авторизуйте подключение.</p>
                 {% endif %}
                 <form method="post" action="/integration/{{ c.id }}/import"
-                      onsubmit="return confirm('Импортировать данные в базу? Существующие записи могут быть дополнены.')">
+                      data-confirm="Импортировать данные в базу? Существующие записи могут быть дополнены.">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
                         <div>
