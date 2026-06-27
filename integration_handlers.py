@@ -1691,6 +1691,20 @@ async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
         await _mtv_show_rcol(msg, state)
         return
 
+    # ── auto_sync toggle — handled before generic answer() ────
+    # gs_hub_motiv() вызывает callback.answer() сама; вызывать здесь нельзя
+    if raw.startswith("autosync_"):
+        conn_id = int(raw[len("autosync_"):])
+        await state.update_data(gs_motiv_conn_id=conn_id, gs_conn_id=conn_id)
+        current_db = await get_db(callback.from_user.id, state)
+        motiv_cfg = integration_manager.get_motiv_config(current_db, conn_id) or {}
+        new_val = not bool(motiv_cfg.get('auto_sync'))
+        motiv_cfg['auto_sync'] = new_val
+        motiv_cfg.setdefault('auto_sync_hour', 6)
+        integration_manager.save_motiv_config(current_db, conn_id, motiv_cfg)
+        await gs_hub_motiv(callback, state)
+        return
+
     await callback.answer()
 
     # ── quick re-sync from saved config ───────────────────────
@@ -1829,21 +1843,6 @@ async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
     # ── back to chain aliases ──────────────────────────────────
     if raw == "bk_chain_aliases":
         await _mtv_show_chain_aliases(msg, state)
-        return
-
-    # ── auto_sync toggle ──────────────────────────────────────
-    if raw.startswith("autosync_"):
-        conn_id = int(raw[len("autosync_"):])
-        await state.update_data(gs_motiv_conn_id=conn_id, gs_conn_id=conn_id)
-        current_db = await get_db(callback.from_user.id, state)
-        motiv_cfg = integration_manager.get_motiv_config(current_db, conn_id) or {}
-        new_val = not bool(motiv_cfg.get('auto_sync'))
-        motiv_cfg['auto_sync'] = new_val
-        motiv_cfg.setdefault('auto_sync_hour', 6)
-        integration_manager.save_motiv_config(current_db, conn_id, motiv_cfg)
-        status = "включён (ежедневно в 6:00)" if new_val else "выключен"
-        await callback.answer(f"🔔 Автосинк {status}", show_alert=False)
-        await gs_hub_motiv(callback, state)
         return
 
     # ── manual fallback (GS API unavailable) ──────────────────

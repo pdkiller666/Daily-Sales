@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.267.0"
+CURRENT_VERSION = "1.268.0"
 
 ENTRIES = [
+    {
+        "version": "1.268.0",
+        "date": "27 июня 2026",
+        "items": [
+            "Fix header clipping in chat view by hiding beta banner",
+        ],
+    },
     {
         "version": "1.267.0",
         "date": "27 июня 2026",
