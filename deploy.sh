@@ -120,7 +120,7 @@ if ( cd "$SOURCE_DIR" && timeout 120 npx --yes tailwindcss@3.4.17 -c tailwind.co
   # на старом CSS, пока base-страницы обновятся → визуальное расхождение.
   grep -rl "/static/app.css?v=" "$SOURCE_DIR/web/templates" \
     | xargs sed -i -E "s#/static/app\.css\?v=[a-f0-9]+#/static/app.css?v=${CSS_HASH}#"
-  echo "   ✓ app.css собран + ds-custom.css дописан, cache-bust v=${CSS_HASH} (все шаблоны)"
+  echo "   ✓ app.css собран, cache-bust v=${CSS_HASH} (все шаблоны)"
 else
   echo "   ⚠️  Tailwind build не удался — деплой с уже закоммиченным app.css"
 fi

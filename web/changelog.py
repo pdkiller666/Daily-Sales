@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.265.0"
+CURRENT_VERSION = "1.266.0"
 
 ENTRIES = [
+    {
+        "version": "1.266.0",
+        "date": "27 июня 2026",
+        "items": [
+            "Update date calculations and remove unused CSS files",
+        ],
+    },
     {
         "version": "1.265.0",
         "date": "27 июня 2026",
