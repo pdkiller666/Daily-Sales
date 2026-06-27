@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.272.0"
+CURRENT_VERSION = "1.273.0"
 
 ENTRIES = [
+    {
+        "version": "1.273.0",
+        "date": "27 июня 2026",
+        "items": [
+            "Organize settings page into user-friendly tabs for better navigation",
+        ],
+    },
     {
         "version": "1.272.0",
         "date": "27 июня 2026",
