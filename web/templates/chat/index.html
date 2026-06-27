@@ -13,10 +13,14 @@
 main.ds-main { padding:0 !important; overflow:hidden; }
 footer { display:none !important; }
 
-/* Шапка становится статичной: body/html заблокированы от прокрутки,
-   поэтому sticky не нужен. Это позволяет бета-баннеру оставаться
-   видимым над шапкой, а _fitHeight() учтёт реальный top обёртки. */
-.ds-topbar { position: static !important; }
+/* Бета-баннер скрываем на странице чата: full-screen режим блокирует
+   скролл body, и баннер сдвигает шапку за видимую область на мобильных.
+   Баннер показывается на всех остальных страницах. */
+#ds-beta-bar { display:none !important; }
+
+/* Шапка sticky: body/html заблокированы от прокрутки, топбар
+   фиксирован относительно viewport и баннер больше не мешает. */
+.ds-topbar { position: sticky !important; top: 0 !important; }
 
 #chat-wrapper {
     /* Высота вычисляется в _fitHeight(): видимый viewport − верх обёртки − нижнее меню.

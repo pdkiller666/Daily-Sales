@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.266.0"
+CURRENT_VERSION = "1.267.0"
 
 ENTRIES = [
+    {
+        "version": "1.267.0",
+        "date": "27 июня 2026",
+        "items": [
+            "Make the direct message list fill the full screen width on mobile devices",
+        ],
+    },
     {
         "version": "1.266.0",
         "date": "27 июня 2026",
