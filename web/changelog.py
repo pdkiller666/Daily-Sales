@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.273.0"
+CURRENT_VERSION = "1.274.0"
 
 ENTRIES = [
+    {
+        "version": "1.274.0",
+        "date": "27 июня 2026",
+        "items": [
+            "Update settings page with tabbed navigation and profile photo upload feature",
+        ],
+    },
     {
         "version": "1.273.0",
         "date": "27 июня 2026",
