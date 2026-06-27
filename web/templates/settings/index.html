@@ -8,7 +8,9 @@
 {% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
+<div x-data="settingsTabs()" x-init="init()">
+
+<div class="flex items-center justify-between mb-4">
     <div>
         <h1 class="text-2xl font-bold text-slate-800">Настройки</h1>
         <p class="text-sm text-slate-500 mt-0.5">Уведомления и параметры аккаунта</p>
@@ -25,16 +27,45 @@
     <span>✅</span><span>Профиль обновлён</span>
 </div>
 {% endif %}
-
 {% if error %}
 <div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
     <span>⚠️</span><span>{{ error }}</span>
 </div>
 {% endif %}
 
+<!-- ── Tab navigation ── -->
+<div class="flex gap-0 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
+    <button @click="setTab('profile')"
+            :class="tabClass('profile')"
+            class="px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 -mb-px">
+        👤 Профиль
+    </button>
+    <button @click="setTab('notifs')"
+            :class="tabClass('notifs')"
+            class="px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 -mb-px">
+        🔔 Уведомления
+    </button>
+    <button @click="setTab('org')"
+            :class="tabClass('org')"
+            class="px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 -mb-px">
+        🏢 Организация
+    </button>
+    {% if all_orgs or smtp_configured is not none or beta_mode_enabled is not none %}
+    <button @click="setTab('system')"
+            :class="tabClass('system')"
+            class="px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 -mb-px">
+        ⚙️ Система
+    </button>
+    {% endif %}
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     TAB: Профиль
+     ══════════════════════════════════════════════════ -->
+<div x-show="tab==='profile'">
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
-    <!-- Left: Profile + Notifications -->
+    <!-- Left col: profile, security, 2FA -->
     <div class="lg:col-span-2 space-y-4">
 
         <!-- Profile edit card -->
@@ -43,105 +74,54 @@
             <h2 class="font-semibold text-slate-800 mb-4">👤 Личные данные</h2>
 
             <!-- Фото профиля -->
-            <div class="flex items-center gap-4 mb-5 pb-5 border-b border-slate-100">
-                <div class="relative flex-shrink-0">
-                    {% if profile.profile_photo %}
-                    <img src="{{ profile.profile_photo }}" alt="Фото профиля"
-                         class="w-16 h-16 rounded-full object-cover border-2 border-slate-200 shadow-sm">
-                    {% else %}
-                    <div class="w-16 h-16 rounded-full bg-blue-600 flex items-center justify-center text-white text-2xl font-bold shadow-sm">
-                        {{ (profile.first_name or user.get('first_name', '?'))[0]|upper }}
-                    </div>
-                    {% endif %}
+            <div class="flex items-center gap-4 mb-5">
+                {% if profile.photo_url %}
+                <img src="{{ profile.photo_url }}" alt="Фото"
+                     class="w-16 h-16 rounded-full object-cover ring-2 ring-slate-100 shrink-0">
+                {% else %}
+                <div class="w-16 h-16 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white text-2xl font-bold shrink-0">
+                    {{ (profile.first_name or 'U')[0].upper() }}
                 </div>
-                <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-slate-700 mb-1">Фото профиля</p>
-                    <p class="text-xs text-slate-400 mb-2">Отображается в чате команды. До 5 МБ, JPG/PNG/WebP.</p>
-                    <div class="flex flex-wrap gap-2">
-                        <form method="post" action="/settings/profile-photo" enctype="multipart/form-data"
-                              class="flex items-center gap-2">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <label class="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium
-                                          bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                                📷 Загрузить
-                                <input type="file" name="photo" accept="image/jpeg,image/png,image/webp"
-                                       class="hidden" data-autosubmit>
-                            </label>
-                        </form>
-                        {% if profile.profile_photo %}
-                        <form method="post" action="/settings/profile-photo/delete">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit"
-                                    class="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200
-                                           rounded-lg hover:bg-red-50 transition-colors">
-                                🗑 Удалить фото
-                            </button>
-                        </form>
-                        {% endif %}
-                    </div>
+                {% endif %}
+                <div class="min-w-0">
+                    <p class="font-semibold text-slate-800 truncate">{{ profile.first_name }} {{ profile.last_name or '' }}</p>
+                    {% if profile.username %}
+                    <a href="https://t.me/{{ profile.username }}" target="_blank"
+                       class="text-xs text-blue-500 hover:text-blue-700">@{{ profile.username }}</a>
+                    {% endif %}
                 </div>
             </div>
 
             <form method="post" action="/settings/profile" class="space-y-3">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">Имя</label>
-                        <input type="text" name="first_name" value="{{ profile.first_name }}" maxlength="64"
-                               class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">Фамилия</label>
-                        <input type="text" name="last_name" value="{{ profile.last_name }}" maxlength="64"
-                               class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">Отчество</label>
-                        <input type="text" name="middle_name" value="{{ profile.middle_name }}" maxlength="64"
-                               class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Имя</label>
+                    <input type="text" name="first_name" value="{{ profile.first_name or '' }}"
+                           placeholder="Ваше имя" required
+                           class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800">
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">Телефон</label>
-                        <input type="text" name="phone" value="{{ profile.phone }}" maxlength="32"
-                               class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">Email</label>
-                        <input type="email" name="email" value="{{ profile.email }}" maxlength="128"
-                               class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">Торговая сеть</label>
-                        <input type="text" name="trade_network" value="{{ profile.trade_network }}" maxlength="128"
-                               class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">Город</label>
-                        <input type="text" name="city" value="{{ profile.city }}" maxlength="128"
-                               class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Фамилия <span class="text-slate-400 font-normal">(необязательно)</span></label>
+                    <input type="text" name="last_name" value="{{ profile.last_name or '' }}"
+                           placeholder="Ваша фамилия"
+                           class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800">
                 </div>
                 <button type="submit"
-                        data-once="⏳ Сохранение…"
-                        class="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
-                    💾 Сохранить профиль
+                        class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors">
+                    💾 Сохранить
                 </button>
             </form>
         </div>
         {% endif %}
 
-        <!-- ── Email и пароль ── -->
+        <!-- Email / password card -->
         <div id="security" class="card p-5 scroll-mt-6">
-            <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">🔐 Email и пароль</h2>
-            <p class="text-xs text-slate-400 mb-4">Вход в веб-кабинет без Telegram</p>
+            <h2 class="font-semibold text-slate-800 mb-1">🔐 Email и пароль</h2>
+            <p class="text-sm text-slate-500 mb-4">Для входа в веб-кабинет без Telegram.</p>
 
             {% if email_saved %}
             <div class="mb-4 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
-                <span>✅</span><span>Сохранено</span>
+                <span>✅</span><span>Email и пароль обновлены</span>
             </div>
             {% endif %}
             {% if email_sent %}
@@ -311,539 +291,10 @@
         </div>
         {% endif %}
 
-        {% if notif_settings %}
-        <form method="post" action="/settings">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="card p-5">
-                <h2 class="font-semibold text-slate-800 mb-4">🔔 Уведомления</h2>
+    </div><!-- /left col -->
 
-                <div class="space-y-4">
-
-                    <!-- Toggle macro -->
-                    {% macro toggle(name, label, desc, checked) %}
-                    <label class="flex items-center justify-between gap-4 cursor-pointer group">
-                        <div>
-                            <p class="text-sm font-medium text-slate-700 group-hover:text-slate-900">{{ label }}</p>
-                            <p class="text-xs text-slate-400 mt-0.5">{{ desc }}</p>
-                        </div>
-                        <div class="relative shrink-0">
-                            <input type="checkbox" name="{{ name }}" value="on"
-                                   {% if checked %}checked{% endif %}
-                                   class="peer sr-only">
-                            <div class="w-11 h-6 bg-slate-200 peer-checked:bg-blue-600 rounded-full transition-colors duration-200"></div>
-                            <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-5"></div>
-                        </div>
-                    </label>
-                    {% endmacro %}
-
-                    {{ toggle('low_stock_alerts', 'Остатки заканчиваются',
-                              'Уведомление когда товар ниже порога', notif_settings.low_stock_alerts) }}
-
-                    <div class="pl-0">
-                        <label class="text-xs text-slate-500 font-medium">Порог остатка (шт.)</label>
-                        <input type="number" name="stock_threshold"
-                               value="{{ notif_settings.stock_threshold }}"
-                               min="0" max="999"
-                               class="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-[120px]">
-                    </div>
-
-                    {% if tasks_pro|default(false) %}
-                    <div class="border-t border-slate-100 pt-4">
-                      {{ toggle('auto_tasks_low_stock', '📑 Авто-задача при низком остатке',
-                                'Создаёт задачу «Пополнить остаток» когда товар ниже порога',
-                                notif_settings.auto_tasks_low_stock|default(false)) }}
-                    </div>
-                    {% endif %}
-
-                    <div class="border-t border-slate-100 pt-4">
-                        {{ toggle('sales_alerts', 'Оповещения о продажах',
-                                  'Уведомление при каждой продаже', notif_settings.sales_alerts) }}
-                    </div>
-
-                    <div class="border-t border-slate-100 pt-4">
-                        {{ toggle('shift_sale_alerts', 'Продажи коллег в смене',
-                                  'Уведомлять о продажах других в вашем магазине', notif_settings.shift_sale_alerts) }}
-                    </div>
-
-                    <div class="border-t border-slate-100 pt-4">
-                        {{ toggle('daily_reports', 'Ежедневный отчёт',
-                                  'Сводка продаж за день', notif_settings.daily_reports) }}
-                    </div>
-
-                    <div class="pl-0">
-                        <label class="text-xs text-slate-500 font-medium">Время отчёта</label>
-                        <input type="time" name="notification_time"
-                               value="{{ notif_settings.notification_time }}"
-                               class="mt-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </div>
-
-                    <div class="border-t border-slate-100 pt-4">
-                        {{ toggle('shift_reminders', 'Напоминание о начале смены',
-                                  'Уведомление когда наступает ваша смена', notif_settings.shift_reminders|default(true)) }}
-                    </div>
-
-                    <div class="pl-0">
-                        <label class="text-xs text-slate-500 font-medium">Напомнить заранее</label>
-                        <select name="shift_remind_minutes"
-                                class="mt-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <option value="0"  {% if (notif_settings.shift_remind_minutes|default(0))|int == 0  %}selected{% endif %}>В момент начала</option>
-                            <option value="15" {% if (notif_settings.shift_remind_minutes|default(0))|int == 15 %}selected{% endif %}>За 15 минут</option>
-                            <option value="30" {% if (notif_settings.shift_remind_minutes|default(0))|int == 30 %}selected{% endif %}>За 30 минут</option>
-                            <option value="60" {% if (notif_settings.shift_remind_minutes|default(0))|int == 60 %}selected{% endif %}>За 1 час</option>
-                        </select>
-                    </div>
-
-                    <div class="border-t border-slate-100 pt-4">
-                        {{ toggle('payment_alerts', 'Оповещения о платежах',
-                                  'Уведомления о поступлении платежей', notif_settings.payment_alerts) }}
-                    </div>
-
-                    {% if is_admin %}
-                    <div class="border-t border-slate-100 pt-4">
-                        {{ toggle('admin_notifications', 'Оповещения администратора',
-                                  'Важные события для администратора', notif_settings.admin_notifications) }}
-                    </div>
-                    {% endif %}
-
-                </div>
-
-                <div class="mt-5 pt-4 border-t border-slate-100">
-                    <button type="submit"
-                            class="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
-                        💾 Сохранить настройки
-                    </button>
-                </div>
-            </div>
-        </form>
-
-        {% else %}
-        <div class="card p-5 text-center text-slate-400">
-            <p>Настройки недоступны — пользователь не найден в базе данных организации</p>
-        </div>
-        {% endif %}
-
-        <!-- Push diagnostics card -->
-        <div class="card p-5" id="push-diag"
-             x-data="{
-                loading: true,
-                vapid: null,
-                subs: null,
-                perm: null,
-                lastSent: null,
-                recentPushes: [],
-                showLog: false,
-                msg: '',
-                msgOk: true,
-                pushErrors: [],
-                pushDelivered: false,
-                fmtDate(iso) {
-                    if (!iso) return '—';
-                    try {
-                        const d = new Date(iso.replace(' ', 'T') + 'Z');
-                        return d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
-                    } catch(e) { return iso; }
-                },
-                async loadStatus() {
-                    try {
-                        const r = await fetch('/api/push/status', {credentials:'same-origin'});
-                        const d = await r.json();
-                        if (d.ok) {
-                            this.vapid = d.vapid;
-                            this.subs = d.subs_count;
-                            this.lastSent = d.last_sent || null;
-                            this.recentPushes = d.recent_pushes || [];
-                        }
-                    } catch(e) {}
-                },
-                async init() {
-                    this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
-                    await this.loadStatus();
-                    this.loading = false;
-                    /* Refresh card when the SW signals that a test push arrived */
-                    if ('serviceWorker' in navigator) {
-                        navigator.serviceWorker.addEventListener('message', (ev) => {
-                            if (ev.data && ev.data.type === 'ds-push-received') {
-                                this.loadStatus();
-                                this.pushDelivered = true;
-                                setTimeout(() => { this.pushDelivered = false; }, 3000);
-                            }
-                        });
-                    }
-                },
-                async test() {
-                    this.msg = ''; this.msgOk = true;
-                    if (this.perm !== 'granted') {
-                        await window.dsSubscribeWebPush();
-                        this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
-                    }
-                    const r = await fetch('/api/push/test', {method:'POST', credentials:'same-origin'});
-                    const d = await r.json();
-                    this.msg = d.msg || (d.ok ? '✅ Отправлено' : '❌ Ошибка');
-                    this.msgOk = d.ok;
-                    this.pushErrors = d.errors || [];
-                    if (d.ok) { this.subs = (this.subs || 0) + 1; }
-                    await this.loadStatus();
-                },
-                async reconnect() {
-                    this.msg = '⏳ Переподключение…'; this.msgOk = true;
-                    await window.dsPushReconnect();
-                    this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
-                    await this.loadStatus();
-                    this.msg = '✅ Готово — попробуйте «Проверить»';
-                }
-             }">
-            <h2 class="font-semibold text-slate-800 mb-3">🔔 Диагностика push-уведомлений</h2>
-
-            <div x-show="loading" class="text-xs text-slate-400 py-2">Загрузка…</div>
-
-            <template x-if="!loading">
-                <div class="space-y-2.5">
-                    <!-- Browser permission -->
-                    <div class="flex items-center justify-between text-sm">
-                        <span class="text-slate-600">Разрешение браузера</span>
-                        <span class="font-medium px-2 py-0.5 rounded-full text-xs"
-                              :class="{
-                                'bg-emerald-100 text-emerald-700': perm === 'granted',
-                                'bg-red-100 text-red-600': perm === 'denied',
-                                'bg-amber-100 text-amber-700': perm === 'default',
-                                'bg-slate-100 text-slate-500': perm === 'unsupported'
-                              }"
-                              x-text="perm === 'granted' ? '✅ Разрешено' : perm === 'denied' ? '🚫 Запрещено' : perm === 'default' ? '⏳ Не запрошено' : '— Не поддерживается'">
-                        </span>
-                    </div>
-
-                    <!-- Server subscriptions -->
-                    <div class="flex items-center justify-between text-sm">
-                        <span class="text-slate-600">Подписок на сервере</span>
-                        <span class="font-medium px-2 py-0.5 rounded-full text-xs"
-                              :class="{
-                                'bg-emerald-100 text-emerald-700': subs > 0,
-                                'bg-amber-100 text-amber-700': subs === 0
-                              }"
-                              x-text="subs === null ? '…' : subs > 0 ? '✅ ' + subs + ' устр.' : '⚠️ Нет'">
-                        </span>
-                    </div>
-
-                    <!-- VAPID -->
-                    <div class="flex items-center justify-between text-sm">
-                        <span class="text-slate-600">VAPID-ключи (сервер)</span>
-                        <span class="font-medium px-2 py-0.5 rounded-full text-xs"
-                              :class="{
-                                'bg-emerald-100 text-emerald-700': vapid === true,
-                                'bg-red-100 text-red-600': vapid === false
-                              }"
-                              x-text="vapid === null ? '…' : vapid ? '✅ Настроены' : '❌ Не настроены'">
-                        </span>
-                    </div>
-
-                    <!-- Last delivery -->
-                    <div class="flex items-center justify-between text-sm">
-                        <span class="text-slate-600">Последняя доставка</span>
-                        <span class="font-medium px-2 py-0.5 rounded-full text-xs"
-                              :class="lastSent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'"
-                              x-text="lastSent ? fmtDate(lastSent) : 'Нет данных'">
-                        </span>
-                    </div>
-
-                    <!-- Recent pushes mini-log (collapsible) -->
-                    <template x-if="recentPushes.length > 0">
-                        <div>
-                            <button @click="showLog = !showLog"
-                                    class="text-xs text-blue-600 hover:underline flex items-center gap-1 mt-0.5">
-                                <span x-text="showLog ? '▲ Скрыть историю' : '▼ История доставок (' + recentPushes.length + ')'"></span>
-                            </button>
-                            <div x-show="showLog" x-transition
-                                 class="mt-2 rounded-lg border border-slate-100 bg-slate-50 divide-y divide-slate-100 text-xs">
-                                <template x-for="p in recentPushes" :key="p.sent_at">
-                                    <div class="flex items-center justify-between px-3 py-1.5 gap-2">
-                                        <span class="text-slate-700 truncate" x-text="p.title || '—'"></span>
-                                        <span class="text-slate-400 whitespace-nowrap flex-shrink-0" x-text="fmtDate(p.sent_at)"></span>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Huawei hint -->
-                    <div x-show="subs !== null && subs === 0 && perm === 'granted'"
-                         class="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mt-1">
-                        Подписка не зарегистрирована. Нажмите «Переподключить» чтобы восстановить её.
-                    </div>
-                    <div x-show="perm === 'denied'"
-                         class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 mt-1">
-                        Уведомления заблокированы в настройках браузера. Разрешите их вручную и нажмите «Переподключить».
-                    </div>
-
-                    <!-- Result message -->
-                    <div x-show="msg"
-                         :class="msgOk ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'"
-                         class="text-xs rounded-lg px-3 py-2 mt-1" x-text="msg">
-                    </div>
-                    <!-- Error details (shown when push fails — helps diagnose root cause) -->
-                    <template x-if="pushErrors.length > 0">
-                        <div class="mt-1 space-y-1">
-                            <template x-for="(e, i) in pushErrors" :key="i">
-                                <div class="text-xs font-mono bg-red-50 text-red-700 rounded px-2 py-1 break-all" x-text="e"></div>
-                            </template>
-                        </div>
-                    </template>
-
-                    <!-- SW delivery confirmation (flashes for 3 s when push is received) -->
-                    <div x-show="pushDelivered"
-                         x-transition:enter="transition ease-out duration-200"
-                         x-transition:enter-start="opacity-0 scale-95"
-                         x-transition:enter-end="opacity-100 scale-100"
-                         x-transition:leave="transition ease-in duration-300"
-                         x-transition:leave-start="opacity-100 scale-100"
-                         x-transition:leave-end="opacity-0 scale-95"
-                         class="text-xs rounded-lg px-3 py-2 mt-1 bg-emerald-100 text-emerald-800 font-semibold">
-                        ✅ Push доставлен!
-                    </div>
-
-                    <!-- Action buttons -->
-                    <div class="flex gap-2 pt-1">
-                        <button @click="test()"
-                                :disabled="vapid === false"
-                                class="flex-1 py-2 text-sm font-semibold rounded-xl transition-colors
-                                       bg-blue-600 hover:bg-blue-700 text-white
-                                       disabled:opacity-40 disabled:cursor-not-allowed">
-                            🔔 Проверить
-                        </button>
-                        <button @click="reconnect()"
-                                class="flex-1 py-2 text-sm font-semibold rounded-xl border border-slate-200
-                                       text-slate-600 hover:bg-slate-50 transition-colors">
-                            🔄 Переподключить
-                        </button>
-                    </div>
-                </div>
-            </template>
-        </div>
-
-        <!-- APK notification toggle — separate form -->
-        <div class="card p-5">
-            <h2 class="font-semibold text-slate-800 mb-1">📱 Уведомления об обновлении APK</h2>
-            <p class="text-xs text-slate-500 mb-4">Веб-кабинет обновляется автоматически. APK-уведомления приходят только при изменении нативной оболочки приложения — такое бывает редко.</p>
-            <form method="post" action="/settings/apk-notif" class="flex items-center justify-between gap-4">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <div>
-                    <p class="text-sm font-medium text-slate-700">Уведомлять об обновлении APK</p>
-                    <p class="text-xs text-slate-400 mt-0.5">
-                        {% if apk_notif_enabled %}✅ Включено — уведомление в боте при редком обновлении оболочки{% else %}❌ Отключено — уведомления не отправляются{% endif %}
-                    </p>
-                </div>
-                <label class="relative shrink-0 cursor-pointer">
-                    <input type="checkbox" name="apk_notif" value="on"
-                           {% if apk_notif_enabled %}checked{% endif %}
-                           data-autosubmit
-                           class="peer sr-only">
-                    <div class="w-11 h-6 bg-slate-200 peer-checked:bg-blue-600 rounded-full transition-colors duration-200"></div>
-                    <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-5"></div>
-                </label>
-            </form>
-        </div>
-    </div>
-
-    <!-- Right: Org info + account -->
+    <!-- Right col: account, bot, referral -->
     <div class="space-y-4">
-
-        <!-- Org info -->
-        <div class="card p-5">
-            <h2 class="font-semibold text-slate-800 mb-4">🏢 Организация</h2>
-            <div class="space-y-3 text-sm">
-                <div class="flex justify-between">
-                    <span class="text-slate-500">Название</span>
-                    <span class="font-medium text-slate-800">{{ org_name or '—' }}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-slate-500">Тариф</span>
-                    <span class="font-medium
-                                 {% if org_plan == 'Премиум' %}text-amber-500
-                                 {% elif org_plan == 'Стандарт' %}text-indigo-500
-                                 {% elif org_plan == 'Базовый' %}text-blue-500
-                                 {% else %}text-slate-500{% endif %}">
-                        {{ org_plan or '—' }}
-                    </span>
-                </div>
-                {% if org_plan_end %}
-                <div class="flex justify-between">
-                    <span class="text-slate-500">До</span>
-                    <span class="font-medium text-slate-700">{{ org_plan_end|fmt_date }}</span>
-                </div>
-                {% endif %}
-                
-            </div>
-        </div>
-
-        {% if is_owner %}
-        <!-- Org logo card (#42) -->
-        <div class="card p-5">
-            <h2 class="font-semibold text-slate-800 mb-3">🖼 Логотип организации</h2>
-            <p class="text-xs text-slate-500 mb-3">Используется на ценниках. Загрузите PNG/JPG до 2 МБ.</p>
-            <div id="orgLogoPreview" class="{% if not org_logo_path %}hidden{% endif %} mb-3 flex items-center gap-3">
-                <img id="orgLogoImg" src="{{ org_logo_path }}" alt="Лого" class="h-12 max-w-[120px] object-contain rounded border border-slate-200">
-                <button type="button" data-action="clearOrgLogoSettings"
-                        class="text-xs text-red-500 hover:text-red-700 underline transition-colors">
-                    ✕ Удалить
-                </button>
-            </div>
-            <div class="flex items-center gap-3 flex-wrap">
-                <input type="file" id="orgLogoFile" accept="image/*"
-                       data-change="uploadOrgLogo"
-                       class="text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 transition-all">
-                <span id="orgLogoStatus" class="text-xs text-green-600 hidden">✓ Сохранено</span>
-            </div>
-            <script nonce="{{ csp_nonce(request) }}">
-            async function uploadOrgLogo(inp) {
-                if (!inp.files[0]) return;
-                const fd = new FormData();
-                fd.append('csrf_token', '{{ csrf_token }}');
-                fd.append('org_logo', inp.files[0]);
-                try {
-                    const r = await fetch('/products/org-logo', {method:'POST', body:fd});
-                    const j = await r.json();
-                    if (j.ok) {
-                        const url = URL.createObjectURL(inp.files[0]);
-                        document.getElementById('orgLogoImg').src = url;
-                        document.getElementById('orgLogoPreview').classList.remove('hidden');
-                        const st = document.getElementById('orgLogoStatus');
-                        st.classList.remove('hidden');
-                        setTimeout(() => st.classList.add('hidden'), 3000);
-                    } else { alert(j.error || 'Ошибка загрузки'); }
-                } catch(e) { alert('Ошибка соединения'); }
-                inp.value = '';
-            }
-            async function clearOrgLogoSettings() {
-                if (!confirm('Удалить логотип организации?')) return;
-                const fd = new FormData();
-                fd.append('csrf_token', '{{ csrf_token }}');
-                fd.append('clear_org_logo', '1');
-                try {
-                    const r = await fetch('/products/org-logo', {method:'POST', body:fd});
-                    const j = await r.json();
-                    if (j.ok) {
-                        document.getElementById('orgLogoPreview').classList.add('hidden');
-                        document.getElementById('orgLogoImg').src = '';
-                    } else { alert(j.error || 'Ошибка'); }
-                } catch(e) { alert('Ошибка соединения'); }
-            }
-            </script>
-        </div>
-
-        <!-- Label design shortcut (#38) -->
-        <div class="card p-5">
-            <h2 class="font-semibold text-slate-800 mb-1">🎨 Дизайн ценников</h2>
-            <p class="text-xs text-slate-500 mb-3">Настройте цвета фона, текста и шрифт для печатных ценников.</p>
-            {% if first_product_id %}
-            <a href="/products/{{ first_product_id }}/label?design=1"
-               class="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
-                🎨 Открыть редактор дизайна
-            </a>
-            {% else %}
-            <p class="text-xs text-slate-400 italic">Добавьте хотя бы один товар, чтобы настроить ценники.</p>
-            {% endif %}
-        </div>
-        {% endif %}
-
-        <!-- Mobile app card -->
-        <div class="card p-5">
-            <h2 class="font-semibold text-slate-800 mb-1">📱 Мобильное приложение</h2>
-            <p class="text-xs text-slate-500 mb-3">TWA-оболочка вокруг веб-кабинета — скачать один раз, обновлений не требует</p>
-            <a href="/download/android"
-               class="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 rounded-lg transition-colors mb-4">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                Скачать APK (первичная установка)
-            </a>
-            <ul class="space-y-1.5 text-xs text-slate-600">
-                <li class="flex gap-2">✅ <span>Все обновления веб-интерфейса приходят <b>автоматически</b> — переустанавливать не нужно</span></li>
-                <li class="flex gap-2">📲 <span>APK устанавливается как обычное приложение, разрешив установку из неизвестных источников</span></li>
-                <li class="flex gap-2">🚫 <span>Google Play не нужен — приложение работает напрямую</span></li>
-            </ul>
-        </div>
-
-        <!-- Invite section (admins only) -->
-        {% if is_admin and org_id %}
-        <div id="invite" class="card p-5 scroll-mt-6">
-            <h2 class="font-semibold text-slate-800 mb-4">🔗 Приглашения</h2>
-
-            {% if invite_code %}
-            <!-- Invite code -->
-            <div class="mb-3">
-                <p class="text-xs text-slate-500 font-medium mb-1">Код приглашения</p>
-                <div class="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2">
-                    <code id="inviteCode" class="text-sm font-mono text-slate-700 flex-1 select-all">{{ invite_code }}</code>
-                    <button type="button" data-action="copyText" data-arg="inviteCode"
-                            class="text-xs text-blue-500 hover:text-blue-700 shrink-0 transition-colors">
-                        Копировать
-                    </button>
-                </div>
-            </div>
-
-            {% if invite_deep_link %}
-            <!-- Deep link -->
-            <div class="mb-4">
-                <p class="text-xs text-slate-500 font-medium mb-1">Ссылка для приглашения</p>
-                <div class="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2">
-                    <span id="inviteLink" class="text-xs text-slate-600 flex-1 break-all">{{ invite_deep_link }}</span>
-                    <button type="button" data-action="copyText" data-arg="inviteLink"
-                            class="text-xs text-blue-500 hover:text-blue-700 shrink-0 transition-colors">
-                        Копировать
-                    </button>
-                </div>
-            </div>
-            {% endif %}
-
-            <!-- Rotate code -->
-            <form method="post" action="/settings/rotate_invite"
-                  data-confirm="Сбросить код? Старая ссылка перестанет работать.">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit"
-                        class="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-slate-200 text-sm text-slate-500 hover:text-amber-600 hover:border-amber-200 transition-colors mb-4">
-                    🔄 Сбросить код
-                </button>
-            </form>
-            {% else %}
-            <p class="text-xs text-slate-400 mb-3">Код ещё не создан</p>
-            <form method="post" action="/settings/rotate_invite">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit"
-                        class="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors mb-4">
-                    ✨ Создать код
-                </button>
-            </form>
-            {% endif %}
-
-            <!-- Preset form -->
-            <div class="border-t border-slate-100 pt-4">
-                <p class="text-xs font-medium text-slate-600 mb-3">Пресет для новых сотрудников</p>
-                <form method="post" action="/settings/save_invite_preset" class="space-y-3">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <div>
-                        <label class="text-xs text-slate-500 mb-1 block">Роль</label>
-                        <select name="preset_role"
-                                class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                            <option value="" {% if not invite_preset_role %}selected{% endif %}>— без пресета —</option>
-                            <option value="user" {% if invite_preset_role == 'user' %}selected{% endif %}>Сотрудник</option>
-                            <option value="admin" {% if invite_preset_role == 'admin' %}selected{% endif %}>Администратор</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-xs text-slate-500 mb-1 block">Магазин</label>
-                        <select name="preset_shop"
-                                class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                            <option value="" {% if not invite_preset_shop %}selected{% endif %}>— без пресета —</option>
-                            {% for sh in invite_shops %}
-                            <option value="{{ sh }}" {% if invite_preset_shop == sh %}selected{% endif %}>{{ sh }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <button type="submit"
-                            class="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
-                        💾 Сохранить пресет
-                    </button>
-                </form>
-            </div>
-        </div>
-        {% endif %}
 
         <!-- Account info -->
         <div class="card p-5">
@@ -965,24 +416,491 @@
         </div>
         {% endif %}
 
-        <!-- AI insights link card (admin only) -->
-        {% if is_admin %}
-        <div class="card p-5" id="ai-alerts">
-            <h2 class="font-semibold text-slate-800 dark:text-slate-200 mb-1">🤖 AI-инсайты и алерты</h2>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Ежедневные уведомления о падении продаж, еженедельный дайджест и история алертов</p>
-            {% if email_missing_warning %}
-            <div class="flex items-start gap-2.5 p-3 mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl text-sm text-amber-800 dark:text-amber-300">
-                <span class="mt-0.5 shrink-0">⚠️</span>
-                <span>Email-алерты включены, но ни один администратор не привязал email. <a href="/settings#profile" class="underline font-medium">Добавить email</a></span>
+    </div><!-- /right col -->
+</div><!-- /profile grid -->
+</div><!-- /profile tab -->
+
+
+<!-- ══════════════════════════════════════════════════
+     TAB: Уведомления
+     ══════════════════════════════════════════════════ -->
+<div x-show="tab==='notifs'" style="display:none">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+    <!-- Left col: notification settings, APK, push diagnostics -->
+    <div class="lg:col-span-2 space-y-4">
+
+        {% if notif_settings %}
+        <form method="post" action="/settings">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="card p-5">
+                <h2 class="font-semibold text-slate-800 mb-4">🔔 Уведомления</h2>
+
+                <div class="space-y-4">
+
+                    <!-- Toggle macro -->
+                    {% macro toggle(name, label, desc, checked) %}
+                    <label class="flex items-center justify-between gap-4 cursor-pointer group">
+                        <div>
+                            <p class="text-sm font-medium text-slate-700 group-hover:text-slate-900">{{ label }}</p>
+                            <p class="text-xs text-slate-400 mt-0.5">{{ desc }}</p>
+                        </div>
+                        <div class="relative shrink-0">
+                            <input type="checkbox" name="{{ name }}" value="on"
+                                   {% if checked %}checked{% endif %}
+                                   class="peer sr-only">
+                            <div class="w-11 h-6 bg-slate-200 peer-checked:bg-blue-600 rounded-full transition-colors duration-200"></div>
+                            <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-5"></div>
+                        </div>
+                    </label>
+                    {% endmacro %}
+
+                    {{ toggle('low_stock_alerts', 'Остатки заканчиваются',
+                              'Уведомление когда товар ниже порога', notif_settings.low_stock_alerts) }}
+
+                    <div class="pl-0">
+                        <label class="text-xs text-slate-500 font-medium">Порог остатка (шт.)</label>
+                        <input type="number" name="stock_threshold"
+                               value="{{ notif_settings.stock_threshold }}"
+                               min="0" max="999"
+                               class="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-[120px]">
+                    </div>
+
+                    {% if tasks_pro|default(false) %}
+                    <div class="border-t border-slate-100 pt-4">
+                      {{ toggle('auto_tasks_low_stock', '📑 Авто-задача при низком остатке',
+                                'Создаёт задачу «Пополнить остаток» когда товар ниже порога',
+                                notif_settings.auto_tasks_low_stock|default(false)) }}
+                    </div>
+                    {% endif %}
+
+                    <div class="border-t border-slate-100 pt-4">
+                        {{ toggle('sales_alerts', 'Оповещения о продажах',
+                                  'Уведомление при каждой продаже', notif_settings.sales_alerts) }}
+                    </div>
+
+                    <div class="border-t border-slate-100 pt-4">
+                        {{ toggle('shift_sale_alerts', 'Продажи коллег в смене',
+                                  'Уведомлять о продажах других в вашем магазине', notif_settings.shift_sale_alerts) }}
+                    </div>
+
+                    <div class="border-t border-slate-100 pt-4">
+                        {{ toggle('daily_reports', 'Ежедневный отчёт',
+                                  'Сводка продаж за день', notif_settings.daily_reports) }}
+                    </div>
+
+                    <div class="pl-0">
+                        <label class="text-xs text-slate-500 font-medium">Время отчёта</label>
+                        <input type="time" name="notification_time"
+                               value="{{ notif_settings.notification_time }}"
+                               class="mt-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div class="border-t border-slate-100 pt-4">
+                        {{ toggle('shift_reminders', 'Напоминание о начале смены',
+                                  'Уведомление когда наступает ваша смена', notif_settings.shift_reminders|default(true)) }}
+                    </div>
+
+                    <div class="pl-0">
+                        <label class="text-xs text-slate-500 font-medium">Напомнить заранее</label>
+                        <select name="shift_remind_minutes"
+                                class="mt-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="0"  {% if (notif_settings.shift_remind_minutes|default(0))|int == 0  %}selected{% endif %}>В момент начала</option>
+                            <option value="15" {% if (notif_settings.shift_remind_minutes|default(0))|int == 15 %}selected{% endif %}>За 15 минут</option>
+                            <option value="30" {% if (notif_settings.shift_remind_minutes|default(0))|int == 30 %}selected{% endif %}>За 30 минут</option>
+                            <option value="60" {% if (notif_settings.shift_remind_minutes|default(0))|int == 60 %}selected{% endif %}>За 1 час</option>
+                        </select>
+                    </div>
+
+                    <div class="border-t border-slate-100 pt-4">
+                        {{ toggle('payment_alerts', 'Оповещения о платежах',
+                                  'Уведомления о поступлении платежей', notif_settings.payment_alerts) }}
+                    </div>
+
+                    {% if is_admin %}
+                    <div class="border-t border-slate-100 pt-4">
+                        {{ toggle('admin_notifications', 'Оповещения администратора',
+                                  'Важные события для администратора', notif_settings.admin_notifications) }}
+                    </div>
+                    {% endif %}
+
+                </div>
+
+                <div class="mt-5 pt-4 border-t border-slate-100">
+                    <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+                        💾 Сохранить настройки
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        {% else %}
+        <div class="card p-5 text-center text-slate-400">
+            <p>Настройки недоступны — пользователь не найден в базе данных организации</p>
+        </div>
+        {% endif %}
+
+        <!-- APK notification toggle — separate form -->
+        <div class="card p-5">
+            <h2 class="font-semibold text-slate-800 mb-1">📱 Уведомления об обновлении APK</h2>
+            <p class="text-xs text-slate-500 mb-4">Веб-кабинет обновляется автоматически. APK-уведомления приходят только при изменении нативной оболочки приложения — такое бывает редко.</p>
+            <form method="post" action="/settings/apk-notif" class="flex items-center justify-between gap-4">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div>
+                    <p class="text-sm font-medium text-slate-700">Уведомлять об обновлении APK</p>
+                    <p class="text-xs text-slate-400 mt-0.5">
+                        {% if apk_notif_enabled %}✅ Включено — уведомление в боте при редком обновлении оболочки{% else %}❌ Отключено — уведомления не отправляются{% endif %}
+                    </p>
+                </div>
+                <label class="relative shrink-0 cursor-pointer">
+                    <input type="checkbox" name="apk_notif" value="on"
+                           {% if apk_notif_enabled %}checked{% endif %}
+                           data-autosubmit
+                           class="peer sr-only">
+                    <div class="w-11 h-6 bg-slate-200 peer-checked:bg-blue-600 rounded-full transition-colors duration-200"></div>
+                    <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-5"></div>
+                </label>
+            </form>
+        </div>
+
+        <!-- Push diagnostics (collapsible) -->
+        <details class="card p-5" id="push-diag">
+            <summary class="cursor-pointer font-semibold text-slate-800 flex items-center justify-between select-none">
+                <span>🔔 Диагностика push-уведомлений</span>
+                <svg class="w-4 h-4 text-slate-400 transition-transform details-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </summary>
+            <div class="mt-4"
+                 x-data="{
+                    loading: true,
+                    vapid: null,
+                    subs: null,
+                    perm: null,
+                    lastSent: null,
+                    recentPushes: [],
+                    showLog: false,
+                    msg: '',
+                    msgOk: true,
+                    pushErrors: [],
+                    pushDelivered: false,
+                    fmtDate(iso) {
+                        if (!iso) return '—';
+                        try {
+                            const d = new Date(iso.replace(' ', 'T') + 'Z');
+                            return d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+                        } catch(e) { return iso; }
+                    },
+                    async loadStatus() {
+                        try {
+                            const r = await fetch('/api/push/status', {credentials:'same-origin'});
+                            const d = await r.json();
+                            if (d.ok) {
+                                this.vapid = d.vapid;
+                                this.subs = d.subs_count;
+                                this.lastSent = d.last_sent || null;
+                                this.recentPushes = d.recent_pushes || [];
+                            }
+                        } catch(e) {}
+                    },
+                    async init() {
+                        this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+                        await this.loadStatus();
+                        this.loading = false;
+                        if ('serviceWorker' in navigator) {
+                            navigator.serviceWorker.addEventListener('message', (ev) => {
+                                if (ev.data && ev.data.type === 'ds-push-received') {
+                                    this.loadStatus();
+                                    this.pushDelivered = true;
+                                    setTimeout(() => { this.pushDelivered = false; }, 3000);
+                                }
+                            });
+                        }
+                    },
+                    async test() {
+                        this.msg = ''; this.msgOk = true;
+                        if (this.perm !== 'granted') {
+                            await window.dsSubscribeWebPush();
+                            this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+                        }
+                        const r = await fetch('/api/push/test', {method:'POST', credentials:'same-origin'});
+                        const d = await r.json();
+                        this.msg = d.msg || (d.ok ? '✅ Отправлено' : '❌ Ошибка');
+                        this.msgOk = d.ok;
+                        this.pushErrors = d.errors || [];
+                        if (d.ok) { this.subs = (this.subs || 0) + 1; }
+                        await this.loadStatus();
+                    },
+                    async reconnect() {
+                        this.msg = '⏳ Переподключение…'; this.msgOk = true;
+                        await window.dsPushReconnect();
+                        this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+                        await this.loadStatus();
+                        this.msg = '✅ Готово — попробуйте «Проверить»';
+                    }
+                 }">
+
+                <div x-show="loading" class="text-xs text-slate-400 py-2">Загрузка…</div>
+
+                <template x-if="!loading">
+                    <div class="space-y-2.5">
+                        <!-- Browser permission -->
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-600">Разрешение браузера</span>
+                            <span class="font-medium px-2 py-0.5 rounded-full text-xs"
+                                  :class="{
+                                    'bg-emerald-100 text-emerald-700': perm === 'granted',
+                                    'bg-red-100 text-red-600': perm === 'denied',
+                                    'bg-amber-100 text-amber-700': perm === 'default',
+                                    'bg-slate-100 text-slate-500': perm === 'unsupported'
+                                  }"
+                                  x-text="perm === 'granted' ? '✅ Разрешено' : perm === 'denied' ? '🚫 Запрещено' : perm === 'default' ? '⏳ Не запрошено' : '— Не поддерживается'">
+                            </span>
+                        </div>
+
+                        <!-- Server subscriptions -->
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-600">Подписок на сервере</span>
+                            <span class="font-medium px-2 py-0.5 rounded-full text-xs"
+                                  :class="{
+                                    'bg-emerald-100 text-emerald-700': subs > 0,
+                                    'bg-amber-100 text-amber-700': subs === 0
+                                  }"
+                                  x-text="subs === null ? '…' : subs > 0 ? '✅ ' + subs + ' устр.' : '⚠️ Нет'">
+                            </span>
+                        </div>
+
+                        <!-- VAPID -->
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-600">VAPID-ключи (сервер)</span>
+                            <span class="font-medium px-2 py-0.5 rounded-full text-xs"
+                                  :class="{
+                                    'bg-emerald-100 text-emerald-700': vapid === true,
+                                    'bg-red-100 text-red-600': vapid === false
+                                  }"
+                                  x-text="vapid === null ? '…' : vapid ? '✅ Настроены' : '❌ Не настроены'">
+                            </span>
+                        </div>
+
+                        <!-- Last delivery -->
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-600">Последняя доставка</span>
+                            <span class="font-medium px-2 py-0.5 rounded-full text-xs"
+                                  :class="lastSent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                                  x-text="lastSent ? fmtDate(lastSent) : 'Нет данных'">
+                            </span>
+                        </div>
+
+                        <!-- Recent pushes mini-log (collapsible) -->
+                        <template x-if="recentPushes.length > 0">
+                            <div>
+                                <button @click="showLog = !showLog"
+                                        class="text-xs text-blue-600 hover:underline flex items-center gap-1 mt-0.5">
+                                    <span x-text="showLog ? '▲ Скрыть историю' : '▼ История доставок (' + recentPushes.length + ')'"></span>
+                                </button>
+                                <div x-show="showLog" x-transition
+                                     class="mt-2 rounded-lg border border-slate-100 bg-slate-50 divide-y divide-slate-100 text-xs">
+                                    <template x-for="p in recentPushes" :key="p.sent_at">
+                                        <div class="flex items-center justify-between px-3 py-1.5 gap-2">
+                                            <span class="text-slate-700 truncate" x-text="p.title || '—'"></span>
+                                            <span class="text-slate-400 whitespace-nowrap flex-shrink-0" x-text="fmtDate(p.sent_at)"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Huawei hint -->
+                        <div x-show="subs !== null && subs === 0 && perm === 'granted'"
+                             class="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mt-1">
+                            Подписка не зарегистрирована. Нажмите «Переподключить» чтобы восстановить её.
+                        </div>
+                        <div x-show="perm === 'denied'"
+                             class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 mt-1">
+                            Уведомления заблокированы в настройках браузера. Разрешите их вручную и нажмите «Переподключить».
+                        </div>
+
+                        <!-- Result message -->
+                        <div x-show="msg"
+                             :class="msgOk ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'"
+                             class="text-xs rounded-lg px-3 py-2 mt-1" x-text="msg">
+                        </div>
+                        <!-- Error details -->
+                        <template x-if="pushErrors.length > 0">
+                            <div class="mt-1 space-y-1">
+                                <template x-for="(e, i) in pushErrors" :key="i">
+                                    <div class="text-xs font-mono bg-red-50 text-red-700 rounded px-2 py-1 break-all" x-text="e"></div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <!-- SW delivery confirmation -->
+                        <div x-show="pushDelivered"
+                             x-transition:enter="transition ease-out duration-200"
+                             x-transition:enter-start="opacity-0 scale-95"
+                             x-transition:enter-end="opacity-100 scale-100"
+                             x-transition:leave="transition ease-in duration-300"
+                             x-transition:leave-start="opacity-100 scale-100"
+                             x-transition:leave-end="opacity-0 scale-95"
+                             class="text-xs rounded-lg px-3 py-2 mt-1 bg-emerald-100 text-emerald-800 font-semibold">
+                            ✅ Push доставлен!
+                        </div>
+
+                        <!-- Action buttons -->
+                        <div class="flex gap-2 pt-1">
+                            <button @click="test()"
+                                    :disabled="vapid === false"
+                                    class="flex-1 py-2 text-sm font-semibold rounded-xl transition-colors
+                                           bg-blue-600 hover:bg-blue-700 text-white
+                                           disabled:opacity-40 disabled:cursor-not-allowed">
+                                🔔 Проверить
+                            </button>
+                            <button @click="reconnect()"
+                                    class="flex-1 py-2 text-sm font-semibold rounded-xl border border-slate-200
+                                           text-slate-600 hover:bg-slate-50 transition-colors">
+                                🔄 Переподключить
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </details>
+
+    </div><!-- /left col -->
+
+    <!-- Right col: notification history -->
+    <div class="space-y-4">
+
+        {% if notification_history %}
+        <div class="card overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                    <h2 class="font-semibold text-slate-800">🔔 История уведомлений</h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Последние полученные уведомления</p>
+                </div>
+                <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                    {{ notification_history|length }}
+                </span>
+            </div>
+            <div class="divide-y divide-slate-50">
+                {% for h in notification_history %}
+                <div class="px-5 py-3 flex items-start gap-3 {{ 'opacity-60' if h.is_read else '' }}">
+                    <div class="mt-1 w-2 h-2 rounded-full shrink-0
+                                {{ 'bg-slate-300' if h.is_read else 'bg-blue-400' }}"></div>
+                    <div class="flex-1 min-w-0">
+                        {% if h.type %}
+                        <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">{{ h.type }}</span>
+                        {% endif %}
+                        <p class="text-sm text-slate-700 leading-snug mt-0.5">{{ h.message }}</p>
+                        <p class="text-xs text-slate-400 mt-1">{{ h.created_at|fmt_datetime }}</p>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% else %}
+        <div class="card p-5 text-center text-slate-400">
+            <p class="text-sm">История уведомлений пуста</p>
+        </div>
+        {% endif %}
+
+    </div><!-- /right col -->
+</div><!-- /notifs grid -->
+</div><!-- /notifs tab -->
+
+
+<!-- ══════════════════════════════════════════════════
+     TAB: Организация
+     ══════════════════════════════════════════════════ -->
+<div x-show="tab==='org'" style="display:none">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+    <!-- Left col: invite, AI digest -->
+    <div class="lg:col-span-2 space-y-4">
+
+        <!-- Invite section (admins only) -->
+        {% if is_admin and org_id %}
+        <div id="invite" class="card p-5 scroll-mt-6">
+            <h2 class="font-semibold text-slate-800 mb-4">🔗 Приглашения</h2>
+
+            {% if invite_code %}
+            <!-- Invite code -->
+            <div class="mb-3">
+                <p class="text-xs text-slate-500 font-medium mb-1">Код приглашения</p>
+                <div class="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2">
+                    <code id="inviteCode" class="text-sm font-mono text-slate-700 flex-1 select-all">{{ invite_code }}</code>
+                    <button type="button" data-action="copyText" data-arg="inviteCode"
+                            class="text-xs text-blue-500 hover:text-blue-700 shrink-0 transition-colors">
+                        Копировать
+                    </button>
+                </div>
+            </div>
+
+            {% if invite_deep_link %}
+            <!-- Deep link -->
+            <div class="mb-4">
+                <p class="text-xs text-slate-500 font-medium mb-1">Ссылка для приглашения</p>
+                <div class="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2">
+                    <span id="inviteLink" class="text-xs text-slate-600 flex-1 break-all">{{ invite_deep_link }}</span>
+                    <button type="button" data-action="copyText" data-arg="inviteLink"
+                            class="text-xs text-blue-500 hover:text-blue-700 shrink-0 transition-colors">
+                        Копировать
+                    </button>
+                </div>
             </div>
             {% endif %}
-            <a href="/ai-insights"
-               class="flex items-center justify-between w-full py-2.5 px-4 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
-                <span>Настроить инсайты</span>
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                </svg>
-            </a>
+
+            <!-- Rotate code -->
+            <form method="post" action="/settings/rotate_invite"
+                  data-confirm="Сбросить код? Старая ссылка перестанет работать.">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit"
+                        class="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-slate-200 text-sm text-slate-500 hover:text-amber-600 hover:border-amber-200 transition-colors mb-4">
+                    🔄 Сбросить код
+                </button>
+            </form>
+            {% else %}
+            <p class="text-xs text-slate-400 mb-3">Код ещё не создан</p>
+            <form method="post" action="/settings/rotate_invite">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit"
+                        class="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors mb-4">
+                    ✨ Создать код
+                </button>
+            </form>
+            {% endif %}
+
+            <!-- Preset form -->
+            <div class="border-t border-slate-100 pt-4">
+                <p class="text-xs font-medium text-slate-600 mb-3">Пресет для новых сотрудников</p>
+                <form method="post" action="/settings/save_invite_preset" class="space-y-3">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <div>
+                        <label class="text-xs text-slate-500 mb-1 block">Роль</label>
+                        <select name="preset_role"
+                                class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                            <option value="" {% if not invite_preset_role %}selected{% endif %}>— без пресета —</option>
+                            <option value="user" {% if invite_preset_role == 'user' %}selected{% endif %}>Сотрудник</option>
+                            <option value="admin" {% if invite_preset_role == 'admin' %}selected{% endif %}>Администратор</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-500 mb-1 block">Магазин</label>
+                        <select name="preset_shop"
+                                class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                            <option value="" {% if not invite_preset_shop %}selected{% endif %}>— без пресета —</option>
+                            {% for sh in invite_shops %}
+                            <option value="{{ sh }}" {% if invite_preset_shop == sh %}selected{% endif %}>{{ sh }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+                        💾 Сохранить пресет
+                    </button>
+                </form>
+            </div>
         </div>
         {% endif %}
 
@@ -1095,6 +1013,192 @@
         </div>
         {% endif %}
 
+        <!-- Scheduled notifications (admins only) -->
+        {% if is_admin and scheduled_notifications %}
+        <div class="card overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                    <h2 class="font-semibold text-slate-800">📅 Запланированные уведомления</h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Созданы в боте, отправятся автоматически</p>
+                </div>
+                <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                    {{ scheduled_notifications|length }}
+                </span>
+            </div>
+            <div class="divide-y divide-slate-50">
+                {% for sn in scheduled_notifications %}
+                <div class="px-5 py-3.5 flex items-start gap-3">
+                    <div class="mt-0.5 w-2 h-2 rounded-full shrink-0
+                                {% if sn.status == 'sent' %}bg-emerald-400
+                                {% elif sn.status == 'pending' %}bg-blue-400
+                                {% else %}bg-slate-300{% endif %}">
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm text-slate-700 leading-snug">{{ sn.text }}</p>
+                        <div class="flex items-center gap-3 mt-1 flex-wrap">
+                            <span class="text-xs text-slate-400">📤 {{ sn.recipients_type }}</span>
+                            <span class="text-xs text-slate-400">🕐 {{ sn.scheduled_at }}</span>
+                            <span class="text-xs px-1.5 py-0.5 rounded font-medium
+                                         {% if sn.status == 'sent' %}bg-emerald-50 text-emerald-600
+                                         {% elif sn.status == 'pending' %}bg-blue-50 text-blue-600
+                                         {% else %}bg-slate-50 text-slate-500{% endif %}">
+                                {{ sn.status }}
+                            </span>
+                            {% if sn.creator %}
+                            <span class="text-xs text-slate-400">от {{ sn.creator }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% elif is_admin %}
+        <div class="card p-5 text-center text-slate-400">
+            <p class="text-sm">Запланированных уведомлений нет</p>
+            <p class="text-xs mt-1">Создайте рассылку в разделе <a href="/notifications" class="text-blue-500 hover:underline">Рассылки</a></p>
+        </div>
+        {% endif %}
+
+    </div><!-- /left col -->
+
+    <!-- Right col: org info, logo, labels, mobile app, AI alerts, backup -->
+    <div class="space-y-4">
+
+        <!-- Org info -->
+        <div class="card p-5">
+            <h2 class="font-semibold text-slate-800 mb-4">🏢 Организация</h2>
+            <div class="space-y-3 text-sm">
+                <div class="flex justify-between">
+                    <span class="text-slate-500">Название</span>
+                    <span class="font-medium text-slate-800">{{ org_name or '—' }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-500">Тариф</span>
+                    <span class="font-medium
+                                 {% if org_plan == 'Премиум' %}text-amber-500
+                                 {% elif org_plan == 'Стандарт' %}text-indigo-500
+                                 {% elif org_plan == 'Базовый' %}text-blue-500
+                                 {% else %}text-slate-500{% endif %}">
+                        {{ org_plan or '—' }}
+                    </span>
+                </div>
+                {% if org_plan_end %}
+                <div class="flex justify-between">
+                    <span class="text-slate-500">До</span>
+                    <span class="font-medium text-slate-700">{{ org_plan_end|fmt_date }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if is_owner %}
+        <!-- Org logo card -->
+        <div class="card p-5">
+            <h2 class="font-semibold text-slate-800 mb-3">🖼 Логотип организации</h2>
+            <p class="text-xs text-slate-500 mb-3">Используется на ценниках. Загрузите PNG/JPG до 2 МБ.</p>
+            <div id="orgLogoPreview" class="{% if not org_logo_path %}hidden{% endif %} mb-3 flex items-center gap-3">
+                <img id="orgLogoImg" src="{{ org_logo_path }}" alt="Лого" class="h-12 max-w-[120px] object-contain rounded border border-slate-200">
+                <button type="button" data-action="clearOrgLogoSettings"
+                        class="text-xs text-red-500 hover:text-red-700 underline transition-colors">
+                    ✕ Удалить
+                </button>
+            </div>
+            <div class="flex items-center gap-3 flex-wrap">
+                <input type="file" id="orgLogoFile" accept="image/*"
+                       data-change="uploadOrgLogo"
+                       class="text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 transition-all">
+                <span id="orgLogoStatus" class="text-xs text-green-600 hidden">✓ Сохранено</span>
+            </div>
+            <script nonce="{{ csp_nonce(request) }}">
+            async function uploadOrgLogo(inp) {
+                if (!inp.files[0]) return;
+                const fd = new FormData();
+                fd.append('csrf_token', '{{ csrf_token }}');
+                fd.append('org_logo', inp.files[0]);
+                try {
+                    const r = await fetch('/products/org-logo', {method:'POST', body:fd});
+                    const j = await r.json();
+                    if (j.ok) {
+                        const url = URL.createObjectURL(inp.files[0]);
+                        document.getElementById('orgLogoImg').src = url;
+                        document.getElementById('orgLogoPreview').classList.remove('hidden');
+                        const st = document.getElementById('orgLogoStatus');
+                        st.classList.remove('hidden');
+                        setTimeout(() => st.classList.add('hidden'), 3000);
+                    } else { alert(j.error || 'Ошибка загрузки'); }
+                } catch(e) { alert('Ошибка соединения'); }
+                inp.value = '';
+            }
+            async function clearOrgLogoSettings() {
+                if (!confirm('Удалить логотип организации?')) return;
+                const fd = new FormData();
+                fd.append('csrf_token', '{{ csrf_token }}');
+                fd.append('clear_org_logo', '1');
+                try {
+                    const r = await fetch('/products/org-logo', {method:'POST', body:fd});
+                    const j = await r.json();
+                    if (j.ok) {
+                        document.getElementById('orgLogoPreview').classList.add('hidden');
+                        document.getElementById('orgLogoImg').src = '';
+                    } else { alert(j.error || 'Ошибка'); }
+                } catch(e) { alert('Ошибка соединения'); }
+            }
+            </script>
+        </div>
+
+        <!-- Label design shortcut -->
+        <div class="card p-5">
+            <h2 class="font-semibold text-slate-800 mb-1">🎨 Дизайн ценников</h2>
+            <p class="text-xs text-slate-500 mb-3">Настройте цвета фона, текста и шрифт для печатных ценников.</p>
+            {% if first_product_id %}
+            <a href="/products/{{ first_product_id }}/label?design=1"
+               class="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
+                🎨 Открыть редактор дизайна
+            </a>
+            {% else %}
+            <p class="text-xs text-slate-400 italic">Добавьте хотя бы один товар, чтобы настроить ценники.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Mobile app card -->
+        <div class="card p-5">
+            <h2 class="font-semibold text-slate-800 mb-1">📱 Мобильное приложение</h2>
+            <p class="text-xs text-slate-500 mb-3">TWA-оболочка вокруг веб-кабинета — скачать один раз, обновлений не требует</p>
+            <a href="/download/android"
+               class="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 rounded-lg transition-colors mb-4">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Скачать APK (первичная установка)
+            </a>
+            <ul class="space-y-1.5 text-xs text-slate-600">
+                <li class="flex gap-2">✅ <span>Все обновления веб-интерфейса приходят <b>автоматически</b> — переустанавливать не нужно</span></li>
+                <li class="flex gap-2">📲 <span>APK устанавливается как обычное приложение, разрешив установку из неизвестных источников</span></li>
+                <li class="flex gap-2">🚫 <span>Google Play не нужен — приложение работает напрямую</span></li>
+            </ul>
+        </div>
+
+        <!-- AI insights link card (admin only) -->
+        {% if is_admin %}
+        <div class="card p-5" id="ai-alerts">
+            <h2 class="font-semibold text-slate-800 dark:text-slate-200 mb-1">🤖 AI-инсайты и алерты</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Ежедневные уведомления о падении продаж, еженедельный дайджест и история алертов</p>
+            {% if email_missing_warning %}
+            <div class="flex items-start gap-2.5 p-3 mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl text-sm text-amber-800 dark:text-amber-300">
+                <span class="mt-0.5 shrink-0">⚠️</span>
+                <span>Email-алерты включены, но ни один администратор не привязал email. <a href="/settings?tab=profile#security" class="underline font-medium">Добавить email</a></span>
+            </div>
+            {% endif %}
+            <a href="/ai-insights"
+               class="flex items-center justify-between w-full py-2.5 px-4 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+                <span>Настроить инсайты</span>
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </a>
+        </div>
+        {% endif %}
+
         <!-- Backup card -->
         {% if is_admin %}
         <div class="card p-5">
@@ -1107,259 +1211,242 @@
         </div>
         {% endif %}
 
-    </div>
-</div>
+    </div><!-- /right col -->
+</div><!-- /org grid -->
+</div><!-- /org tab -->
 
-<!-- Notification history (current user) -->
-{% if notification_history %}
-<div class="card overflow-hidden mt-6">
-    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-        <div>
-            <h2 class="font-semibold text-slate-800">🔔 История уведомлений</h2>
-            <p class="text-xs text-slate-400 mt-0.5">Последние полученные уведомления</p>
-        </div>
-        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-            {{ notification_history|length }}
-        </span>
-    </div>
-    <div class="divide-y divide-slate-50">
-        {% for h in notification_history %}
-        <div class="px-5 py-3 flex items-start gap-3 {{ 'opacity-60' if h.is_read else '' }}">
-            <div class="mt-1 w-2 h-2 rounded-full shrink-0
-                        {{ 'bg-slate-300' if h.is_read else 'bg-blue-400' }}"></div>
-            <div class="flex-1 min-w-0">
-                {% if h.type %}
-                <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">{{ h.type }}</span>
-                {% endif %}
-                <p class="text-sm text-slate-700 leading-snug mt-0.5">{{ h.message }}</p>
-                <p class="text-xs text-slate-400 mt-1">{{ h.created_at|fmt_datetime }}</p>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
 
-<!-- Scheduled notifications (admins only) -->
-{% if is_admin and scheduled_notifications %}
-<div class="card overflow-hidden mt-6">
-    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-        <div>
-            <h2 class="font-semibold text-slate-800">📅 Запланированные уведомления</h2>
-            <p class="text-xs text-slate-400 mt-0.5">Созданы в боте, отправятся автоматически</p>
+<!-- ══════════════════════════════════════════════════
+     TAB: Система (super_admin only)
+     ══════════════════════════════════════════════════ -->
+{% if all_orgs or smtp_configured is not none or beta_mode_enabled is not none %}
+<div x-show="tab==='system'" style="display:none">
+<div class="max-w-2xl space-y-4">
+
+    {% if all_orgs %}
+    <!-- Org switcher -->
+    <div class="card p-5 border-2 border-indigo-200 dark:border-indigo-500/30">
+        <div class="flex items-center gap-2 mb-4">
+            <span class="text-lg">🏢</span>
+            <h2 class="font-semibold text-slate-800 dark:text-slate-100">Смена организации</h2>
+            <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold ml-1">super_admin</span>
         </div>
-        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-            {{ scheduled_notifications|length }}
-        </span>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+            Текущая: <strong class="text-indigo-600">{{ org_name }}</strong>
+        </p>
+        <form method="post" action="/switch_org" class="flex flex-col sm:flex-row gap-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <select name="org_db"
+                    class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                {% for org in all_orgs %}
+                <option value="{{ org.db_path }}"
+                        {% if org.db_path == user.org_db %}selected{% endif %}>
+                    {{ org.name }}
+                </option>
+                {% endfor %}
+            </select>
+            <button type="submit"
+                    class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2 rounded-xl transition-colors">
+                🔄 Переключить
+            </button>
+        </form>
     </div>
-    <div class="divide-y divide-slate-50">
-        {% for sn in scheduled_notifications %}
-        <div class="px-5 py-3.5 flex items-start gap-3">
-            <div class="mt-0.5 w-2 h-2 rounded-full shrink-0
-                        {% if sn.status == 'sent' %}bg-emerald-400
-                        {% elif sn.status == 'pending' %}bg-blue-400
-                        {% else %}bg-slate-300{% endif %}">
+    {% endif %}
+
+    {% if smtp_configured is not none %}
+    <!-- Email Auth Settings -->
+    <div id="email-auth" class="card p-5 scroll-mt-6 border-2 border-amber-200 dark:border-amber-500/30">
+        <div class="flex items-center gap-2 mb-4">
+            <span class="text-lg">📧</span>
+            <h2 class="font-semibold text-slate-800 dark:text-slate-100">Email-аутентификация</h2>
+            <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold ml-1">super_admin</span>
+        </div>
+
+        <!-- SMTP Status -->
+        <div class="flex items-center justify-between gap-4 py-3 border-b border-slate-100 dark:border-slate-700">
+            <div class="flex-1">
+                <p class="text-sm font-medium text-slate-800 dark:text-slate-100">Статус SMTP (Яндекс Почта)</p>
+                <p class="text-xs text-slate-500 mt-0.5">Для отправки писем верификации и сброса пароля. Настраивается через секреты <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">YANDEX_EMAIL</code> + <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">YANDEX_SMTP_PASSWORD</code>.</p>
             </div>
-            <div class="flex-1 min-w-0">
-                <p class="text-sm text-slate-700 leading-snug">{{ sn.text }}</p>
-                <div class="flex items-center gap-3 mt-1 flex-wrap">
-                    <span class="text-xs text-slate-400">📤 {{ sn.recipients_type }}</span>
-                    <span class="text-xs text-slate-400">🕐 {{ sn.scheduled_at }}</span>
-                    <span class="text-xs px-1.5 py-0.5 rounded font-medium
-                                 {% if sn.status == 'sent' %}bg-emerald-50 text-emerald-600
-                                 {% elif sn.status == 'pending' %}bg-blue-50 text-blue-600
-                                 {% else %}bg-slate-50 text-slate-500{% endif %}">
-                        {{ sn.status }}
-                    </span>
-                    {% if sn.creator %}
-                    <span class="text-xs text-slate-400">от {{ sn.creator }}</span>
+            {% if smtp_configured %}
+            <span class="shrink-0 bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-full text-xs font-semibold">✅ Настроен</span>
+            {% else %}
+            <span class="shrink-0 bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-full text-xs font-semibold">❌ Не настроен</span>
+            {% endif %}
+        </div>
+
+        <!-- Email registration toggle -->
+        <div class="flex items-start justify-between gap-4 py-3 border-b border-slate-100 dark:border-slate-700">
+            <div class="flex-1">
+                <p class="text-sm font-medium text-slate-800 dark:text-slate-100">Регистрация через email</p>
+                <p class="text-xs text-slate-500 mt-0.5">Разрешает новым пользователям регистрироваться через <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">/register</code> по инвайт-коду + email + пароль. При отключении страница отдаёт 403.</p>
+                <p class="text-xs mt-1 font-medium {% if email_registration_enabled %}text-emerald-600{% else %}text-red-500{% endif %}">
+                    {% if email_registration_enabled %}✅ Включена{% else %}🚫 Отключена{% endif %}
+                </p>
+            </div>
+            <form method="post" action="/settings/email-registration" class="flex-shrink-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="enabled" value="{{ '0' if email_registration_enabled else '1' }}">
+                <button type="submit"
+                        class="relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                               {% if email_registration_enabled %}bg-emerald-500 hover:bg-emerald-600{% else %}bg-slate-200 hover:bg-slate-300{% endif %}"
+                        title="{{ 'Отключить регистрацию по email' if email_registration_enabled else 'Включить регистрацию по email' }}">
+                    <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform
+                                 {% if email_registration_enabled %}translate-x-6{% else %}translate-x-1{% endif %}"></span>
+                </button>
+            </form>
+        </div>
+
+        <!-- Email users list -->
+        <div class="mt-4">
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-sm font-medium text-slate-700 dark:text-slate-200">Зарегистрированные email-пользователи</p>
+                <div class="flex items-center gap-2">
+                    {% if email_users_unverified > 0 %}
+                    <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">⏳ {{ email_users_unverified }} не верифицировано</span>
                     {% endif %}
+                    <span class="text-xs bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-full font-medium">Всего: {{ email_users|length }}</span>
                 </div>
             </div>
-        </div>
-        {% endfor %}
-    </div>
-</div>
-{% elif is_admin %}
-<div class="card p-5 mt-6 text-center text-slate-400">
-    <p class="text-sm">Запланированных уведомлений нет</p>
-    <p class="text-xs mt-1">Создайте рассылку в разделе <a href="/notifications" class="text-blue-500 hover:underline">Рассылки</a></p>
-</div>
-{% endif %}
-
-{% if all_orgs %}
-<!-- ══ SUPER ADMIN: Org switcher ══ -->
-<div class="card p-5 mt-6 border-2 border-indigo-200 dark:border-indigo-500/30">
-    <div class="flex items-center gap-2 mb-4">
-        <span class="text-lg">🏢</span>
-        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Смена организации</h2>
-        <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold ml-1">super_admin</span>
-    </div>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
-        Текущая: <strong class="text-indigo-600">{{ org_name }}</strong>
-    </p>
-    <form method="post" action="/switch_org" class="flex flex-col sm:flex-row gap-2">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <select name="org_db"
-                class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
-            {% for org in all_orgs %}
-            <option value="{{ org.db_path }}"
-                    {% if org.db_path == user.org_db %}selected{% endif %}>
-                {{ org.name }}
-            </option>
-            {% endfor %}
-        </select>
-        <button type="submit"
-                class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2 rounded-xl transition-colors">
-            🔄 Переключить
-        </button>
-    </form>
-</div>
-{% endif %}
-
-
-{% if smtp_configured is not none %}
-<!-- ══ SUPER ADMIN: Email Auth Settings ══ -->
-<div id="email-auth" class="card p-5 mt-6 scroll-mt-6 border-2 border-amber-200 dark:border-amber-500/30">
-    <div class="flex items-center gap-2 mb-4">
-        <span class="text-lg">📧</span>
-        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Email-аутентификация</h2>
-        <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold ml-1">super_admin</span>
-    </div>
-
-    <!-- SMTP Status -->
-    <div class="flex items-center justify-between gap-4 py-3 border-b border-slate-100 dark:border-slate-700">
-        <div class="flex-1">
-            <p class="text-sm font-medium text-slate-800 dark:text-slate-100">Статус SMTP (Яндекс Почта)</p>
-            <p class="text-xs text-slate-500 mt-0.5">Для отправки писем верификации и сброса пароля. Настраивается через секреты <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">YANDEX_EMAIL</code> + <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">YANDEX_SMTP_PASSWORD</code>.</p>
-        </div>
-        {% if smtp_configured %}
-        <span class="shrink-0 bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-full text-xs font-semibold">✅ Настроен</span>
-        {% else %}
-        <span class="shrink-0 bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-full text-xs font-semibold">❌ Не настроен</span>
-        {% endif %}
-    </div>
-
-    <!-- Email registration toggle -->
-    <div class="flex items-start justify-between gap-4 py-3 border-b border-slate-100 dark:border-slate-700">
-        <div class="flex-1">
-            <p class="text-sm font-medium text-slate-800 dark:text-slate-100">Регистрация через email</p>
-            <p class="text-xs text-slate-500 mt-0.5">Разрешает новым пользователям регистрироваться через <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">/register</code> по инвайт-коду + email + пароль. При отключении страница отдаёт 403.</p>
-            <p class="text-xs mt-1 font-medium {% if email_registration_enabled %}text-emerald-600{% else %}text-red-500{% endif %}">
-                {% if email_registration_enabled %}✅ Включена{% else %}🚫 Отключена{% endif %}
-            </p>
-        </div>
-        <form method="post" action="/settings/email-registration" class="flex-shrink-0">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="enabled" value="{{ '0' if email_registration_enabled else '1' }}">
-            <button type="submit"
-                    class="relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                           {% if email_registration_enabled %}bg-emerald-500 hover:bg-emerald-600{% else %}bg-slate-200 hover:bg-slate-300{% endif %}"
-                    title="{{ 'Отключить регистрацию по email' if email_registration_enabled else 'Включить регистрацию по email' }}">
-                <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform
-                             {% if email_registration_enabled %}translate-x-6{% else %}translate-x-1{% endif %}"></span>
-            </button>
-        </form>
-    </div>
-
-    <!-- Email users list -->
-    <div class="mt-4">
-        <div class="flex items-center justify-between mb-2">
-            <p class="text-sm font-medium text-slate-700 dark:text-slate-200">Зарегистрированные email-пользователи</p>
-            <div class="flex items-center gap-2">
-                {% if email_users_unverified > 0 %}
-                <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">⏳ {{ email_users_unverified }} не верифицировано</span>
-                {% endif %}
-                <span class="text-xs bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-full font-medium">Всего: {{ email_users|length }}</span>
+            {% if email_users %}
+            <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr class="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                            <th class="text-left px-3 py-2 font-medium text-slate-500">Email</th>
+                            <th class="text-left px-3 py-2 font-medium text-slate-500">Имя</th>
+                            <th class="text-left px-3 py-2 font-medium text-slate-500">Статус email</th>
+                            <th class="text-left px-3 py-2 font-medium text-slate-500">Telegram</th>
+                            <th class="text-left px-3 py-2 font-medium text-slate-500">Последний вход</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+                        {% for u in email_users %}
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                            <td class="px-3 py-2 font-mono text-slate-700 dark:text-slate-300 max-w-[180px] truncate" title="{{ u.email }}">{{ u.email }}</td>
+                            <td class="px-3 py-2 text-slate-600 dark:text-slate-400">{{ u.first_name or '—' }}</td>
+                            <td class="px-3 py-2">
+                                {% if u.email_verified %}
+                                <span class="text-emerald-600 font-medium">✅ Верифицирован</span>
+                                {% else %}
+                                <span class="text-amber-500 font-medium">⏳ Ожидает</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-3 py-2">
+                                {% if u.telegram_id and u.telegram_id > 0 %}
+                                <span class="text-blue-600">🔗 Привязан</span>
+                                {% else %}
+                                <span class="text-slate-400">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-3 py-2 text-slate-400">{{ u.last_login[:10] if u.last_login else '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
+            {% else %}
+            <p class="text-xs text-slate-400 text-center py-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                Нет пользователей, вошедших через email
+            </p>
+            {% endif %}
         </div>
-        {% if email_users %}
-        <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-            <table class="w-full text-xs">
-                <thead>
-                    <tr class="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
-                        <th class="text-left px-3 py-2 font-medium text-slate-500">Email</th>
-                        <th class="text-left px-3 py-2 font-medium text-slate-500">Имя</th>
-                        <th class="text-left px-3 py-2 font-medium text-slate-500">Статус email</th>
-                        <th class="text-left px-3 py-2 font-medium text-slate-500">Telegram</th>
-                        <th class="text-left px-3 py-2 font-medium text-slate-500">Последний вход</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
-                    {% for u in email_users %}
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                        <td class="px-3 py-2 font-mono text-slate-700 dark:text-slate-300 max-w-[180px] truncate" title="{{ u.email }}">{{ u.email }}</td>
-                        <td class="px-3 py-2 text-slate-600 dark:text-slate-400">{{ u.first_name or '—' }}</td>
-                        <td class="px-3 py-2">
-                            {% if u.email_verified %}
-                            <span class="text-emerald-600 font-medium">✅ Верифицирован</span>
-                            {% else %}
-                            <span class="text-amber-500 font-medium">⏳ Ожидает</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-3 py-2">
-                            {% if u.telegram_id and u.telegram_id > 0 %}
-                            <span class="text-blue-600">🔗 Привязан</span>
-                            {% else %}
-                            <span class="text-slate-400">—</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-3 py-2 text-slate-400">{{ u.last_login[:10] if u.last_login else '—' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+    </div>
+    {% endif %}
+
+    {% if beta_mode_enabled is not none %}
+    <!-- System settings -->
+    <div id="system" class="card p-5 scroll-mt-6 border-2 border-amber-200 dark:border-amber-500/30">
+        <div class="flex items-center gap-2 mb-4">
+            <span class="text-lg">⚙️</span>
+            <h2 class="font-semibold text-slate-800">Системные настройки</h2>
+            <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold ml-1">super_admin</span>
         </div>
-        {% else %}
-        <p class="text-xs text-slate-400 text-center py-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
-            Нет пользователей, вошедших через email
+
+        <!-- Beta mode toggle -->
+        <div class="flex items-start justify-between gap-4 py-3 border-b border-slate-100">
+            <div class="flex-1">
+                <p class="text-sm font-medium text-slate-800">Режим бета-тестирования</p>
+                <p class="text-xs text-slate-500 mt-0.5">
+                    Отображает баннер «BETA» на лендинге и в дашборде, предупреждает пользователей что продукт в стадии тестирования,
+                    касса и юридическое лицо ещё не подключены.
+                    Отключите тумблером когда проект выйдет в production.
+                </p>
+                <p class="text-xs text-amber-600 mt-1 font-medium">
+                    {% if beta_mode_enabled %}✅ Сейчас: BETA-режим включён{% else %}🚀 Сейчас: Production-режим (BETA выключен){% endif %}
+                </p>
+            </div>
+            <form method="post" action="/settings/beta-mode" class="flex-shrink-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="enabled" value="{{ '0' if beta_mode_enabled else '1' }}">
+                <button type="submit"
+                        class="relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                               {% if beta_mode_enabled %}bg-amber-400 hover:bg-amber-500{% else %}bg-slate-200 hover:bg-slate-300{% endif %}"
+                        title="{{ 'Выключить бета-режим' if beta_mode_enabled else 'Включить бета-режим' }}">
+                    <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform
+                                 {% if beta_mode_enabled %}translate-x-6{% else %}translate-x-1{% endif %}"></span>
+                </button>
+            </form>
+        </div>
+
+        <p class="text-xs text-slate-400 mt-3">
+            Виден только пользователю с ролью <code class="bg-slate-100 px-1 rounded">super_admin</code>.
+            Флаг хранится в <code class="bg-slate-100 px-1 rounded">payment_settings.beta_mode</code> (shop_bot.db).
         </p>
-        {% endif %}
     </div>
-</div>
+    {% endif %}
+
+</div><!-- /system max-w -->
+</div><!-- /system tab -->
 {% endif %}
 
-{% if beta_mode_enabled is not none %}
-<!-- ══ SUPER ADMIN: System settings ══ -->
-<div id="system" class="card p-5 mt-6 scroll-mt-6 border-2 border-amber-200 dark:border-amber-500/30">
-    <div class="flex items-center gap-2 mb-4">
-        <span class="text-lg">⚙️</span>
-        <h2 class="font-semibold text-slate-800">Системные настройки</h2>
-        <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold ml-1">super_admin</span>
-    </div>
+</div><!-- /x-data settingsTabs -->
 
-    <!-- Beta mode toggle -->
-    <div class="flex items-start justify-between gap-4 py-3 border-b border-slate-100">
-        <div class="flex-1">
-            <p class="text-sm font-medium text-slate-800">Режим бета-тестирования</p>
-            <p class="text-xs text-slate-500 mt-0.5">
-                Отображает баннер «BETA» на лендинге и в дашборде, предупреждает пользователей что продукт в стадии тестирования,
-                касса и юридическое лицо ещё не подключены.
-                Отключите тумблером когда проект выйдет в production.
-            </p>
-            <p class="text-xs text-amber-600 mt-1 font-medium">
-                {% if beta_mode_enabled %}✅ Сейчас: BETA-режим включён{% else %}🚀 Сейчас: Production-режим (BETA выключен){% endif %}
-            </p>
-        </div>
-        <form method="post" action="/settings/beta-mode" class="flex-shrink-0">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="enabled" value="{{ '0' if beta_mode_enabled else '1' }}">
-            <button type="submit"
-                    class="relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                           {% if beta_mode_enabled %}bg-amber-400 hover:bg-amber-500{% else %}bg-slate-200 hover:bg-slate-300{% endif %}"
-                    title="{{ 'Выключить бета-режим' if beta_mode_enabled else 'Включить бета-режим' }}">
-                <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform
-                             {% if beta_mode_enabled %}translate-x-6{% else %}translate-x-1{% endif %}"></span>
-            </button>
-        </form>
-    </div>
-
-    <p class="text-xs text-slate-400 mt-3">
-        Виден только пользователю с ролью <code class="bg-slate-100 px-1 rounded">super_admin</code>.
-        Флаг хранится в <code class="bg-slate-100 px-1 rounded">payment_settings.beta_mode</code> (shop_bot.db).
-    </p>
-</div>
-{% endif %}
+<script nonce="{{ csp_nonce(request) }}">
+function settingsTabs() {
+    return {
+        tab: 'profile',
+        tabClass(t) {
+            if (this.tab === t) {
+                return 'border-blue-500 text-blue-600 dark:text-blue-400';
+            }
+            return 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-500';
+        },
+        setTab(t) {
+            this.tab = t;
+            try { history.replaceState(null, '', location.pathname + '?tab=' + t); } catch(e) {}
+        },
+        init() {
+            const anchorMap = {
+                profile: 'profile',
+                security: 'profile',
+                'push-diag': 'notifs',
+                invite: 'org',
+                'ai-alerts': 'org',
+                'ai-digest': 'org',
+                system: 'system',
+                'email-auth': 'system'
+            };
+            const params = new URLSearchParams(location.search);
+            const qt = params.get('tab');
+            const hash = location.hash.slice(1);
+            if (qt && ['profile','notifs','org','system'].includes(qt)) {
+                this.tab = qt;
+            } else if (hash && anchorMap[hash]) {
+                this.tab = anchorMap[hash];
+                this.$nextTick(() => {
+                    const el = document.getElementById(hash);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            }
+            {% if saved %}this.tab = 'notifs';{% endif %}
+            {% if profile_saved %}this.tab = 'profile';{% endif %}
+            {% if email_saved or email_sent or email_error %}this.tab = 'profile';{% endif %}
+            {% if twofa_on or twofa_off or twofa_err %}this.tab = 'profile';{% endif %}
+        }
+    };
+}
+</script>
 
 <script nonce="{{ csp_nonce(request) }}">
 function copyText(elemId, btn) {

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.271.0"
+CURRENT_VERSION = "1.272.0"
 
 ENTRIES = [
+    {
+        "version": "1.272.0",
+        "date": "27 июня 2026",
+        "items": [
+            "Update landing page buttons with glassmorphism style",
+        ],
+    },
     {
         "version": "1.271.0",
         "date": "27 июня 2026",
