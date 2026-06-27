@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.269.0"
+CURRENT_VERSION = "1.270.0"
 
 ENTRIES = [
+    {
+        "version": "1.270.0",
+        "date": "27 июня 2026",
+        "items": [
+            "Update landing page text and fix response duplication",
+        ],
+    },
     {
         "version": "1.269.0",
         "date": "27 июня 2026",
