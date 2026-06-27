@@ -961,11 +961,13 @@
             <h2 class="font-semibold text-slate-800 dark:text-slate-200 mb-1">🌐 AI-дайджест сети</h2>
             <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Выберите расписание и магазины для еженедельного AI-отчёта</p>
             <form method="post" action="/settings/ai-digest" class="space-y-4"
+                  data-all-shops="{{ digest_shops | tojson | forceescape }}"
+                  data-sel-shops="{{ (digest_shop_filter if digest_shop_filter else digest_shops) | tojson | forceescape }}"
                   x-data="{
                       digestDay: {{ digest_prefs.weekday if digest_prefs.weekday is not none else 0 }},
                       digestHour: {{ digest_prefs.hour_msk if digest_prefs.hour_msk is not none else 12 }},
-                      allShops: {{ digest_shops | tojson }},
-                      selectedShops: {{ (digest_shop_filter if digest_shop_filter else digest_shops) | tojson }},
+                      allShops: JSON.parse($el.dataset.allShops || '[]'),
+                      selectedShops: JSON.parse($el.dataset.selShops || '[]'),
                       get nextSendLabel() { return calcNextDigest(this.digestDay, this.digestHour); },
                       get summaryLabel() {
                           let sel = this.selectedShops.length, tot = this.allShops.length;
