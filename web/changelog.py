@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.268.0"
+CURRENT_VERSION = "1.269.0"
 
 ENTRIES = [
+    {
+        "version": "1.269.0",
+        "date": "27 июня 2026",
+        "items": [
+            "Fix duplicate responses when toggling automatic synchronization",
+        ],
+    },
     {
         "version": "1.268.0",
         "date": "27 июня 2026",
