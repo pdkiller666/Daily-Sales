@@ -114,12 +114,6 @@ echo "0. Сборка changelog (фрагменты + git)..."
 echo "0b. Сборка Tailwind CSS (статический app.css)..."
 if ( cd "$SOURCE_DIR" && timeout 120 npx --yes tailwindcss@3.4.17 -c tailwind.config.js \
        -i web/static/tailwind.input.css -o web/static/app.css --minify >/dev/null 2>&1 ); then
-  # Дописать кастомные ds-*/ls-* классы (не генерируются Tailwind-сканом).
-  # ds-custom.css — источник правды; deploy.sh добавляет их к app.css после каждой
-  # пересборки, чтобы они не терялись при tailwindcss overwrite.
-  if [ -f "$SOURCE_DIR/web/static/ds-custom.css" ]; then
-    cat "$SOURCE_DIR/web/static/ds-custom.css" >> "$SOURCE_DIR/web/static/app.css"
-  fi
   CSS_HASH=$(md5sum "$SOURCE_DIR/web/static/app.css" | cut -c1-10)
   # Cache-bust во ВСЕХ шаблонах со ссылкой на app.css (base.html + standalone:
   # landing/auth/errors). Иначе при immutable-кэше standalone-страницы зависнут

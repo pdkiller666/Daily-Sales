@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.264.0"
+CURRENT_VERSION = "1.265.0"
 
 ENTRIES = [
+    {
+        "version": "1.265.0",
+        "date": "27 июня 2026",
+        "items": [
+            "Update date and time calculations to use UTC",
+        ],
+    },
     {
         "version": "1.264.0",
         "date": "27 июня 2026",
