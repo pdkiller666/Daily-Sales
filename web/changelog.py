@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.270.0"
+CURRENT_VERSION = "1.271.0"
 
 ENTRIES = [
+    {
+        "version": "1.271.0",
+        "date": "27 июня 2026",
+        "items": [
+            "Improve chart interaction on mobile devices to prevent accidental navigation",
+            "Update button suggestions for landing page design",
+        ],
+    },
     {
         "version": "1.270.0",
         "date": "27 июня 2026",
