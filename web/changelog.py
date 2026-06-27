@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.263.0"
+CURRENT_VERSION = "1.264.0"
 
 ENTRIES = [
+    {
+        "version": "1.264.0",
+        "date": "27 июня 2026",
+        "items": [
+            "Restore previous site appearance and functionality",
+        ],
+    },
     {
         "version": "1.263.0",
         "date": "26 июня 2026",

@@ -16,6 +16,7 @@ from notif_utils import add_read_btn
 from message_utils import safe_edit_message, safe_answer_callback, fsm_edit
 from db_utils import get_user_org_role, clear_state_keep_org, wrap_db
 from utils import he
+from timezone_utils import get_utc_time
 
 
 
@@ -177,7 +178,7 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
         if not is_org_user and plan_type not in ('Бесплатный', 'free') and end_date and end_date != '9999-12-31 23:59:59':
             try:
                 end_dt = datetime.fromisoformat(end_date)
-                days_left = (end_dt - datetime.now()).days
+                days_left = (end_dt - get_utc_time()).days
                 if days_left > 0:
                     text += f"\n📅 <b>Действует до:</b> {end_dt.strftime('%d.%m.%Y')} ({days_left} дн.)\n"
                 else:
@@ -578,7 +579,7 @@ async def start_subscription_purchase(callback: CallbackQuery, state: FSMContext
     if is_downgrade:
         from datetime import datetime
         end_date = downgrade_info['end_datetime'].strftime('%d.%m.%Y')
-        days_left = (downgrade_info['end_datetime'] - datetime.now()).days
+        days_left = (downgrade_info['end_datetime'] - get_utc_time()).days
         
         text = f"⚠️ <b>ВНИМАНИЕ: Понижение тарифа</b>\n\n"
         text += f"У вас активна подписка <b>{downgrade_info['current_plan']}</b>\n"
@@ -811,7 +812,7 @@ async def subscription_limits(callback: CallbackQuery):
         if not is_org_user and end_date and end_date != '9999-12-31 23:59:59':
             try:
                 end_datetime = datetime.fromisoformat(end_date)
-                days_left = (end_datetime - datetime.now()).days
+                days_left = (end_datetime - get_utc_time()).days
                 if days_left > 0:
                     text += f"📅 <b>Действует до:</b> {end_datetime.strftime('%d.%m.%Y')} ({days_left} дн.)\n\n"
                 else:
@@ -852,7 +853,7 @@ async def subscription_limits(callback: CallbackQuery):
             text += "💰 <b>Продажи/месяц:</b> ∞ Безлимит\n"
         else:
             try:
-                now = datetime.now()
+                now = get_utc_time()
                 month_start = f"{now.strftime('%Y-%m')}-01"
                 month_end = now.strftime('%Y-%m-%d')
                 user_sales = user_db.get_user_sales_by_date(db_user_id, month_start, month_end)

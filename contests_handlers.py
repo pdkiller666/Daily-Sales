@@ -20,7 +20,7 @@ from states import SearchStates
 from message_utils import fsm_edit, safe_edit_message
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_DEFAULT
 from notif_utils import add_read_btn
-from timezone_utils import get_current_user_time as _get_cur_user_time
+from timezone_utils import get_current_user_time as _get_cur_user_time, get_utc_time
 
 contests_router = Router()
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ def _build_calendar_keyboard(year: int, month: int,
         ],
         [btn(d) for d in ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']],
     ]
-    today_str = datetime.now().strftime('%Y-%m-%d')
+    today_str = get_utc_time().strftime('%Y-%m-%d')
     for week in _calendar.monthcalendar(year, month):
         row = []
         for day in week:
@@ -1083,7 +1083,7 @@ async def _show_period_step(callback: CallbackQuery, state: FSMContext):
 @contests_router.callback_query(F.data == "ctper_manual")
 async def contest_period_calendar_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    now = datetime.now()
+    now = get_utc_time()
     await state.update_data(ct_cal_picking='start', ct_cal_year=now.year, ct_cal_month=now.month)
     kb = _build_calendar_keyboard(now.year, now.month)
     await callback.message.edit_text(
@@ -1148,8 +1148,8 @@ async def contest_calendar_day(callback: CallbackQuery, state: FSMContext):
     date_str = callback.data[len("ctcal_day_"):]
     data = await state.get_data()
     picking = data.get('ct_cal_picking', 'start')
-    year = data.get('ct_cal_year', datetime.now().year)
-    month = data.get('ct_cal_month', datetime.now().month)
+    year = data.get('ct_cal_year', get_utc_time().year)
+    month = data.get('ct_cal_month', get_utc_time().month)
 
     edit_cid = data.get('ct_edit_cid')
 
@@ -2164,7 +2164,7 @@ async def contest_edit_period(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Доступ запрещён", show_alert=True)
         return
     contest_id = int(callback.data[len("ct_ep_"):])
-    now = datetime.now()
+    now = get_utc_time()
     await state.update_data(
         ct_cal_picking='start',
         ct_cal_year=now.year,
