@@ -17,7 +17,7 @@ from db_utils import get_db, clear_state_keep_org, is_any_admin
 from utils import he
 from subscription_utils import check_integrations_permission
 from keyboards import back_button, home_button
-from pagination_utils import page_nav_row
+from pagination_utils import page_nav_row, paginate
 from states import IntegrationStates, GSImportStates
 from integration.manager import AVAILABLE_FIELDS, FIELD_LABELS, integration_manager
 from timezone_utils import get_current_user_time as _get_cur_user_time
@@ -1956,6 +1956,95 @@ async def gs_motiv_manual_input(message: Message, state: FSMContext):
         await _mtv_show_chain_aliases(_AnchorProxy(message.bot, message.chat.id, sent.message_id), state)
 
 
+_MOTIV_CACHE_PAGE_SIZE = 8  # number of model rows shown per page
+
+
+def _build_motiv_cache_page(
+    cache: list,
+    motiv_cfg: dict | None,
+    conn_id: int,
+    page: int,
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Build text + markup for one paginated page of the motivation cache viewer."""
+    by_model: dict[str, dict] = {}
+    chains_set: set[str] = set()
+    synced_at = "—"
+    for row in cache:
+        model, chain, bonus, rrp, sat = row
+        if model not in by_model:
+            by_model[model] = {}
+        by_model[model][chain] = bonus
+        by_model[model]['__rrp__'] = rrp
+        chains_set.add(chain)
+        synced_at = sat
+
+    chains = sorted(chains_set)
+    shown_chains = chains[:3]
+    col_w = max(5, 9 - len(shown_chains))
+
+    models_sorted = sorted(by_model.keys())
+    page_models, has_prev, has_next, total_pages, page = paginate(
+        models_sorted, page, _MOTIV_CACHE_PAGE_SIZE
+    )
+
+    page_info = f" · стр. {page + 1}/{total_pages}" if total_pages > 1 else ""
+    header = f"{'Модель':<16}" + "".join(f" {c[:col_w]:>{col_w}}" for c in shown_chains)
+    lines = [f"📊 <b>Кэш мотивации</b> (обновлено: {synced_at[:16]}{page_info})\n"]
+    lines.append("<pre>")
+    lines.append(header)
+    lines.append("─" * len(header))
+    for model in page_models:
+        rates = by_model[model]
+        cells = ""
+        for c in shown_chains:
+            v = rates.get(c, 0)
+            cells += f" {(f'{int(v):,}' if v else '—'):>{col_w}}"
+        lines.append(f"{model[:16]:<16}{cells}")
+    lines.append("</pre>")
+    if len(chains) > len(shown_chains):
+        lines.append(f"<i>+ ещё сети: {he(', '.join(chains[len(shown_chains):]))}</i>")
+
+    # Unmatched models + chains from last sync stats (shown on every page)
+    last_stats = (motiv_cfg or {}).get('last_sync_stats') or {}
+    unmatched_list = last_stats.get('unmatched_list') or []
+    unmatched_chains_list = last_stats.get('unmatched_chains_list') or []
+    if unmatched_list:
+        un_prev = ", ".join(unmatched_list[:10])
+        if len(unmatched_list) > 10:
+            un_prev += f" … ещё {len(unmatched_list) - 10}"
+        lines.append(
+            f"\n⚠️ <b>Не сопоставлено моделей: {len(unmatched_list)}</b>\n"
+            f"<code>{he(un_prev)}</code>\n"
+            f"<i>Добавьте псевдонимы через «🎯 Мотивация → Псевдонимы».</i>"
+        )
+    if unmatched_chains_list:
+        uc_prev = ", ".join(unmatched_chains_list[:8])
+        if len(unmatched_chains_list) > 8:
+            uc_prev += f" … ещё {len(unmatched_chains_list) - 8}"
+        lines.append(
+            f"\n⚠️ <b>Сети без совпадения: {len(unmatched_chains_list)}</b>\n"
+            f"<code>{he(uc_prev)}</code>\n"
+            f"<i>Названия из таблицы не совпадают ни с одной торговой сетью — "
+            f"ставки по ним не применятся.</i>"
+        )
+
+    kb = InlineKeyboardBuilder()
+    nav = page_nav_row(
+        f"gs_mtv_cache_pg_{conn_id}_", page, has_prev, has_next, total_pages
+    )
+    if nav:
+        kb.row(*nav)
+    has_cfg = bool(motiv_cfg)
+    kb.row(InlineKeyboardButton(
+        text="🔄 Обновить",
+        callback_data=(f"gs_mtv_resync_{conn_id}" if has_cfg
+                       else f"gs_sync_motiv_{conn_id}")
+    ))
+    kb.row(_back(f"gs_hub_motiv_{conn_id}"))
+
+    return "\n".join(lines), kb.as_markup()
+
+
 @integration_router.callback_query(F.data.startswith("gs_show_motiv_"))
 async def gs_show_motiv(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[3])
@@ -1976,51 +2065,34 @@ async def gs_show_motiv(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    by_model = {}
-    chains_set = set()
-    synced_at = cache[0][4] if cache else "—"
-    for row in cache:
-        model, chain, bonus, rrp, sat = row
-        if model not in by_model:
-            by_model[model] = {}
-        by_model[model][chain] = bonus
-        by_model[model]['__rrp__'] = rrp
-        chains_set.add(chain)
-        synced_at = sat
+    motiv_cfg = integration_manager.get_motiv_config(current_db, conn_id)
+    text, markup = _build_motiv_cache_page(cache, motiv_cfg, conn_id, 0)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
-    # Dynamic chain columns (sorted, capped so the table stays readable on mobile)
-    chains = sorted(chains_set)
-    shown_chains = chains[:3]
-    col_w = max(5, 9 - len(shown_chains))  # narrower cells when more chains
 
-    header = f"{'Модель':<16}" + "".join(f" {c[:col_w]:>{col_w}}" for c in shown_chains)
-    lines = [f"📊 <b>Кэш мотивации</b> (обновлено: {synced_at[:16]})\n"]
-    lines.append("<pre>")
-    lines.append(header)
-    lines.append("─" * len(header))
-    for model, rates in sorted(by_model.items()):
-        cells = ""
-        for c in shown_chains:
-            v = rates.get(c, 0)
-            cells += f" {(f'{int(v):,}' if v else '—'):>{col_w}}"
-        lines.append(f"{model[:16]:<16}{cells}")
-    lines.append("</pre>")
-    if len(chains) > len(shown_chains):
-        lines.append(f"<i>+ ещё сети: {he(', '.join(chains[len(shown_chains):]))}</i>")
+@integration_router.callback_query(F.data.startswith("gs_mtv_cache_pg_"))
+async def gs_mtv_cache_pg(callback: CallbackQuery, state: FSMContext):
+    """Pagination for the motivation cache viewer: gs_mtv_cache_pg_{conn_id}_{page}."""
+    parts = callback.data.split("_")
+    conn_id = int(parts[4])
+    page = int(parts[5])
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    cache = await current_db.get_bonus_cache(conn_id)
 
-    kb = InlineKeyboardBuilder()
-    has_cfg = bool(integration_manager.get_motiv_config(current_db, conn_id))
-    kb.row(InlineKeyboardButton(
-        text="🔄 Обновить",
-        callback_data=(f"gs_mtv_resync_{conn_id}" if has_cfg
-                       else f"gs_sync_motiv_{conn_id}")))
-    kb.row(_back(f"gs_hub_motiv_{conn_id}"))
+    if not cache:
+        await callback.message.edit_text(
+            "📊 <b>Кэш мотивации пуст</b>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [_back(f"gs_hub_motiv_{conn_id}")],
+            ]),
+            parse_mode="HTML"
+        )
+        return
 
-    await callback.message.edit_text(
-        "\n".join(lines),
-        reply_markup=kb.as_markup(),
-        parse_mode="HTML"
-    )
+    motiv_cfg = integration_manager.get_motiv_config(current_db, conn_id)
+    text, markup = _build_motiv_cache_page(cache, motiv_cfg, conn_id, page)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 # ═══════════════════════════════════════════════════════════

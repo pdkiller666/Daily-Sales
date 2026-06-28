@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.299.0"
+CURRENT_VERSION = "1.300.0"
 
 ENTRIES = [
+    {
+        "version": "1.300.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Update project version and deployment information",
+            "Show motivation cache inline in bot profile without having to re-sync",
+        ],
+    },
     {
         "version": "1.299.0",
         "date": "28 июня 2026",
