@@ -198,28 +198,15 @@
         </div>
 
         <!-- Пусто -->
-        <div x-show="!loading && filteredProducts.length === 0" class="flex flex-col items-center justify-center py-20 text-center px-4">
+        <div x-show="!loading && filteredProducts.length === 0 && outOfStockMatches.length === 0" class="flex flex-col items-center justify-center py-20 text-center px-4">
             <div class="text-4xl mb-3">
-                <span x-text="activeCat === '__favorites__' ? '⭐' : (outOfStockMatches.length > 0 ? '📦' : (search ? '🔍' : '📦'))"></span>
+                <span x-text="activeCat === '__favorites__' ? '⭐' : (search ? '🔍' : '📦')"></span>
             </div>
-            <!-- Товар найден, но нет в наличии -->
-            <template x-if="outOfStockMatches.length > 0">
-                <div>
-                    <p class="text-slate-700 dark:text-slate-300 text-sm font-medium mb-1">Нет в наличии в этом магазине</p>
-                    <template x-for="p in outOfStockMatches" :key="p.id">
-                        <p class="text-amber-600 dark:text-amber-400 text-sm" x-text="p.name"></p>
-                    </template>
-                    <p class="text-xs text-slate-400 mt-2">Пополните склад, чтобы продавать этот товар</p>
-                </div>
-            </template>
-            <!-- Обычное пустое состояние -->
-            <template x-if="outOfStockMatches.length === 0">
-                <p class="text-slate-500 text-sm"
-                   x-text="activeCat === '__favorites__' ? 'Нет избранных товаров — нажмите ⭐ на карточке товара'
-                          : activeCat === '__recent__' ? 'Ещё нет недавних продаж'
-                          : search ? 'Ничего не найдено по «' + search + '»'
-                          : 'В этом магазине нет товаров в наличии'"></p>
-            </template>
+            <p class="text-slate-500 text-sm"
+               x-text="activeCat === '__favorites__' ? 'Нет избранных товаров — нажмите ⭐ на карточке товара'
+                      : activeCat === '__recent__' ? 'Ещё нет недавних продаж'
+                      : search ? 'Ничего не найдено по «' + search + '»'
+                      : 'В этом магазине нет товаров в наличии'"></p>
         </div>
 
         <!-- Сетка товаров -->
@@ -266,6 +253,23 @@
                             title="Убрать из корзины">✕</button>
                 </div>
             </template>
+        </div>
+
+        <!-- Нет в наличии (показываем при поиске рядом с обычными товарами) -->
+        <div x-show="!loading && outOfStockMatches.length > 0" class="mt-3">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 px-1">Нет в наличии</p>
+            <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
+                <template x-for="p in outOfStockMatches" :key="p.id">
+                    <div class="relative bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 opacity-60 cursor-not-allowed select-none">
+                        <div class="absolute top-2 right-2">
+                            <span class="text-[9px] font-bold text-red-500 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-full px-1.5 py-0.5 leading-none">0 шт.</span>
+                        </div>
+                        <p class="text-[10px] text-slate-400 uppercase tracking-wide mb-1 mt-3 truncate">нет в наличии</p>
+                        <p class="text-sm font-semibold text-slate-500 dark:text-slate-400 leading-tight line-clamp-2" x-text="p.name"></p>
+                        <p class="text-[10px] text-slate-400 mt-2">Пополните склад</p>
+                    </div>
+                </template>
+            </div>
         </div>
 
         <!-- Отступ снизу для мобильного бара корзины -->
@@ -774,7 +778,7 @@ function posApp() {
         },
 
         get outOfStockMatches() {
-            if (!this.search.trim() || this.filteredProducts.length > 0) return [];
+            if (!this.search.trim()) return [];
             const q = this.search.toLowerCase().trim();
             return this.zeroStockItems.filter(p => p.name.toLowerCase().includes(q));
         },
