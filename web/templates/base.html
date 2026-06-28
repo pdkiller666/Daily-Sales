@@ -26,7 +26,7 @@
         }
     </script>
     <!-- Tailwind: pre-compiled static CSS (replaces the dev-only CDN runtime build) -->
-    <link rel="stylesheet" href="/static/app.css?v=9c2354cc01">
+    <link rel="stylesheet" href="/static/app.css?v=8dd679ee10">
     {% block extra_css %}{% endblock %}
     <script defer src="/static/vendor/htmx.min.js?v=faf9d188bd"></script>
     <script defer src="/static/vendor/alpine.min.js?v=faf9d188bd"></script>
@@ -2939,6 +2939,82 @@ window.dsOnce = function(btn, label) {
     document.addEventListener('DOMContentLoaded', function () { enhance(document); });
     /* HTMX-подгруженный контент */
     document.body.addEventListener('htmx:afterSwap', function (e) { enhance(e.target); });
+})();
+</script>
+<script nonce="{{ csp_nonce(request) }}">
+/* ── Авто-скрытие flash-баннеров ── */
+(function () {
+    var SKIP_IDS = new Set(['ds-pwa-prompt', 'ds-beta-bar', 'ds-notif-prompt',
+                            'ds-notif-denied', 'ds-notif-granted']);
+    var MB_RE   = /(^|\s)mb-[3-9](\s|$)/;
+    var RND_RE  = /(^|\s)rounded/;
+    var OK_RE   = /(^|\s)bg-emerald-50(\s|$)|(^|\s)bg-green-50(\s|$)/;
+    var ERR_RE  = /(^|\s)bg-amber-50(\s|$)|(^|\s)bg-red-50(\s|$)/;
+
+    function dismiss(el) {
+        el.style.transition = 'opacity .4s';
+        el.style.opacity    = '0';
+        setTimeout(function () { el.parentNode && el.remove(); }, 420);
+    }
+
+    function initBanner(el) {
+        if (!el || el.nodeType !== 1) return;
+        if (el.dataset.flashInit) return;
+        if (el.hasAttribute('x-data'))  return;
+        if (SKIP_IDS.has(el.id))        return;
+        if (el.classList.contains('hidden')) return;
+        var cl = el.className || '';
+        var isOk  = OK_RE.test(cl);
+        var isErr = ERR_RE.test(cl);
+        if (!isOk && !isErr) return;
+        if (!MB_RE.test(cl))  return;
+        if (!RND_RE.test(cl)) return;
+
+        el.dataset.flashInit = '1';
+
+        /* Нормализуем лэйаут под кнопку ✕ */
+        var cs = getComputedStyle(el);
+        if (cs.display !== 'flex') {
+            el.style.display        = 'flex';
+            el.style.alignItems     = 'flex-start';
+            el.style.gap            = '8px';
+        }
+        el.style.justifyContent = 'space-between';
+
+        /* Кнопка закрытия */
+        var btn = document.createElement('button');
+        btn.type      = 'button';
+        btn.textContent = '✕';
+        btn.style.cssText =
+            'flex-shrink:0;opacity:.45;transition:opacity .15s;cursor:pointer;' +
+            'line-height:1;background:none;border:none;color:currentColor;' +
+            'padding:0;margin-left:auto;font-size:.85em;align-self:flex-start';
+        btn.onmouseover  = function () { btn.style.opacity = '1'; };
+        btn.onmouseleave = function () { btn.style.opacity = '.45'; };
+        btn.onclick = function () { dismiss(el); };
+        el.appendChild(btn);
+
+        /* Авто-скрытие только для успешных баннеров */
+        if (isOk) {
+            setTimeout(function () { dismiss(el); }, 4000);
+        }
+    }
+
+    function scanFlash(root) {
+        var main = (root === document)
+            ? document.querySelector('main.ds-main')
+            : root;
+        if (!main) return;
+        var candidates = main.querySelectorAll(
+            '.bg-emerald-50,.bg-green-50,.bg-amber-50,.bg-red-50'
+        );
+        candidates.forEach(initBanner);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () { scanFlash(document); });
+    document.body && document.body.addEventListener('htmx:afterSwap', function (e) {
+        scanFlash(e.target);
+    });
 })();
 </script>
 </body>
