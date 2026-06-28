@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.283.0"
+CURRENT_VERSION = "1.284.0"
 
 ENTRIES = [
+    {
+        "version": "1.284.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Update plan details to stack numbers vertically and improve readability",
+        ],
+    },
     {
         "version": "1.283.0",
         "date": "28 июня 2026",

@@ -6472,10 +6472,21 @@ class Database:
         conn.close()
         return sales
 
-    def get_sales_heatmap(self, start_date=None, end_date=None, shop_name=None):
-        """Heatmap: list of (weekday 0=Mon..6=Sun, hour 0-23, revenue, count)."""
+    def get_sales_heatmap(self, start_date=None, end_date=None, shop_name=None, tz_offset_sec=0):
+        """Heatmap: list of (weekday 0=Mon..6=Sun, hour 0-23, revenue, count).
+
+        tz_offset_sec — UTC offset of the user's timezone in seconds (e.g. +25200 for UTC+7).
+        Applied via SQLite datetime modifier so weekday/hour reflect local time, not UTC.
+        """
         conn = self.get_connection()
         try:
+            # Build SQLite datetime modifier for local-time conversion
+            # Safe: generated from validated timezone, not user input
+            if tz_offset_sec >= 0:
+                tz_mod = f'+{int(tz_offset_sec)} seconds'
+            else:
+                tz_mod = f'{int(tz_offset_sec)} seconds'
+
             conditions, params = [], []
             if start_date:
                 conditions.append("s.sale_date >= ?"); params.append(start_date)
@@ -6487,11 +6498,11 @@ class Database:
             cursor = conn.cursor()
             cursor.execute(f"""
                 SELECT
-                    CASE strftime('%w', s.sale_date)
+                    CASE strftime('%w', datetime(s.sale_date, '{tz_mod}'))
                         WHEN '0' THEN 6
-                        ELSE CAST(strftime('%w', s.sale_date) AS INTEGER) - 1
+                        ELSE CAST(strftime('%w', datetime(s.sale_date, '{tz_mod}')) AS INTEGER) - 1
                     END AS weekday,
-                    CAST(strftime('%H', s.sale_date) AS INTEGER) AS hour,
+                    CAST(strftime('%H', datetime(s.sale_date, '{tz_mod}')) AS INTEGER) AS hour,
                     SUM(s.quantity_sold * s.sale_price) AS revenue,
                     COUNT(*) AS cnt
                 FROM sales s

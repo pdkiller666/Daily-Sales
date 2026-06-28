@@ -544,13 +544,23 @@ def reports_heatmap(
     try:
         db = get_web_db(telegram_id, org_db)
         from timezone_utils import get_current_user_time
+        from zoneinfo import ZoneInfo
+        from datetime import datetime as _dt
         tz = db.get_user_timezone(telegram_id)
         today = get_current_user_time(tz).date()
         df, dt = _period_dates(period, today)
         ctx["date_from"], ctx["date_to"] = df, dt
         ctx["shops"] = db.get_all_shops() or []
 
-        raw = db.get_sales_heatmap(start_date=df, end_date=dt, shop_name=shop or None)
+        # UTC offset in seconds — needed to convert stored UTC sale_date to local time
+        try:
+            _utc_offset = _dt.now(ZoneInfo(tz)).utcoffset()
+            tz_offset_sec = int(_utc_offset.total_seconds()) if _utc_offset else 0
+        except Exception:
+            tz_offset_sec = 0
+
+        raw = db.get_sales_heatmap(start_date=df, end_date=dt, shop_name=shop or None,
+                                   tz_offset_sec=tz_offset_sec)
         # Build dict: {weekday: {hour: {"revenue": x, "count": y}}}
         heatmap: dict = {}
         max_rev = 0.0
