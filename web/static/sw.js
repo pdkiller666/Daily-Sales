@@ -1,5 +1,5 @@
-/* DailySales Service Worker v11 */
-const CACHE_NAME = 'dailysales-v11';
+/* DailySales Service Worker v12 */
+const CACHE_NAME = 'dailysales-v12';
 const OFFLINE_URL = '/static/offline.html';
 const STATIC_ASSETS = [
     '/static/logo.jpg',
