@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.282.0"
+CURRENT_VERSION = "1.283.0"
 
 ENTRIES = [
+    {
+        "version": "1.283.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Add ability to hide the chat button by swiping it off-screen",
+        ],
+    },
     {
         "version": "1.282.0",
         "date": "28 июня 2026",

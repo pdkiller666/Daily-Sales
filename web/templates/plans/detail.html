@@ -119,25 +119,24 @@
              style="width: {{ plan.pct }}%"></div>
     </div>
 
-    <!-- Numbers row -->
-    <div class="mt-4 grid grid-cols-3 gap-4">
-        <div class="text-center p-3 bg-slate-50 rounded-xl">
-            <p class="text-xs text-slate-400 mb-1">Факт</p>
-            <p class="text-base font-bold text-slate-800">
+    <!-- Numbers stack -->
+    <div class="mt-4 flex flex-col gap-2">
+        <div class="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-xl">
+            <p class="text-xs text-slate-400 shrink-0 mr-3">Факт</p>
+            <p class="text-sm font-bold text-slate-800 text-right truncate">
                 {% if plan.is_metric_revenue %}{{ plan.actual|int|fmt_currency }}{% else %}{{ plan.actual|int }}&thinsp;шт.{% endif %}
             </p>
         </div>
-        <div class="text-center p-3 bg-slate-50 rounded-xl">
-            <p class="text-xs text-slate-400 mb-1">Цель</p>
-            <p class="text-base font-bold text-slate-500">
+        <div class="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-xl">
+            <p class="text-xs text-slate-400 shrink-0 mr-3">Цель</p>
+            <p class="text-sm font-bold text-slate-500 text-right truncate">
                 {% if plan.is_metric_revenue %}{{ plan.target_value|int|fmt_currency }}{% else %}{{ plan.target_value|int }}&thinsp;шт.{% endif %}
             </p>
         </div>
-        <div class="text-center p-3 rounded-xl
-                    {{ 'bg-emerald-50' if plan.pct_raw >= 100 else 'bg-red-50' }}">
-            <p class="text-xs text-slate-400 mb-1">Остаток</p>
+        <div class="flex items-center justify-between px-3 py-2 rounded-xl {{ 'bg-emerald-50' if plan.pct_raw >= 100 else 'bg-red-50' }}">
+            <p class="text-xs text-slate-400 shrink-0 mr-3">Остаток</p>
             {% set rem = plan.target_value - plan.actual %}
-            <p class="text-base font-bold {{ 'text-emerald-600' if rem <= 0 else 'text-red-500' }}">
+            <p class="text-sm font-bold text-right truncate {{ 'text-emerald-600' if rem <= 0 else 'text-red-500' }}">
                 {% if rem <= 0 %}✅ готово
                 {% elif plan.is_metric_revenue %}{{ rem|int|fmt_currency }}
                 {% else %}{{ rem|int }}&thinsp;шт.
