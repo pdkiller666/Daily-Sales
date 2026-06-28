@@ -243,7 +243,7 @@
             {% if exports %}
             <div class="space-y-1.5 mb-3">
                 {% for e in exports %}
-                <div x-data="{ editOpen: false }" class="bg-white border border-slate-100 rounded-lg overflow-hidden">
+                <div x-data="{ editOpen: false, syncOpen: false, syncLoading: false, syncResult: null }" class="bg-white border border-slate-100 rounded-lg overflow-hidden">
                     <div class="flex items-center gap-2 text-xs px-3 py-2">
                         <span class="w-2 h-2 rounded-full shrink-0 {% if e.enabled %}bg-emerald-400{% else %}bg-slate-300{% endif %}"></span>
                         <span class="text-slate-700 font-medium min-w-[60px]">{{ e.export_type }}</span>
@@ -264,6 +264,15 @@
                                     ▶
                                 </button>
                             </form>
+                            {% if e.export_type == 'sales' and e.operation == 'update_cell' %}
+                            <button type="button"
+                                    @click="syncOpen = !syncOpen; syncResult = null"
+                                    title="Синхронизировать за текущую неделю"
+                                    :class="syncOpen ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'"
+                                    class="text-[10px] px-2 py-0.5 border rounded font-medium transition-colors">
+                                🔄
+                            </button>
+                            {% endif %}
                             <button type="button" @click="editOpen = !editOpen" title="Редактировать"
                                     :class="editOpen ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-200'"
                                     class="text-[10px] px-2 py-0.5 border rounded font-medium transition-colors">
@@ -287,6 +296,61 @@
                             </form>
                         </div>
                     </div>
+
+                    {% if e.export_type == 'sales' and e.operation == 'update_cell' %}
+                    <!-- Sync-week panel -->
+                    <div x-show="syncOpen" x-cloak class="px-3 py-3 bg-blue-50 border-t border-blue-100">
+                        <p class="text-xs font-semibold text-blue-800 mb-2">🔄 Синхронизировать продажи за текущую неделю</p>
+                        <div x-show="!syncLoading && syncResult === null">
+                            <p class="text-xs text-slate-600 mb-2">
+                                Все продажи за текущую неделю (Пн–Вс) будут агрегированы и записаны в матрицу листа
+                                <code class="font-mono bg-blue-100 px-1 rounded">{{ e.target_sheet or 'Sheet1' }}</code>.
+                                Операция идемпотентна — повторный запуск не задвоит данные.
+                            </p>
+                            <div class="flex items-center gap-2">
+                                <button type="button"
+                                        @click="syncLoading=true; fetch('/integration/{{ c.id }}/export/{{ e.id }}/sync-week',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'csrf_token={{ csrf_token }}'}).then(r=>r.json()).then(d=>{syncResult=d;syncLoading=false}).catch(err=>{syncResult={ok:false,error:''+err};syncLoading=false})"
+                                        class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
+                                    ✅ Запустить синхронизацию
+                                </button>
+                                <button type="button" @click="syncOpen=false"
+                                        class="text-xs text-slate-500 hover:text-slate-700 transition-colors">
+                                    Отмена
+                                </button>
+                            </div>
+                        </div>
+                        <div x-show="syncLoading" class="text-xs text-blue-700 flex items-center gap-1.5">
+                            <svg class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                            </svg>
+                            Синхронизация...
+                        </div>
+                        <template x-if="syncResult !== null">
+                            <div>
+                                <div x-show="syncResult.ok"
+                                     class="text-xs p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800">
+                                    <p class="font-semibold mb-1">✅ Синхронизация завершена</p>
+                                    <p>📋 Лист: <code class="font-mono" x-text="syncResult.sheet"></code></p>
+                                    <p>📅 Период: <span x-text="syncResult.date_from"></span> — <span x-text="syncResult.date_to"></span></p>
+                                    <p>✅ Ячеек обновлено: <strong x-text="syncResult.cells_updated"></strong></p>
+                                    <p x-show="syncResult.cells_skipped > 0">⚠️ Пропущено (не найдено в таблице): <span x-text="syncResult.cells_skipped"></span></p>
+                                    <p x-show="syncResult.errors && syncResult.errors.length > 0" class="mt-1 text-amber-700">
+                                        Примеры ошибок: <span x-text="syncResult.errors ? syncResult.errors.slice(0,2).join('; ') : ''"></span>
+                                    </p>
+                                </div>
+                                <div x-show="!syncResult.ok"
+                                     class="text-xs p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700">
+                                    ❌ <span x-text="syncResult.error"></span>
+                                </div>
+                                <button type="button" @click="syncResult=null; syncOpen=false"
+                                        class="mt-2 text-xs text-slate-500 hover:text-slate-700 transition-colors">
+                                    Закрыть
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                    {% endif %}
 
                     <!-- Inline edit form -->
                     <div x-show="editOpen" x-cloak class="px-3 py-3 bg-slate-50 border-t border-slate-100">

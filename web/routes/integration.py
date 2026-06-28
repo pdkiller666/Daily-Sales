@@ -922,6 +922,65 @@ async def integration_export_run(
         return RedirectResponse(url=f"/integration?error={quote('Ошибка запуска экспорта')}", status_code=302)
 
 
+@router.post("/integration/{cid}/export/{eid}/sync-week")
+async def integration_export_sync_week(
+    request: Request, cid: int, eid: int, csrf_token: str = Form(default="")
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from datetime import datetime, timedelta
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "Неверный CSRF токен"}, status_code=403)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    can_use, _ = _check_plan(telegram_id)
+    if not can_use:
+        return JSONResponse({"ok": False, "error": "Модуль интеграций не подключён"})
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        exp = db.get_integration_export(eid)
+        if not exp:
+            return JSONResponse({"ok": False, "error": "Правило не найдено"})
+        actual_conn_id = exp[1]
+        if actual_conn_id != cid:
+            return JSONResponse({"ok": False, "error": "Правило не принадлежит этому подключению"})
+        if exp[5] != "update_cell":
+            return JSONResponse({
+                "ok": False,
+                "error": "Синхронизация за неделю поддерживается только для операции «Обновить ячейку (матрица)»"
+            })
+
+        now = datetime.utcnow()
+        week_start = now - timedelta(days=now.weekday())
+        week_end = week_start + timedelta(days=6)
+        date_from = week_start.strftime("%Y-%m-%d")
+        date_to = week_end.strftime("%Y-%m-%d")
+
+        from integration.manager import integration_manager
+        result = await integration_manager.sync_matrix_for_period(db, eid, date_from, date_to)
+
+        return JSONResponse({
+            "ok": True,
+            "cells_updated": result.get("cells_updated", 0),
+            "cells_skipped": result.get("cells_skipped", 0),
+            "sheet": result.get("sheet", ""),
+            "date_from": week_start.strftime("%d.%m.%Y"),
+            "date_to": week_end.strftime("%d.%m.%Y"),
+            "errors": result.get("errors", []),
+        })
+    except Exception as e:
+        logging.error(f"integration_export_sync_week: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  Motivation config
 # ─────────────────────────────────────────────────────────────────────────────
