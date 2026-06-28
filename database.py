@@ -11916,6 +11916,33 @@ class Database:
             logger.error(f"get_all_sales_for_export: {e}")
             return []
 
+    def get_sales_for_week_replace(self, date_from: str, date_to: str) -> list:
+        """Return week-filtered sales for replace_sheet export.
+        Same column layout as get_all_sales_for_export:
+        (sale_date, product_name, category, shop_name, quantity_sold, sale_price, total, seller)
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT s.sale_date, p.name, p.category, s.shop_name,
+                          s.quantity_sold, s.sale_price,
+                          ROUND(s.quantity_sold * s.sale_price, 2) AS total,
+                          COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '') AS seller
+                   FROM sales s
+                   JOIN products p ON p.id = s.product_id
+                   LEFT JOIN users u ON u.id = s.user_id
+                   WHERE date(s.sale_date) BETWEEN ? AND ?
+                   ORDER BY s.sale_date DESC''',
+                (date_from, date_to)
+            )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_sales_for_week_replace: {e}")
+            return []
+
     def get_sales_for_matrix_sync(self, date_from: str, date_to: str) -> list:
         """Return raw sales for a date range for matrix sync.
         Returns list of tuples:

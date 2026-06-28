@@ -63,6 +63,11 @@ def integration_page(
     can_use, plan_name = _check_plan(telegram_id)
     has_secrets = _google_secrets_configured()
 
+    from datetime import datetime as _dt, timedelta as _td
+    _now = _dt.utcnow()
+    _wstart = _now - _td(days=_now.weekday())
+    _wend = _wstart + _td(days=6)
+
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": True,
@@ -79,6 +84,8 @@ def integration_page(
         "msg": msg,
         "error": error,
         "csrf_token": "",
+        "week_date_from": _wstart.strftime("%d.%m.%Y"),
+        "week_date_to": _wend.strftime("%d.%m.%Y"),
     }
 
     from web.auth import get_csrf_token
@@ -929,6 +936,7 @@ async def integration_export_sync_week(
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from datetime import datetime, timedelta
+    import json as _json
 
     user = get_session_user(request)
     if not user:
@@ -952,29 +960,60 @@ async def integration_export_sync_week(
         actual_conn_id = exp[1]
         if actual_conn_id != cid:
             return JSONResponse({"ok": False, "error": "Правило не принадлежит этому подключению"})
-        if exp[5] != "update_cell":
-            return JSONResponse({
-                "ok": False,
-                "error": "Синхронизация за неделю поддерживается только для операции «Обновить ячейку (матрица)»"
-            })
+
+        export_type = exp[0]
+        operation = exp[5]
+
+        if export_type != "sales":
+            return JSONResponse({"ok": False, "error": "Синхронизация за неделю доступна только для правил с типом «sales»"})
+        if operation not in ("update_cell", "replace_sheet"):
+            return JSONResponse({"ok": False, "error": "Синхронизация за неделю поддерживается только для операций «update_cell» и «replace_sheet»"})
 
         now = datetime.utcnow()
         week_start = now - timedelta(days=now.weekday())
         week_end = week_start + timedelta(days=6)
         date_from = week_start.strftime("%Y-%m-%d")
         date_to = week_end.strftime("%Y-%m-%d")
+        date_from_disp = week_start.strftime("%d.%m.%Y")
+        date_to_disp = week_end.strftime("%d.%m.%Y")
 
         from integration.manager import integration_manager
-        result = await integration_manager.sync_matrix_for_period(db, eid, date_from, date_to)
 
+        if operation == "update_cell":
+            result = await integration_manager.sync_matrix_for_period(db, eid, date_from, date_to)
+            return JSONResponse({
+                "ok": True,
+                "rows_written": result.get("cells_updated", 0),
+                "cells_skipped": result.get("cells_skipped", 0),
+                "sheet": result.get("sheet", ""),
+                "date_from": date_from_disp,
+                "date_to": date_to_disp,
+                "errors": result.get("errors", []),
+            })
+
+        # replace_sheet: fetch week-filtered sales, write full sheet
+        conn_row = db.get_integration_connection(actual_conn_id)
+        if not conn_row:
+            return JSONResponse({"ok": False, "error": "Подключение не найдено"})
+        conn_config = _json.loads(conn_row[3] or "{}")
+        conn_config = await integration_manager._ensure_valid_token(db, actual_conn_id, conn_config)
+        sheet_tpl = exp[4] or "Sheet1"
+        sheet_name = integration_manager._render_sheet_name(sheet_tpl, {})
+        rows_raw = db.get_sales_for_week_replace(date_from, date_to)
+        headers = ["Дата", "Товар", "Категория", "Магазин", "Количество", "Цена", "Сумма", "Продавец"]
+        rows = [[str(r[i]) for i in range(min(len(r), 8))] for r in rows_raw]
+        provider = integration_manager.providers.get("google_sheets")
+        await provider.replace_sheet(conn_config, sheet_name, headers, rows)
+        db.add_integration_log(actual_conn_id, eid, "success",
+                               f"sync-week replace_sheet {date_from}–{date_to}: {len(rows)} строк на «{sheet_name}»")
+        db.update_integration_export_last_run(eid)
         return JSONResponse({
             "ok": True,
-            "cells_updated": result.get("cells_updated", 0),
-            "cells_skipped": result.get("cells_skipped", 0),
-            "sheet": result.get("sheet", ""),
-            "date_from": week_start.strftime("%d.%m.%Y"),
-            "date_to": week_end.strftime("%d.%m.%Y"),
-            "errors": result.get("errors", []),
+            "rows_written": len(rows),
+            "sheet": sheet_name,
+            "date_from": date_from_disp,
+            "date_to": date_to_disp,
+            "errors": [],
         })
     except Exception as e:
         logging.error(f"integration_export_sync_week: {e}")

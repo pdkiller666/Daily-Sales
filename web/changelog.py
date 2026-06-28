@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.292.0"
+CURRENT_VERSION = "1.293.0"
 
 ENTRIES = [
+    {
+        "version": "1.293.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Add \"sync sales for current week\" button to web integration page",
+        ],
+    },
     {
         "version": "1.292.0",
         "date": "28 июня 2026",
