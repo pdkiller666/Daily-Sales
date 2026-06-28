@@ -129,6 +129,8 @@ def integration_page(
                             "rules_written": last_sync_stats.get("rules_written"),
                             "matched_models": last_sync_stats.get("matched_models"),
                             "unmatched_count": last_sync_stats.get("unmatched", 0),
+                            "unmatched_list": last_sync_stats.get("unmatched_list") or [],
+                            "unmatched_chains_list": last_sync_stats.get("unmatched_chains_list") or [],
                             "auto_sync": bool(motiv_cfg.get("auto_sync")),
                         }
                     except Exception:
@@ -436,6 +438,106 @@ def integration_delete(request: Request, cid: int, csrf_token: str = Form(defaul
         logging.error(f"integration_delete: {e}")
 
     return RedirectResponse(url="/integration?msg=Подключение+удалено", status_code=302)
+
+
+@router.post("/integration/{cid}/move-exports")
+def integration_move_exports(
+    request: Request,
+    cid: int,
+    target_cid: Annotated[int, Form()],
+    csrf_token: str = Form(default=""),
+):
+    """Clone all export rules from connection cid to target_cid (source rules stay intact)."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    can_use, _ = _check_plan(telegram_id)
+    if not can_use:
+        return RedirectResponse(url="/integration", status_code=302)
+
+    if cid == target_cid:
+        return RedirectResponse(
+            url="/integration?error=" + quote("Нельзя перенести правила на то же подключение"),
+            status_code=302,
+        )
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        target_conn = db.get_integration_connection(target_cid)
+        if not target_conn:
+            return RedirectResponse(
+                url="/integration?error=" + quote("Целевое подключение не найдено"),
+                status_code=302,
+            )
+        exports = db.get_integration_exports(cid) or []
+        count = 0
+        for e in exports:
+            # e: (id, export_type, enabled, schedule, target_sheet, operation, mapping, lookup_config, last_run)
+            db.add_integration_export(
+                target_cid,
+                e[1],  # export_type
+                e[5],  # operation
+                e[4],  # target_sheet
+                e[3],  # schedule
+                enabled=int(e[2]),
+                mapping=e[6],
+                lookup_config=e[7],
+            )
+            count += 1
+        target_name = target_conn[1] or f"#{target_cid}"
+        msg = f"Перенесено {count} правил на подключение «{target_name}»"
+        return RedirectResponse(url=f"/integration?msg={quote(msg)}", status_code=302)
+    except Exception as e:
+        logging.error(f"integration_move_exports: {e}")
+        return RedirectResponse(
+            url="/integration?error=" + quote("Ошибка переноса правил. Попробуйте позже."),
+            status_code=302,
+        )
+
+
+@router.get("/integration/{cid}/motiv-cache")
+def integration_motiv_cache(request: Request, cid: int):
+    """Return motivation bonus cache as JSON for lazy-loading in the web UI."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        rows = db.get_bonus_cache(cid) or []
+        items = [
+            {
+                "model": r[0] or "",
+                "chain": r[1] or "",
+                "bonus": r[2],
+                "rrp": r[3],
+                "synced_at": (r[4] or "")[:16],
+            }
+            for r in rows
+        ]
+        return JSONResponse({"ok": True, "items": items, "total": len(items)})
+    except Exception as e:
+        logging.error(f"integration_motiv_cache: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 @router.post("/integration/{cid}/sync-motiv")

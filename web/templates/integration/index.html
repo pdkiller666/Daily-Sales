@@ -115,7 +115,7 @@
     {% set exports = conn_exports.get(c.id, []) %}
     {% set logs = conn_logs.get(c.id, []) %}
     <div class="card overflow-hidden"
-         x-data="{ logsOpen: false, editOpen: false, addExportOpen: false, testResult: null, testLoading: false }">
+         x-data="{ logsOpen: false, editOpen: false, addExportOpen: false, moveOpen: false, testResult: null, testLoading: false }">
 
         <!-- Connection header -->
         <div class="flex flex-col sm:flex-row sm:items-start gap-3 p-5 border-b border-slate-100">
@@ -191,6 +191,14 @@
                     </button>
                 </form>
 
+                {% if connections|length > 1 %}
+                <button @click="moveOpen = !moveOpen"
+                        class="text-xs px-3 py-1.5 border rounded-lg font-medium transition-colors"
+                        :class="moveOpen ? 'bg-amber-100 border-amber-300 text-amber-700' : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200'">
+                    📦 Перенести
+                </button>
+                {% endif %}
+
                 <form method="post" action="/integration/{{ c.id }}/delete"
                       data-confirm="Удалить подключение «{{ c.name }}» и все его настройки?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -229,6 +237,47 @@
                 </div>
             </form>
         </div>
+
+        {% if connections|length > 1 %}
+        <!-- Move exports panel (collapsible) -->
+        <div x-show="moveOpen" x-cloak class="px-5 py-4 bg-amber-50/80 border-b border-amber-100">
+            <p class="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-3">📦 Перенести правила экспорта</p>
+            {% if exports %}
+            <form method="post" action="/integration/{{ c.id }}/move-exports"
+                  data-confirm="Скопировать {{ exports|length }} правил на выбранное подключение?">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="flex flex-wrap gap-2 items-end mb-2">
+                    <div class="flex-1 min-w-[180px]">
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Целевое подключение</label>
+                        <select name="target_cid" required
+                                class="w-full border border-amber-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400">
+                            {% for other in connections %}
+                            {% if other.id != c.id %}
+                            <option value="{{ other.id }}">{{ other.name }}</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit"
+                            class="text-xs px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium transition-colors">
+                        📦 Скопировать
+                    </button>
+                    <button type="button" @click="moveOpen=false"
+                            class="text-xs px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-medium transition-colors">
+                        Отмена
+                    </button>
+                </div>
+                <p class="text-[10px] text-amber-600">Правила будут скопированы «как есть». Исходные правила остаются нетронутыми.</p>
+            </form>
+            {% else %}
+            <p class="text-xs text-slate-400 mb-2">У этого подключения нет правил экспорта для переноса.</p>
+            <button type="button" @click="moveOpen=false"
+                    class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-medium transition-colors">
+                Закрыть
+            </button>
+            {% endif %}
+        </div>
+        {% endif %}
 
         <!-- Exports section -->
         <div class="px-5 py-3 border-b border-slate-100">
@@ -613,7 +662,8 @@
         </div>
 
         <!-- Motivation section -->
-        <div class="px-5 py-3 border-b border-slate-100" x-data="{ motivOpen: false }">
+        <div class="px-5 py-3 border-b border-slate-100"
+             x-data="{ motivOpen: false, cacheOpen: false, cacheLoading: false, cacheData: null }">
             <button @click="motivOpen = !motivOpen" class="flex items-center justify-between w-full text-left">
                 <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
                     🎯 Мотивация
@@ -639,7 +689,88 @@
                         <span>🕒 Обновлено: <strong class="text-slate-600">{{ c.motiv_preview.last_synced or '—' }}</strong></span>
                         {% if c.motiv_preview.auto_sync %}<span class="text-emerald-600 font-medium">🔔 Автосинк ВКЛ</span>{% else %}<span class="text-slate-400">🔕 Автосинк ВЫКЛ</span>{% endif %}
                     </div>
+                    {% if c.motiv_preview.unmatched_list %}
+                    <div class="pt-1 border-t border-slate-200 mt-1">
+                        <p class="text-amber-600 font-medium mb-1">⚠️ Не найдены в базе товаров ({{ c.motiv_preview.unmatched_count }}):</p>
+                        <div class="flex flex-wrap gap-1">
+                            {% for um in c.motiv_preview.unmatched_list %}
+                            <button type="button"
+                                    title="Добавить псевдоним для «{{ um }}»"
+                                    class="inline-flex items-center gap-1 text-[10px] bg-amber-50 border border-amber-200 text-amber-700 rounded px-1.5 py-0.5 hover:bg-amber-100 transition-colors font-mono">
+                                {{ um }} <span class="text-amber-400">+псевд.</span>
+                            </button>
+                            {% endfor %}
+                            {% if c.motiv_preview.unmatched_count > c.motiv_preview.unmatched_list|length %}
+                            <span class="text-[10px] text-slate-400 px-1">… ещё {{ c.motiv_preview.unmatched_count - c.motiv_preview.unmatched_list|length }}</span>
+                            {% endif %}
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-1">Нажмите на модель — откроется форма добавления псевдонима ниже.</p>
+                    </div>
+                    {% endif %}
+                    {% if c.motiv_preview.unmatched_chains_list %}
+                    <div class="pt-1 border-t border-slate-200 mt-1">
+                        <p class="text-amber-600 font-medium mb-1">⚠️ Сети без профилей ({{ c.motiv_preview.unmatched_chains_list|length }}):</p>
+                        <div class="flex flex-wrap gap-1">
+                            {% for uc in c.motiv_preview.unmatched_chains_list %}
+                            <span class="text-[10px] bg-orange-50 border border-orange-200 text-orange-700 rounded px-1.5 py-0.5 font-mono">{{ uc }}</span>
+                            {% endfor %}
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-1">Добавьте псевдоним сети или проверьте поле «Торговая сеть» в профилях сотрудников.</p>
+                    </div>
+                    {% endif %}
                 </div>
+
+                <!-- Bonus cache lazy-load table -->
+                {% if c.motiv_preview.model_count > 0 %}
+                <div class="mb-3">
+                    <button @click="cacheOpen = !cacheOpen; if (cacheOpen && cacheData === null) { cacheLoading = true; fetch('/integration/{{ c.id }}/motiv-cache').then(r=>r.json()).then(d=>{ cacheData=d; cacheLoading=false; }).catch(e=>{ cacheData={ok:false,error:''+e}; cacheLoading=false; }); }"
+                            class="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 hover:text-slate-600 uppercase tracking-wide transition-colors">
+                        <svg :class="cacheOpen ? 'rotate-180' : ''" class="w-3 h-3 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                        📋 Кэш мотивации ({{ c.motiv_preview.model_count }} моделей)
+                    </button>
+                    <div x-show="cacheOpen" x-cloak class="mt-2">
+                        <div x-show="cacheLoading" class="text-xs text-slate-400 flex items-center gap-1.5 py-2">
+                            <svg class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
+                            Загрузка кэша...
+                        </div>
+                        <template x-if="cacheData && cacheData.ok && cacheData.items && cacheData.items.length > 0">
+                            <div class="bg-white border border-slate-100 rounded-xl overflow-hidden">
+                                <div class="overflow-x-auto max-h-64">
+                                    <table class="w-full text-[10px]">
+                                        <thead class="sticky top-0 bg-slate-50 border-b border-slate-100">
+                                            <tr>
+                                                <th class="text-left px-3 py-1.5 font-semibold text-slate-400">Модель</th>
+                                                <th class="text-left px-3 py-1.5 font-semibold text-slate-400">Сеть</th>
+                                                <th class="text-right px-3 py-1.5 font-semibold text-slate-400">Бонус</th>
+                                                <th class="text-right px-3 py-1.5 font-semibold text-slate-400 hidden sm:table-cell">РРЦ</th>
+                                                <th class="text-right px-3 py-1.5 font-semibold text-slate-400 hidden md:table-cell">Синк</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for="(row, idx) in cacheData.items" :key="idx">
+                                                <tr class="border-t border-slate-50 hover:bg-slate-50 transition-colors">
+                                                    <td class="px-3 py-1.5 font-mono text-slate-600 max-w-[180px] truncate" x-text="row.model"></td>
+                                                    <td class="px-3 py-1.5 text-slate-500" x-text="row.chain || '—'"></td>
+                                                    <td class="px-3 py-1.5 text-right font-medium text-emerald-700" x-text="row.bonus !== null ? row.bonus : '—'"></td>
+                                                    <td class="px-3 py-1.5 text-right text-slate-400 hidden sm:table-cell" x-text="row.rrp !== null ? row.rrp : '—'"></td>
+                                                    <td class="px-3 py-1.5 text-right text-slate-300 hidden md:table-cell" x-text="row.synced_at || '—'"></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="px-3 py-1.5 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-400" x-text="`Всего записей: ${cacheData.total}`"></div>
+                            </div>
+                        </template>
+                        <template x-if="cacheData && cacheData.ok && (!cacheData.items || cacheData.items.length === 0)">
+                            <p class="text-xs text-slate-400 py-2">Кэш пуст — запустите синхронизацию.</p>
+                        </template>
+                        <template x-if="cacheData && !cacheData.ok">
+                            <p class="text-xs text-red-500 py-2" x-text="'Ошибка загрузки: ' + cacheData.error"></p>
+                        </template>
+                    </div>
+                </div>
+                {% endif %}
                 {% endif %}
 
                 <!-- Motiv config form -->

@@ -203,13 +203,17 @@ class IntegrationManager:
                 return
             cfg = json.loads(conn[3] or '{}')
             motiv = cfg.get('motiv_config') or {}
+            _unmatched_list = result.get('unmatched', [])
+            _unmatched_chains_list = result.get('unmatched_chains', [])
             motiv['last_sync_stats'] = {
-                'synced':          result.get('synced', 0),
-                'rules_written':   result.get('rules_written', 0),
-                'matched_models':  result.get('matched_models', 0),
-                'unmatched':       len(result.get('unmatched', [])),
-                'unmatched_chains': len(result.get('unmatched_chains', [])),
-                'synced_at':       datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
+                'synced':               result.get('synced', 0),
+                'rules_written':        result.get('rules_written', 0),
+                'matched_models':       result.get('matched_models', 0),
+                'unmatched':            len(_unmatched_list),
+                'unmatched_chains':     len(_unmatched_chains_list),
+                'unmatched_list':       [str(x) for x in _unmatched_list[:30]],
+                'unmatched_chains_list': [str(x) for x in _unmatched_chains_list[:20]],
+                'synced_at':            datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
             }
             cfg['motiv_config'] = motiv
             db.update_integration_connection(conn_id, config=json.dumps(cfg, ensure_ascii=False))

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.296.0"
+CURRENT_VERSION = "1.297.0"
 
 ENTRIES = [
+    {
+        "version": "1.297.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Fix export operations and sync-week response consistency",
+        ],
+    },
     {
         "version": "1.296.0",
         "date": "28 июня 2026",
