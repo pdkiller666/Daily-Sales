@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.288.0"
+CURRENT_VERSION = "1.289.0"
 
 ENTRIES = [
+    {
+        "version": "1.289.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Fix layout issue where price field clips quantity adjustment buttons",
+        ],
+    },
     {
         "version": "1.288.0",
         "date": "28 июня 2026",
