@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.290.0"
+CURRENT_VERSION = "1.291.0"
 
 ENTRIES = [
+    {
+        "version": "1.291.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Improve Google Sheets authentication stability and reliability",
+        ],
+    },
     {
         "version": "1.290.0",
         "date": "28 июня 2026",

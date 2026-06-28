@@ -46,7 +46,9 @@ def _make_gc_sync(config: dict) -> gspread.Client:
         expiry_dt = None
         if raw_expiry:
             try:
-                expiry_dt = datetime.fromtimestamp(float(raw_expiry), tz=timezone.utc)
+                # google-auth compares expiry with datetime.utcnow() (naive),
+                # so we must pass a naive UTC datetime here.
+                expiry_dt = datetime.utcfromtimestamp(float(raw_expiry))
             except (TypeError, ValueError, OSError):
                 expiry_dt = None
         creds = OAuthCredentials(
