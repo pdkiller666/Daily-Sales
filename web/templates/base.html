@@ -2945,9 +2945,10 @@ window.dsOnce = function(btn, label) {
 /* ── Авто-скрытие flash-баннеров ── */
 (function () {
     var SKIP_IDS = new Set(['ds-pwa-prompt', 'ds-beta-bar', 'ds-notif-prompt',
-                            'ds-notif-denied', 'ds-notif-granted']);
+                            'ds-notif-denied', 'ds-notif-granted',
+                            'apk-banner', 'apk-update-banner']);
     var MB_RE   = /(^|\s)mb-[3-9](\s|$)/;
-    var RND_RE  = /(^|\s)rounded/;
+    var RND_RE  = /(^|\s)rounded-(xl|lg|md)(\s|$)/;  /* исключаем rounded-2xl и plain rounded */
     var OK_RE   = /(^|\s)bg-emerald-50(\s|$)|(^|\s)bg-green-50(\s|$)/;
     var ERR_RE  = /(^|\s)bg-amber-50(\s|$)|(^|\s)bg-red-50(\s|$)/;
 
@@ -2959,9 +2960,11 @@ window.dsOnce = function(btn, label) {
 
     function initBanner(el) {
         if (!el || el.nodeType !== 1) return;
-        if (el.dataset.flashInit) return;
-        if (el.hasAttribute('x-data'))  return;
-        if (SKIP_IDS.has(el.id))        return;
+        if (el.dataset.flashInit)          return;
+        if (el.hasAttribute('x-data'))     return;
+        if (el.hasAttribute('x-show'))     return;   /* Alpine-управляемый */
+        if (el.dataset.flashSkip)          return;   /* явно помечен как не-flash */
+        if (SKIP_IDS.has(el.id))           return;
         if (el.classList.contains('hidden')) return;
         var cl = el.className || '';
         var isOk  = OK_RE.test(cl);
