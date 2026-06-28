@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.286.0"
+CURRENT_VERSION = "1.287.0"
 
 ENTRIES = [
+    {
+        "version": "1.287.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Fix rounded corners on the peek tab to align correctly with screen edges",
+        ],
+    },
     {
         "version": "1.286.0",
         "date": "28 июня 2026",
