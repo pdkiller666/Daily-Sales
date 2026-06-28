@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.294.0"
+CURRENT_VERSION = "1.295.0"
 
 ENTRIES = [
+    {
+        "version": "1.295.0",
+        "date": "28 июня 2026",
+        "items": [
+            "matrix export wizard in web integration UI",
+        ],
+    },
     {
         "version": "1.294.0",
         "date": "28 июня 2026",

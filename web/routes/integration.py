@@ -654,6 +654,7 @@ def integration_export_create(
     row_search_field: Annotated[str, Form()] = "",
     col_search_row: Annotated[str, Form()] = "",
     col_search_field: Annotated[str, Form()] = "",
+    update_op: Annotated[str, Form()] = "",
     value_field: Annotated[str, Form()] = "",
     data_start_row: Annotated[str, Form()] = "",
     data_start_col: Annotated[str, Form()] = "",
@@ -729,20 +730,32 @@ def integration_export_create(
         default_lc = _DEFAULT_LOOKUP.get(export_type, {})
         def _int_or(s, default):
             try:
-                return int(s)
+                v = int(s)
+                return v if v >= 1 else default
             except (ValueError, TypeError):
                 return default
         def _str_or(s, default):
             return s.strip() if s and s.strip() else default
+        _valid_update_ops = {"set", "increment", "decrement"}
+        _update_op = update_op.strip() if update_op and update_op.strip() in _valid_update_ops else default_lc.get("operation", "set")
+        _row_field = _str_or(row_search_field, default_lc.get("row_search_field", "shop_name"))
+        _col_field = _str_or(col_search_field, default_lc.get("col_search_field", "product_name"))
+        _val_field = _str_or(value_field, default_lc.get("value_field", "quantity"))
+        _row_col   = _int_or(row_search_col, default_lc.get("row_search_col", 1))
+        _col_row   = _int_or(col_search_row, default_lc.get("col_search_row", 1))
+        _ds_row    = _int_or(data_start_row, default_lc.get("data_start_row", 2))
+        _ds_col    = _int_or(data_start_col, default_lc.get("data_start_col", 2))
+        if not _row_field or not _col_field or not _val_field:
+            return RedirectResponse(url=f"/integration?error={quote('Для матрицы обязательны поля строки, столбца и значения')}", status_code=302)
         lc = {
-            "row_search_col":   _int_or(row_search_col,   default_lc.get("row_search_col", 1)),
-            "row_search_field": _str_or(row_search_field, default_lc.get("row_search_field", "shop_name")),
-            "col_search_row":   _int_or(col_search_row,   default_lc.get("col_search_row", 1)),
-            "col_search_field": _str_or(col_search_field, default_lc.get("col_search_field", "product_name")),
-            "value_field":      _str_or(value_field,      default_lc.get("value_field", "quantity")),
-            "data_start_row":   _int_or(data_start_row,   default_lc.get("data_start_row", 2)),
-            "data_start_col":   _int_or(data_start_col,   default_lc.get("data_start_col", 2)),
-            "operation":        default_lc.get("operation", "set"),
+            "row_search_col":   _row_col,
+            "row_search_field": _row_field,
+            "col_search_row":   _col_row,
+            "col_search_field": _col_field,
+            "value_field":      _val_field,
+            "data_start_row":   _ds_row,
+            "data_start_col":   _ds_col,
+            "operation":        _update_op,
         }
         lookup_json = json.dumps(lc, ensure_ascii=False)
 
@@ -835,6 +848,7 @@ def integration_export_edit(
     row_search_field: Annotated[str, Form()] = "",
     col_search_row: Annotated[str, Form()] = "",
     col_search_field: Annotated[str, Form()] = "",
+    update_op: Annotated[str, Form()] = "",
     value_field: Annotated[str, Form()] = "",
     data_start_row: Annotated[str, Form()] = "",
     data_start_col: Annotated[str, Form()] = "",
@@ -880,11 +894,14 @@ def integration_export_edit(
             existing_lc = json.loads(exp[7]) if exp[7] else {}
             def _int_or(s, default):
                 try:
-                    return int(s)
+                    v = int(s)
+                    return v if v >= 1 else default
                 except (ValueError, TypeError):
                     return default
             def _str_or(s, default):
-                return s.strip() if s.strip() else default
+                return s.strip() if s and s.strip() else default
+            _valid_update_ops = {"set", "increment", "decrement"}
+            _update_op = update_op.strip() if update_op and update_op.strip() in _valid_update_ops else existing_lc.get("operation", "set")
             lc = {
                 "row_search_col":   _int_or(row_search_col, existing_lc.get("row_search_col", 1)),
                 "row_search_field": _str_or(row_search_field, existing_lc.get("row_search_field", "shop_name")),
@@ -893,7 +910,7 @@ def integration_export_edit(
                 "value_field":      _str_or(value_field, existing_lc.get("value_field", "quantity")),
                 "data_start_row":   _int_or(data_start_row, existing_lc.get("data_start_row", 2)),
                 "data_start_col":   _int_or(data_start_col, existing_lc.get("data_start_col", 2)),
-                "operation":        existing_lc.get("operation", "set"),
+                "operation":        _update_op,
             }
             update_kwargs["lookup_config"] = json.dumps(lc, ensure_ascii=False)
 

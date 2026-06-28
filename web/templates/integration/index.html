@@ -250,7 +250,8 @@
                         <span class="text-slate-400">→ <span class="font-mono">{{ e.target_sheet or '—' }}</span></span>
                         <span class="text-slate-400 hidden sm:inline">{{ e.operation or '' }}</span>
                         {% if e.operation == 'update_cell' and e.lookup_config %}
-                        <span class="hidden sm:inline text-[9px] bg-violet-50 text-violet-600 border border-violet-100 rounded px-1.5 py-0.5 font-mono whitespace-nowrap" title="Матрица: строка × столбец → значение">{{ e.lookup_config.get('row_search_field','?') }} × {{ e.lookup_config.get('col_search_field','?') }} → {{ e.lookup_config.get('value_field','?') }}</span>
+                        {% set _op_label = {'set': '=', 'increment': '+=', 'decrement': '-='}[e.lookup_config.get('operation', 'set')] if e.lookup_config.get('operation', 'set') in ('set','increment','decrement') else '=' %}
+                        <span class="hidden sm:inline text-[9px] bg-violet-50 text-violet-600 border border-violet-100 rounded px-1.5 py-0.5 font-mono whitespace-nowrap" title="Матрица: строка × столбец → операция значение">{{ e.lookup_config.get('row_search_field','?') }} × {{ e.lookup_config.get('col_search_field','?') }} {{ _op_label }} {{ e.lookup_config.get('value_field','?') }}</span>
                         {% endif %}
                         <span class="text-slate-300 hidden sm:inline">|</span>
                         <span class="text-slate-400 hidden sm:inline {% if e.is_custom_sched %}font-mono{% endif %}">{{ e.schedule }}</span>
@@ -392,52 +393,74 @@
                                 </div>
                             </div>
                             {% if e.operation == 'update_cell' %}
+                            {% set lc = e.lookup_config %}
                             <div class="mb-2 p-2 bg-white border border-slate-200 rounded-lg">
                                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Маппинг матрицы (update_cell)</p>
                                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                     <div>
                                         <label class="block text-[10px] text-slate-400 mb-1">Колонка строк</label>
                                         <input type="number" name="row_search_col" min="1"
-                                               value="{{ e.lookup_config.get('row_search_col', 1) }}"
+                                               value="{{ lc.get('row_search_col', 1) }}"
                                                class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
                                     </div>
                                     <div>
                                         <label class="block text-[10px] text-slate-400 mb-1">Поле строки</label>
-                                        <input type="text" name="row_search_field"
-                                               value="{{ e.lookup_config.get('row_search_field', 'shop_name') }}"
-                                               placeholder="shop_name"
-                                               class="w-full border border-slate-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                        <select name="row_search_field"
+                                                class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                            {% set rsf = lc.get('row_search_field', 'shop_name') %}
+                                            <option value="shop_name" {% if rsf == 'shop_name' %}selected{% endif %}>🏪 Магазин</option>
+                                            <option value="seller_name" {% if rsf == 'seller_name' %}selected{% endif %}>👤 Продавец</option>
+                                            <option value="product_name" {% if rsf == 'product_name' %}selected{% endif %}>📦 Товар</option>
+                                            <option value="category" {% if rsf == 'category' %}selected{% endif %}>📂 Категория</option>
+                                        </select>
                                     </div>
                                     <div>
                                         <label class="block text-[10px] text-slate-400 mb-1">Строка шапки</label>
                                         <input type="number" name="col_search_row" min="1"
-                                               value="{{ e.lookup_config.get('col_search_row', 1) }}"
+                                               value="{{ lc.get('col_search_row', 1) }}"
                                                class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
                                     </div>
                                     <div>
-                                        <label class="block text-[10px] text-slate-400 mb-1">Поле колонок</label>
-                                        <input type="text" name="col_search_field"
-                                               value="{{ e.lookup_config.get('col_search_field', 'product_name') }}"
-                                               placeholder="product_name"
-                                               class="w-full border border-slate-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                        <label class="block text-[10px] text-slate-400 mb-1">Поле столбцов</label>
+                                        <select name="col_search_field"
+                                                class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                            {% set csf = lc.get('col_search_field', 'product_name') %}
+                                            <option value="product_name" {% if csf == 'product_name' %}selected{% endif %}>📦 Товар</option>
+                                            <option value="category" {% if csf == 'category' %}selected{% endif %}>📂 Категория</option>
+                                            <option value="shop_name" {% if csf == 'shop_name' %}selected{% endif %}>🏪 Магазин</option>
+                                            <option value="seller_name" {% if csf == 'seller_name' %}selected{% endif %}>👤 Продавец</option>
+                                        </select>
                                     </div>
                                     <div>
-                                        <label class="block text-[10px] text-slate-400 mb-1">Поле значения</label>
-                                        <input type="text" name="value_field"
-                                               value="{{ e.lookup_config.get('value_field', 'quantity') }}"
-                                               placeholder="quantity"
-                                               class="w-full border border-slate-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                        <label class="block text-[10px] text-slate-400 mb-1">Что записывать</label>
+                                        <select name="value_field"
+                                                class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                            {% set vf = lc.get('value_field', 'quantity') %}
+                                            <option value="quantity" {% if vf == 'quantity' %}selected{% endif %}>🔢 Количество</option>
+                                            <option value="total" {% if vf == 'total' %}selected{% endif %}>💰 Сумма</option>
+                                            <option value="price" {% if vf == 'price' %}selected{% endif %}>💲 Цена</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] text-slate-400 mb-1">Операция над ячейкой</label>
+                                        <select name="update_op"
+                                                class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                            {% set uop = lc.get('operation', 'set') %}
+                                            <option value="set" {% if uop == 'set' %}selected{% endif %}>= Заменить</option>
+                                            <option value="increment" {% if uop == 'increment' %}selected{% endif %}>➕ Прибавить</option>
+                                            <option value="decrement" {% if uop == 'decrement' %}selected{% endif %}>➖ Вычесть</option>
+                                        </select>
                                     </div>
                                     <div>
                                         <label class="block text-[10px] text-slate-400 mb-1">Данные с строки</label>
                                         <input type="number" name="data_start_row" min="1"
-                                               value="{{ e.lookup_config.get('data_start_row', 2) }}"
+                                               value="{{ lc.get('data_start_row', 2) }}"
                                                class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
                                     </div>
                                     <div>
                                         <label class="block text-[10px] text-slate-400 mb-1">Данные с колонки</label>
                                         <input type="number" name="data_start_col" min="1"
-                                               value="{{ e.lookup_config.get('data_start_col', 2) }}"
+                                               value="{{ lc.get('data_start_col', 2) }}"
                                                class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
                                     </div>
                                 </div>
@@ -557,6 +580,15 @@
                                     <option value="quantity">🔢 Количество</option>
                                     <option value="total">💰 Сумма</option>
                                     <option value="price">💲 Цена</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-400 mb-1">Операция над ячейкой</label>
+                                <select name="update_op"
+                                        class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    <option value="set">= Заменить</option>
+                                    <option value="increment">➕ Прибавить</option>
+                                    <option value="decrement">➖ Вычесть</option>
                                 </select>
                             </div>
                             <div>
