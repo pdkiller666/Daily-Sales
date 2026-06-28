@@ -759,7 +759,11 @@ class IntegrationManager:
         row_field       = lookup.get('row_search_field', 'shop_name')
         col_field       = lookup.get('col_search_field', 'product_name')
         value_field     = lookup.get('value_field', 'quantity')
-        cell_operation  = lookup.get('operation', 'set')  # set / increment / decrement
+        # Period sync always uses SET: we aggregate the full period totals ourselves
+        # via defaultdict, so the value written is already the correct final sum.
+        # Using 'increment' here would add the weekly total ON TOP of what's already
+        # in the cell — doubling data on every repeated run.
+        cell_operation  = 'set'
         row_search_col  = int(lookup.get('row_search_col', 1))
         col_search_row  = int(lookup.get('col_search_row', 1))
         data_start_row  = int(lookup.get('data_start_row', col_search_row + 1))

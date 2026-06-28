@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.301.0"
+CURRENT_VERSION = "1.302.0"
 
 ENTRIES = [
+    {
+        "version": "1.302.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Improve data integration with a multi-step import wizard and sheet preview",
+            "Add visual indicators and new features for data integration management",
+        ],
+    },
     {
         "version": "1.301.0",
         "date": "28 июня 2026",
