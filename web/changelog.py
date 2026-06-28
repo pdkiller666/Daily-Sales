@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.279.0"
+CURRENT_VERSION = "1.280.0"
 
 ENTRIES = [
+    {
+        "version": "1.280.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Remove global flash banner auto-dismiss script",
+        ],
+    },
     {
         "version": "1.279.0",
         "date": "28 июня 2026",

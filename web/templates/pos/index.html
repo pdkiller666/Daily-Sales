@@ -198,15 +198,28 @@
         </div>
 
         <!-- Пусто -->
-        <div x-show="!loading && filteredProducts.length === 0" class="flex flex-col items-center justify-center py-20 text-center">
+        <div x-show="!loading && filteredProducts.length === 0" class="flex flex-col items-center justify-center py-20 text-center px-4">
             <div class="text-4xl mb-3">
-                <span x-text="activeCat === '__favorites__' ? '⭐' : '📦'"></span>
+                <span x-text="activeCat === '__favorites__' ? '⭐' : (outOfStockMatches.length > 0 ? '📦' : (search ? '🔍' : '📦'))"></span>
             </div>
-            <p class="text-slate-500 text-sm"
-               x-text="activeCat === '__favorites__' ? 'Нет избранных товаров — нажмите ⭐ на карточке товара'
-                      : activeCat === '__recent__' ? 'Ещё нет недавних продаж'
-                      : search ? 'Ничего не найдено по «' + search + '»'
-                      : 'В этом магазине нет товаров в наличии'"></p>
+            <!-- Товар найден, но нет в наличии -->
+            <template x-if="outOfStockMatches.length > 0">
+                <div>
+                    <p class="text-slate-700 dark:text-slate-300 text-sm font-medium mb-1">Нет в наличии в этом магазине</p>
+                    <template x-for="p in outOfStockMatches" :key="p.id">
+                        <p class="text-amber-600 dark:text-amber-400 text-sm" x-text="p.name"></p>
+                    </template>
+                    <p class="text-xs text-slate-400 mt-2">Пополните склад, чтобы продавать этот товар</p>
+                </div>
+            </template>
+            <!-- Обычное пустое состояние -->
+            <template x-if="outOfStockMatches.length === 0">
+                <p class="text-slate-500 text-sm"
+                   x-text="activeCat === '__favorites__' ? 'Нет избранных товаров — нажмите ⭐ на карточке товара'
+                          : activeCat === '__recent__' ? 'Ещё нет недавних продаж'
+                          : search ? 'Ничего не найдено по «' + search + '»'
+                          : 'В этом магазине нет товаров в наличии'"></p>
+            </template>
         </div>
 
         <!-- Сетка товаров -->
@@ -665,6 +678,7 @@ function posApp() {
         shop: '{{ default_shop }}',
         loading: false,
         allProducts: [],
+        zeroStockItems: [],   /* товары с нулевым остатком в текущем магазине */
         categories: {},
         activeCat: '',
         search: '',
@@ -759,6 +773,12 @@ function posApp() {
             return list;
         },
 
+        get outOfStockMatches() {
+            if (!this.search.trim() || this.filteredProducts.length > 0) return [];
+            const q = this.search.toLowerCase().trim();
+            return this.zeroStockItems.filter(p => p.name.toLowerCase().includes(q));
+        },
+
         get cartCount() {
             return this.cart.reduce((s, i) => s + i.qty, 0);
         },
@@ -781,6 +801,7 @@ function posApp() {
                 .then(data => {
                     this.allProducts = data.products || [];
                     this.categories = data.categories || {};
+                    this.zeroStockItems = data.zero_stock || [];
                     /* Синкаем устаревший item.stock из восстановленной корзины */
                     const _sm = {};
                     this.allProducts.forEach(p => { _sm[p.id] = p.stock; });
@@ -1119,8 +1140,13 @@ function posApp() {
                 if (r.ok) {
                     const data = await r.json();
                     if (data.ok && data.product) {
-                        const p = this.allProducts.find(pr => String(pr.id) === String(data.product.id)) || data.product;
-                        this.addToCart(p);
+                        const inStock = this.allProducts.find(pr => String(pr.id) === String(data.product.id));
+                        if (!inStock) {
+                            /* Товар есть в базе, но нет в наличии в этом магазине */
+                            this.scanError = '📦 Товар «' + (data.product.name || code) + '» есть в базе, но в этом магазине нет в наличии.';
+                            return;
+                        }
+                        this.addToCart(inStock);
                         this._playSuccessSound();
                         this.closeBarcodeScanner();
                         return;

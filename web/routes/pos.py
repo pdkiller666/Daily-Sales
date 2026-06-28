@@ -270,9 +270,14 @@ def api_pos_products(request: Request, shop: str = ""):
         raw = db.get_all_inventory(shop_name=shop if shop else None) or []
         # id[0] product_id[1] shop_name[2] quantity[3] … name[6] category[7] price[8]
         products = []
+        zero_stock = []   # товары с нулевым остатком в данном магазине
         for r in raw:
             qty = int(r[3] or 0)
             if qty <= 0:
+                zero_stock.append({
+                    "id": r[1],
+                    "name": r[6] or "",
+                })
                 continue
             products.append({
                 "id": r[1],
@@ -293,9 +298,9 @@ def api_pos_products(request: Request, shop: str = ""):
                 categories[cat] = []
             categories[cat].append(p)
 
-        return JSONResponse({"products": products, "categories": categories})
+        return JSONResponse({"products": products, "categories": categories, "zero_stock": zero_stock})
     except Exception as e:
-        return JSONResponse({"error": "Внутренняя ошибка сервера", "products": [], "categories": {}})
+        return JSONResponse({"error": "Внутренняя ошибка сервера", "products": [], "categories": {}, "zero_stock": []})
 
 
 async def _post_sale_async(db, telegram_id: int, internal_uid: int, shop_name: str, sold_items: list):
