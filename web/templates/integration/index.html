@@ -695,8 +695,10 @@
                         <div class="flex flex-wrap gap-1">
                             {% for um in c.motiv_preview.unmatched_list %}
                             <button type="button"
-                                    title="Добавить псевдоним для «{{ um }}»"
-                                    class="inline-flex items-center gap-1 text-[10px] bg-amber-50 border border-amber-200 text-amber-700 rounded px-1.5 py-0.5 hover:bg-amber-100 transition-colors font-mono">
+                                    data-alias="{{ um | e }}"
+                                    title="Добавить псевдоним для «{{ um }}» — нажмите, чтобы открыть форму"
+                                    @click="$dispatch('fill-model-alias-{{ c.id }}', { name: $el.dataset.alias })"
+                                    class="inline-flex items-center gap-1 text-[10px] bg-amber-50 border border-amber-200 text-amber-700 rounded px-1.5 py-0.5 hover:bg-amber-100 active:bg-amber-200 transition-colors font-mono cursor-pointer">
                                 {{ um }} <span class="text-amber-400">+псевд.</span>
                             </button>
                             {% endfor %}
@@ -704,7 +706,7 @@
                             <span class="text-[10px] text-slate-400 px-1">… ещё {{ c.motiv_preview.unmatched_count - c.motiv_preview.unmatched_list|length }}</span>
                             {% endif %}
                         </div>
-                        <p class="text-[10px] text-slate-400 mt-1">Нажмите на модель — откроется форма добавления псевдонима ниже.</p>
+                        <p class="text-[10px] text-slate-400 mt-1">Нажмите на модель — заполнится форма псевдонима ниже (в блоке «Псевдонимы моделей»).</p>
                     </div>
                     {% endif %}
                     {% if c.motiv_preview.unmatched_chains_list %}
@@ -721,13 +723,18 @@
                 </div>
 
                 <!-- Bonus cache lazy-load table -->
-                {% if c.motiv_preview.model_count > 0 %}
                 <div class="mb-3">
+                    {% if c.motiv_preview.model_count > 0 %}
                     <button @click="cacheOpen = !cacheOpen; if (cacheOpen && cacheData === null) { cacheLoading = true; fetch('/integration/{{ c.id }}/motiv-cache').then(r=>r.json()).then(d=>{ cacheData=d; cacheLoading=false; }).catch(e=>{ cacheData={ok:false,error:''+e}; cacheLoading=false; }); }"
                             class="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 hover:text-slate-600 uppercase tracking-wide transition-colors">
                         <svg :class="cacheOpen ? 'rotate-180' : ''" class="w-3 h-3 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                         📋 Кэш мотивации ({{ c.motiv_preview.model_count }} моделей)
                     </button>
+                    {% else %}
+                    <p class="text-[11px] text-slate-400 flex items-center gap-1.5">
+                        📋 Кэш мотивации пуст — <strong>запустите синхронизацию</strong>, чтобы загрузить ставки из таблицы.
+                    </p>
+                    {% endif %}
                     <div x-show="cacheOpen" x-cloak class="mt-2">
                         <div x-show="cacheLoading" class="text-xs text-slate-400 flex items-center gap-1.5 py-2">
                             <svg class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
@@ -770,7 +777,6 @@
                         </template>
                     </div>
                 </div>
-                {% endif %}
                 {% endif %}
 
                 <!-- Motiv config form -->
@@ -896,7 +902,9 @@
                 </div>
 
                 <!-- Model Aliases table (товары — значения строк) -->
-                <div x-data="{ addModelOpen: false }" class="mt-3">
+                <div x-data="{ addModelOpen: false }"
+                     @fill-model-alias-{{ c.id }}.window="addModelOpen = true; $nextTick(() => { var inp = $el.querySelector('[name=alias_from]'); if (inp) { inp.value = $event.detail.name; inp.scrollIntoView({behavior:'smooth',block:'center'}); } })"
+                     class="mt-3">
                     <div class="flex items-center justify-between mb-1.5">
                         <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">📦 Псевдонимы моделей <span class="normal-case font-normal">(названия товаров)</span></p>
                         <button @click="addModelOpen = !addModelOpen"
