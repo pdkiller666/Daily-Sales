@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.281.0"
+CURRENT_VERSION = "1.282.0"
 
 ENTRIES = [
+    {
+        "version": "1.282.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Improve product search to display out-of-stock items alongside available ones",
+            "Improve product search results display for out-of-stock items",
+        ],
+    },
     {
         "version": "1.281.0",
         "date": "28 июня 2026",

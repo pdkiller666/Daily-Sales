@@ -2591,7 +2591,7 @@ function mainApp() {
 </nav>
 
 {% if chat_enabled(request) %}
-<!-- ══ Chat FAB (mobile, draggable, edge-snap) ══ -->
+<!-- ══ Chat FAB (mobile, draggable, edge-snap + peek-hide) ══ -->
 <div id="chat-fab-wrap" class="lg:hidden fixed z-40 select-none"
      style="bottom:84px;right:16px">
     <button id="chat-fab"
@@ -2603,15 +2603,31 @@ function mainApp() {
               class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full items-center justify-center hidden">
         </span>
     </button>
+    <!-- Peek tab: visible sliver when FAB is swiped off-screen -->
+    <div id="chat-fab-tab"
+         style="display:none;position:absolute;top:50%;transform:translateY(-50%);
+                width:18px;height:42px;background:#2563eb;
+                align-items:center;justify-content:center;
+                color:white;font-size:13px;font-weight:700;
+                cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.30);z-index:1">
+        <span id="chat-fab-tab-arrow">‹</span>
+    </div>
 </div>
 <script nonce="{{ csp_nonce(request) }}">
 (function () {
-    const wrap = document.getElementById('chat-fab-wrap');
-    const fab = document.getElementById('chat-fab');
-    const badge = document.getElementById('chat-fab-badge');
+    const wrap    = document.getElementById('chat-fab-wrap');
+    const fab     = document.getElementById('chat-fab');
+    const badge   = document.getElementById('chat-fab-badge');
     const navBadge = document.getElementById('chat-nav-badge');
-    const iconEl = document.getElementById('chat-fab-icon');
+    const iconEl  = document.getElementById('chat-fab-icon');
+    const tabEl   = document.getElementById('chat-fab-tab');
+    const tabArrow = document.getElementById('chat-fab-tab-arrow');
     if (!wrap || !fab) return;
+
+    const FAB_SIZE  = 56;   /* w-14 */
+    const PEEK_VIS  = 18;   /* px visible when swiped off-screen */
+    const PEEK_OFF  = -(FAB_SIZE - PEEK_VIS);  /* -38 */
+    const EDGE_GAP  = 16;
 
     const onChatPage = window.location.pathname.startsWith('/chat');
 
@@ -2622,18 +2638,65 @@ function mainApp() {
         fab.setAttribute('aria-label', 'Вернуться назад');
         fab.title = 'Закрыть чат';
     }
+    /* sync tab colour to button */
+    tabEl.style.background = fab.style.background || '#2563eb';
+
+    /* ── peek helpers ── */
+    let isPeeked = false;
+
+    function _applyPeek(side, btm, animate) {
+        isPeeked = true;
+        wrap.style.transition = animate ? 'left .25s, right .25s, top .2s, bottom .2s' : 'none';
+        wrap.style.top = null; wrap.style.left = null;
+        wrap.style.right = null; wrap.style.bottom = btm + 'px';
+        if (side === 'left') {
+            wrap.style.left = PEEK_OFF + 'px';
+            tabEl.style.right = '0'; tabEl.style.left = 'auto';
+            tabEl.style.borderRadius = '8px 0 0 8px';
+            tabArrow.textContent = '›';
+        } else {
+            wrap.style.right = PEEK_OFF + 'px';
+            tabEl.style.left = '0'; tabEl.style.right = 'auto';
+            tabEl.style.borderRadius = '0 8px 8px 0';
+            tabArrow.textContent = '‹';
+        }
+        tabEl.style.display = 'flex';
+        try { localStorage.setItem('ds_chat_fab_pos', JSON.stringify({ side, edge: EDGE_GAP, bottom: btm, peeked: true })); } catch(_) {}
+    }
+
+    function exitPeek() {
+        isPeeked = false;
+        tabEl.style.display = 'none';
+        let saved = null;
+        try { saved = JSON.parse(localStorage.getItem('ds_chat_fab_pos') || 'null'); } catch(_) {}
+        const side = saved ? saved.side : 'right';
+        const btm  = saved ? saved.bottom : 84;
+        wrap.style.transition = 'left .25s, right .25s, top .2s, bottom .2s';
+        wrap.style.top = null; wrap.style.left = null;
+        wrap.style.right = null; wrap.style.bottom = btm + 'px';
+        if (side === 'left') wrap.style.left = EDGE_GAP + 'px';
+        else                 wrap.style.right = EDGE_GAP + 'px';
+        try {
+            const d = saved || { side, edge: EDGE_GAP, bottom: btm };
+            d.peeked = false;
+            localStorage.setItem('ds_chat_fab_pos', JSON.stringify(d));
+        } catch(_) {}
+    }
 
     /* ── restore saved position ── */
     try {
         const saved = JSON.parse(localStorage.getItem('ds_chat_fab_pos') || 'null');
         if (saved) {
-            wrap.style.right = null;
-            wrap.style.left = null;
+            wrap.style.right = null; wrap.style.left = null;
             wrap.style.bottom = saved.bottom + 'px';
-            if (saved.side === 'left') wrap.style.left = saved.edge + 'px';
-            else wrap.style.right = saved.edge + 'px';
+            if (saved.peeked) {
+                _applyPeek(saved.side, saved.bottom, false);
+            } else {
+                if (saved.side === 'left') wrap.style.left = saved.edge + 'px';
+                else                       wrap.style.right = saved.edge + 'px';
+            }
         }
-    } catch (e) {}
+    } catch (_) {}
 
     /* ── drag ── */
     let dragging = false, startX, startY, origLeft, origTop, moved = false;
@@ -2647,6 +2710,8 @@ function mainApp() {
         wrap.style.transition = 'none';
         wrap.style.right = null; wrap.style.left = origLeft + 'px';
         wrap.style.bottom = null; wrap.style.top = origTop + 'px';
+        /* hide tab while dragging — button itself becomes the affordance */
+        if (isPeeked) tabEl.style.display = 'none';
         e.preventDefault();
     }
 
@@ -2657,50 +2722,63 @@ function mainApp() {
         const dy = touch.clientY - startY;
         if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
         wrap.style.left = (origLeft + dx) + 'px';
-        wrap.style.top = (origTop + dy) + 'px';
+        wrap.style.top  = (origTop  + dy) + 'px';
     }
 
     function pointerUp(e) {
         if (!dragging) return;
         dragging = false;
-        wrap.style.transition = 'left .2s, right .2s, top .2s, bottom .2s';
-        /* snap to nearest horizontal edge */
-        const r = wrap.getBoundingClientRect();
-        const mid = r.left + r.width / 2;
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        const edgeGap = 16;
-        const snapTop = Math.max(edgeGap, Math.min(r.top, vh - r.height - edgeGap));
-        wrap.style.top = null; wrap.style.left = null; wrap.style.right = null; wrap.style.bottom = null;
-        let side, edge;
-        if (mid < vw / 2) {
-            side = 'left'; edge = edgeGap;
-            wrap.style.left = edge + 'px';
-        } else {
-            side = 'right'; edge = edgeGap;
-            wrap.style.right = edge + 'px';
-        }
-        const btm = Math.max(edgeGap, vh - snapTop - r.height);
-        wrap.style.bottom = btm + 'px';
-        try { localStorage.setItem('ds_chat_fab_pos', JSON.stringify({ side, edge, bottom: btm })); } catch (e) {}
-        /* if not really dragged — navigate */
+
+        /* ── Tap (no real drag) ── */
         if (!moved) {
+            if (isPeeked) {
+                exitPeek();   /* pull FAB back out */
+                return;
+            }
+            /* restore position styles before navigating */
+            let saved = null;
+            try { saved = JSON.parse(localStorage.getItem('ds_chat_fab_pos') || 'null'); } catch(_) {}
+            if (saved) {
+                wrap.style.top = null; wrap.style.left = null;
+                wrap.style.right = null; wrap.style.bottom = saved.bottom + 'px';
+                if (saved.side === 'left') wrap.style.left = saved.edge + 'px';
+                else                       wrap.style.right = saved.edge + 'px';
+            }
             if (onChatPage) {
-                /* back to previous page */
                 const prev = sessionStorage.getItem('ds_chat_prev_url');
-                if (prev && !prev.startsWith('/chat')) {
-                    window.location.href = prev;
-                } else if (window.history.length > 1) {
-                    window.history.back();
-                } else {
-                    window.location.href = '/dashboard';
-                }
+                if (prev && !prev.startsWith('/chat')) { window.location.href = prev; }
+                else if (window.history.length > 1)    { window.history.back(); }
+                else                                    { window.location.href = '/dashboard'; }
             } else {
-                /* save current URL before entering chat */
-                try { sessionStorage.setItem('ds_chat_prev_url', window.location.pathname + window.location.search); } catch (e) {}
+                try { sessionStorage.setItem('ds_chat_prev_url', window.location.pathname + window.location.search); } catch(_) {}
                 window.location.href = '/chat';
             }
+            return;
         }
+
+        /* ── Snap / Peek on drag-end ── */
+        wrap.style.transition = 'left .25s, right .25s, top .2s, bottom .2s';
+        const r   = wrap.getBoundingClientRect();
+        const mid = r.left + r.width / 2;
+        const vw  = window.innerWidth;
+        const vh  = window.innerHeight;
+        const snapTop = Math.max(EDGE_GAP, Math.min(r.top, vh - r.height - EDGE_GAP));
+        const btm     = Math.max(EDGE_GAP, vh - snapTop - r.height);
+        const side    = mid < vw / 2 ? 'left' : 'right';
+
+        wrap.style.top = null; wrap.style.left = null;
+        wrap.style.right = null; wrap.style.bottom = btm + 'px';
+
+        /* Dragged past the edge → peek mode */
+        if (side === 'left'  && r.left  < 0)  { _applyPeek('left',  btm, true); return; }
+        if (side === 'right' && r.right > vw)  { _applyPeek('right', btm, true); return; }
+
+        /* Normal snap */
+        isPeeked = false;
+        tabEl.style.display = 'none';
+        if (side === 'left') wrap.style.left  = EDGE_GAP + 'px';
+        else                 wrap.style.right = EDGE_GAP + 'px';
+        try { localStorage.setItem('ds_chat_fab_pos', JSON.stringify({ side, edge: EDGE_GAP, bottom: btm, peeked: false })); } catch(_) {}
     }
 
     wrap.addEventListener('mousedown', pointerDown, { passive: false });
