@@ -755,6 +755,7 @@ class IntegrationManager:
         row_field       = lookup.get('row_search_field', 'shop_name')
         col_field       = lookup.get('col_search_field', 'product_name')
         value_field     = lookup.get('value_field', 'quantity')
+        cell_operation  = lookup.get('operation', 'set')  # set / increment / decrement
         row_search_col  = int(lookup.get('row_search_col', 1))
         col_search_row  = int(lookup.get('col_search_row', 1))
         data_start_row  = int(lookup.get('data_start_row', col_search_row + 1))
@@ -805,7 +806,7 @@ class IntegrationManager:
                     row_value=aliases.get(row_val, row_val),
                     col_row=col_search_row,
                     col_value=aliases.get(col_val, col_val),
-                    upd_op='set',
+                    upd_op=cell_operation,
                     new_value=write_val,
                     start_row=data_start_row,
                     start_col=data_start_col,

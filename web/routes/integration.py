@@ -1052,6 +1052,7 @@ async def integration_export_sync_week(
         return JSONResponse({
             "ok": True,
             "rows_written": len(rows),
+            "cells_skipped": 0,
             "sheet": sheet_name,
             "date_from": date_from_disp,
             "date_to": date_to_disp,
