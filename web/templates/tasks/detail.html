@@ -42,10 +42,17 @@
   'bad_time':        '⚠️ Укажите корректное время.',
 } %}
 {% if msg and msg in msg_map %}
-<div class="mb-4 flex items-start gap-2 p-3 rounded-xl text-sm border
+<div x-data="{ show: true }"
+     x-show="show"
+     x-init="setTimeout(() => { show = false }, 4000)"
+     x-transition:leave="transition duration-500"
+     x-transition:leave-start="opacity-100"
+     x-transition:leave-end="opacity-0"
+     class="mb-4 flex items-start justify-between gap-2 p-3 rounded-xl text-sm border
   {% if 'error' in msg or msg in ('csrf_error','bad_status','no_text','too_many_files','access_denied','not_found') %}bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300
   {% else %}bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300{% endif %}">
   <span>{{ msg_map[msg] }}</span>
+  <button type="button" @click="show = false" class="shrink-0 opacity-50 hover:opacity-100 transition-opacity leading-none">✕</button>
 </div>
 {% endif %}
 {% if error %}
@@ -64,7 +71,7 @@
       <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
         <h1 class="text-xl font-bold text-slate-800 dark:text-slate-100 leading-tight min-w-0 break-words">{{ task.title }}</h1>
         {% if is_admin %}
-        <div class="flex flex-wrap items-center justify-end gap-2 shrink-0">
+        <div class="flex flex-wrap items-center justify-end gap-2 max-w-full">
           <a href="/tasks/{{ task.id }}/edit"
              class="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
             ✏️ Изменить

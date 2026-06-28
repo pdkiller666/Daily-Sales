@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.275.0"
+CURRENT_VERSION = "1.276.0"
 
 ENTRIES = [
+    {
+        "version": "1.276.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Fix error in AI digest shop selection caused by improper quote escaping",
+        ],
+    },
     {
         "version": "1.275.0",
         "date": "27 июня 2026",
