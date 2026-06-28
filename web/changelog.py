@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.284.0"
+CURRENT_VERSION = "1.285.0"
 
 ENTRIES = [
+    {
+        "version": "1.285.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Fix sales heatmap to display data in the user's local time",
+        ],
+    },
     {
         "version": "1.284.0",
         "date": "28 июня 2026",

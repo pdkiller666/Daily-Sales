@@ -318,14 +318,14 @@
                         </div>
                         <!-- Ручной ввод кол-ва + цена -->
                         <div class="flex items-center gap-2">
-                            <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden">
+                            <div class="flex items-center rounded-xl overflow-hidden border border-slate-200">
                                 <button @click="changeQty(idx, -1)"
-                                        class="w-7 h-7 flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors text-base font-bold">−</button>
+                                        class="w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 active:bg-slate-300 transition-colors text-slate-700 text-xl font-bold leading-none select-none">−</button>
                                 <input type="number" x-model.number="item.qty" min="1" :max="item.stock"
                                        @change="item.qty = Math.max(1, Math.min(item.stock, parseInt(item.qty) || 1))"
-                                       class="w-10 h-7 text-center text-sm font-semibold text-slate-800 border-x border-slate-200 focus:outline-none focus:bg-blue-50">
+                                       class="w-10 h-10 text-center text-sm font-bold text-slate-800 border-x border-slate-200 focus:outline-none focus:bg-blue-50">
                                 <button @click="changeQty(idx, 1)"
-                                        class="w-7 h-7 flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors text-base font-bold">+</button>
+                                        class="w-10 h-10 flex items-center justify-center bg-blue-600 hover:bg-blue-700 active:bg-blue-800 transition-colors text-white text-xl font-bold leading-none select-none">+</button>
                             </div>
                             <span class="text-xs text-slate-400">×</span>
                             <input type="number" x-model.number="item.price" min="0" step="0.01"
@@ -437,14 +437,14 @@
                     </template>
                 </div>
                 <div class="flex items-center gap-2">
-                    <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden">
+                    <div class="flex items-center rounded-xl overflow-hidden border border-slate-200">
                         <button @click="changeQty(idx, -1)"
-                                class="w-8 h-8 flex items-center justify-center text-slate-500 hover:bg-slate-100 text-lg font-bold">−</button>
+                                class="w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 active:bg-slate-300 transition-colors text-slate-700 text-xl font-bold leading-none select-none">−</button>
                         <input type="number" x-model.number="item.qty" min="1" :max="item.stock"
                                @change="item.qty = Math.max(1, Math.min(item.stock, parseInt(item.qty) || 1))"
-                               class="w-12 h-8 text-center text-sm font-semibold text-slate-800 border-x border-slate-200 focus:outline-none focus:bg-blue-50">
+                               class="w-12 h-10 text-center text-sm font-bold text-slate-800 border-x border-slate-200 focus:outline-none focus:bg-blue-50">
                         <button @click="changeQty(idx, 1)"
-                                class="w-8 h-8 flex items-center justify-center text-slate-500 hover:bg-slate-100 text-lg font-bold">+</button>
+                                class="w-10 h-10 flex items-center justify-center bg-blue-600 hover:bg-blue-700 active:bg-blue-800 transition-colors text-white text-xl font-bold leading-none select-none">+</button>
                     </div>
                     <span class="text-xs text-slate-400">×</span>
                     <input type="number" x-model.number="item.price" min="0" step="0.01"
