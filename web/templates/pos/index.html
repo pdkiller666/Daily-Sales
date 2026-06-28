@@ -318,7 +318,7 @@
                         </div>
                         <!-- Ручной ввод кол-ва + цена -->
                         <div class="flex items-center gap-2">
-                            <div class="flex items-center rounded-xl overflow-hidden border border-slate-200">
+                            <div class="shrink-0 flex items-center rounded-xl overflow-hidden border border-slate-200">
                                 <button @click="changeQty(idx, -1)"
                                         class="w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 active:bg-slate-300 transition-colors text-slate-700 text-xl font-bold leading-none select-none">−</button>
                                 <input type="number" x-model.number="item.qty" min="1" :max="item.stock"
@@ -437,7 +437,7 @@
                     </template>
                 </div>
                 <div class="flex items-center gap-2">
-                    <div class="flex items-center rounded-xl overflow-hidden border border-slate-200">
+                    <div class="shrink-0 flex items-center rounded-xl overflow-hidden border border-slate-200">
                         <button @click="changeQty(idx, -1)"
                                 class="w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 active:bg-slate-300 transition-colors text-slate-700 text-xl font-bold leading-none select-none">−</button>
                         <input type="number" x-model.number="item.qty" min="1" :max="item.stock"

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.287.0"
+CURRENT_VERSION = "1.288.0"
 
 ENTRIES = [
+    {
+        "version": "1.288.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Update service worker and application version",
+        ],
+    },
     {
         "version": "1.287.0",
         "date": "28 июня 2026",
