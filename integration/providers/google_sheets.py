@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timezone
 
 import gspread
 from google.oauth2.service_account import Credentials as SACredentials
@@ -38,6 +39,16 @@ def _make_gc_sync(config: dict) -> gspread.Client:
         tokens = config.get("tokens", {})
         client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
         client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
+        # Pass expiry as datetime so google-auth knows the token is valid and
+        # does NOT trigger its own silent refresh (which would bypass our
+        # _ensure_valid_token and leave the DB with a stale access_token).
+        raw_expiry = tokens.get("expiry")
+        expiry_dt = None
+        if raw_expiry:
+            try:
+                expiry_dt = datetime.fromtimestamp(float(raw_expiry), tz=timezone.utc)
+            except (TypeError, ValueError, OSError):
+                expiry_dt = None
         creds = OAuthCredentials(
             token=tokens.get("access_token"),
             refresh_token=tokens.get("refresh_token"),
@@ -45,6 +56,7 @@ def _make_gc_sync(config: dict) -> gspread.Client:
             client_id=client_id,
             client_secret=client_secret,
             scopes=_SCOPES,
+            expiry=expiry_dt,
         )
         return gspread.authorize(creds)
 

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.289.0"
+CURRENT_VERSION = "1.290.0"
 
 ENTRIES = [
+    {
+        "version": "1.290.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Fix layout issue causing horizontal scrolling and button clipping",
+        ],
+    },
     {
         "version": "1.289.0",
         "date": "28 июня 2026",
