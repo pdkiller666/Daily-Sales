@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.278.0"
+CURRENT_VERSION = "1.279.0"
 
 ENTRIES = [
+    {
+        "version": "1.279.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Improve flash banner auto-dismiss and closing functionality",
+        ],
+    },
     {
         "version": "1.278.0",
         "date": "28 июня 2026",
