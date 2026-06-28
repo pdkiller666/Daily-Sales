@@ -415,11 +415,35 @@
                               x-data="{ sched: '{{ '' if e.is_custom_sched else e.schedule }}' }">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
-                                <div class="sm:col-span-2">
+                                <div class="sm:col-span-2" x-data="{ spRows: null, spLoading: false, spErr: '' }">
                                     <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Лист назначения</label>
-                                    <input type="text" name="target_sheet" required value="{{ e.target_sheet }}"
-                                           class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <div class="flex gap-1">
+                                        <input type="text" name="target_sheet" required value="{{ e.target_sheet }}"
+                                               x-ref="spInput"
+                                               class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        <button type="button" title="Предпросмотр листа"
+                                                :disabled="spLoading"
+                                                @click="spLoading=true; spErr=''; spRows=null; fetch('/integration/{{ c.id }}/sheet-rows?sheet='+encodeURIComponent($refs.spInput.value)).then(r=>r.json()).then(d=>{ if(d.ok){ spRows=d.rows; } else { spErr=d.error||'Ошибка'; } }).catch(e=>{ spErr=String(e); }).finally(()=>{ spLoading=false; })"
+                                                class="shrink-0 px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg transition-colors text-slate-500"
+                                                x-text="spLoading ? '…' : '👁'"></button>
+                                    </div>
                                     <p class="text-[9px] text-slate-400 mt-0.5">Макросы: {week}, {month}, {year}</p>
+                                    <div x-show="spErr" x-cloak class="mt-1 text-[10px] text-red-500" x-text="spErr"></div>
+                                    <div x-show="spRows !== null && spRows.length > 0" x-cloak class="mt-1 overflow-x-auto rounded border border-slate-200 bg-white">
+                                        <table class="text-[9px] text-slate-600 min-w-full">
+                                            <tbody>
+                                                <template x-for="r in (spRows||[]).slice(0,8)" :key="r.row">
+                                                    <tr class="border-b border-slate-100 last:border-0">
+                                                        <td class="px-1 py-0.5 text-slate-300 font-mono w-5 text-right" x-text="r.row"></td>
+                                                        <template x-for="(cell, ci) in r.cells.slice(0,8)" :key="ci">
+                                                            <td class="px-1.5 py-0.5 border-l border-slate-100 max-w-[80px] truncate" x-text="cell"></td>
+                                                        </template>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div x-show="spRows !== null && spRows.length === 0" x-cloak class="mt-1 text-[10px] text-slate-400">Лист пустой или не найден</div>
                                 </div>
                                 <div class="sm:col-span-2">
                                     <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Расписание</label>
@@ -526,6 +550,58 @@
                                 </button>
                             </div>
                         </form>
+
+                        {% if e.operation == 'update_cell' %}
+                        <!-- Export rule aliases -->
+                        <div class="mt-3 pt-3 border-t border-slate-100" x-data="{ addAliasOpen: false }">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">🔀 Псевдонимы (значение в боте → значение в таблице)</p>
+                                <button @click="addAliasOpen = !addAliasOpen"
+                                        class="text-[10px] font-semibold text-blue-600 hover:text-blue-800 transition-colors"
+                                        x-text="addAliasOpen ? '✖ Закрыть' : '➕ Добавить'"></button>
+                            </div>
+                            {% set _al = e.lookup_config.get('aliases') or {} %}
+                            {% if _al %}
+                            <div class="space-y-0.5 mb-2">
+                                {% for orig, mapped in _al.items() %}
+                                <div class="flex items-center gap-2 text-[11px] py-0.5">
+                                    <span class="font-mono text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded">{{ orig }}</span>
+                                    <span class="text-slate-400">→</span>
+                                    <span class="font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">{{ mapped }}</span>
+                                    <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/alias/delete" class="ml-auto">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                        <input type="hidden" name="alias_from" value="{{ orig | e }}">
+                                        <button type="submit" class="text-[10px] text-red-400 hover:text-red-600 transition-colors px-1">✕</button>
+                                    </form>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <p class="text-[11px] text-slate-400 mb-2">Псевдонимов нет. Используйте их когда название в боте отличается от заголовка в таблице.</p>
+                            {% endif %}
+                            <div x-show="addAliasOpen" x-cloak>
+                                <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/alias/add"
+                                      class="flex flex-wrap gap-1.5 items-end">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                    <div>
+                                        <label class="block text-[9px] text-slate-400 mb-0.5">В боте (оригинал)</label>
+                                        <input type="text" name="alias_from" required placeholder="Хуавей DNS"
+                                               class="border border-slate-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 w-36">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[9px] text-slate-400 mb-0.5">В таблице (замена)</label>
+                                        <input type="text" name="alias_to" required placeholder="2905"
+                                               class="border border-slate-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 w-36">
+                                    </div>
+                                    <button type="submit"
+                                            class="text-xs px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium transition-colors">
+                                        Добавить
+                                    </button>
+                                </form>
+                                <p class="text-[9px] text-slate-400 mt-1">Пример: «Nova 14 → Nova 14i» — если название в базе товаров и в таблице написаны по-разному.</p>
+                            </div>
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
                 {% endfor %}
@@ -552,11 +628,35 @@
                                 <option value="staff">Сотрудники</option>
                             </select>
                         </div>
-                        <div>
+                        <div x-data="{ spRows: null, spLoading: false, spErr: '' }">
                             <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Лист назначения</label>
-                            <input type="text" name="target_sheet" required placeholder="Лист1"
-                                   class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <div class="flex gap-1">
+                                <input type="text" name="target_sheet" required placeholder="Лист1"
+                                       x-ref="spInput"
+                                       class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <button type="button" title="Предпросмотр листа"
+                                        :disabled="spLoading"
+                                        @click="spLoading=true; spErr=''; spRows=null; fetch('/integration/{{ c.id }}/sheet-rows?sheet='+encodeURIComponent($refs.spInput.value)).then(r=>r.json()).then(d=>{ if(d.ok){ spRows=d.rows; } else { spErr=d.error||'Ошибка'; } }).catch(e=>{ spErr=String(e); }).finally(()=>{ spLoading=false; })"
+                                        class="shrink-0 px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg transition-colors text-slate-500"
+                                        x-text="spLoading ? '…' : '👁'"></button>
+                            </div>
                             <p class="text-[9px] text-slate-400 mt-0.5">Макросы: {week}, {month}, {year}</p>
+                            <div x-show="spErr" x-cloak class="mt-1 text-[10px] text-red-500" x-text="spErr"></div>
+                            <div x-show="spRows !== null && spRows.length > 0" x-cloak class="mt-1 overflow-x-auto rounded border border-slate-200 bg-white">
+                                <table class="text-[9px] text-slate-600 min-w-full">
+                                    <tbody>
+                                        <template x-for="r in (spRows||[]).slice(0,8)" :key="r.row">
+                                            <tr class="border-b border-slate-100 last:border-0">
+                                                <td class="px-1 py-0.5 text-slate-300 font-mono w-5 text-right" x-text="r.row"></td>
+                                                <template x-for="(cell, ci) in r.cells.slice(0,8)" :key="ci">
+                                                    <td class="px-1.5 py-0.5 border-l border-slate-100 max-w-[80px] truncate" x-text="cell"></td>
+                                                </template>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div x-show="spRows !== null && spRows.length === 0" x-cloak class="mt-1 text-[10px] text-slate-400">Лист пустой или не найден</div>
                         </div>
                         <div>
                             <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Операция</label>
@@ -783,12 +883,29 @@
                 <form method="post" action="/integration/{{ c.id }}/motiv/save" class="mb-4">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
-                        <div class="sm:col-span-2">
+                        <div class="sm:col-span-2" x-data="{ mhHeaders: null, mhLoading: false, mhErr: '' }">
                             <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Лист мотивации <span class="text-red-400">*</span></label>
-                            <input type="text" name="sheet_name" required placeholder="w{week} или Мотивация"
-                                   value="{{ c.motiv_sheet }}"
-                                   class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <div class="flex gap-1">
+                                <input type="text" name="sheet_name" required placeholder="w{week} или Мотивация"
+                                       value="{{ c.motiv_sheet }}"
+                                       x-ref="mhInput"
+                                       class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <button type="button" title="Загрузить заголовки листа"
+                                        :disabled="mhLoading"
+                                        @click="mhLoading=true; mhErr=''; mhHeaders=null; fetch('/integration/{{ c.id }}/sheet-headers?sheet='+encodeURIComponent($refs.mhInput.value)+'&header_row={{ c.motiv_header_row or 1 }}').then(r=>r.json()).then(d=>{ if(d.ok){ mhHeaders=d.headers; } else { mhErr=d.error||'Ошибка'; } }).catch(e=>{ mhErr=String(e); }).finally(()=>{ mhLoading=false; })"
+                                        class="shrink-0 px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg transition-colors text-slate-500"
+                                        x-text="mhLoading ? '…' : '👁'"></button>
+                            </div>
                             <p class="text-[10px] text-slate-400 mt-0.5">Поддерживаются макросы: {week}, {month}, {year}</p>
+                            <div x-show="mhErr" x-cloak class="mt-1 text-[10px] text-red-500" x-text="mhErr"></div>
+                            <div x-show="mhHeaders !== null" x-cloak class="mt-1">
+                                <div x-show="mhHeaders && mhHeaders.length > 0" class="flex flex-wrap gap-1">
+                                    <template x-for="(h, hi) in (mhHeaders||[])" :key="hi">
+                                        <span class="inline-block bg-blue-50 text-blue-700 border border-blue-100 rounded px-1.5 py-0.5 text-[10px] font-mono" x-text="(hi+1)+': '+h"></span>
+                                    </template>
+                                </div>
+                                <div x-show="!mhHeaders || mhHeaders.length === 0" class="text-[10px] text-slate-400">Лист пустой или не найден</div>
+                            </div>
                         </div>
                         <div>
                             <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Строка шапки</label>
@@ -971,8 +1088,51 @@
             </div>
         </div>
 
-        <!-- Import data -->
-        <div class="px-5 py-3 border-b border-slate-50" x-data="{ open: false }">
+        <!-- Import data wizard -->
+        <div class="px-5 py-3 border-b border-slate-50"
+             x-data="{
+               open: false,
+               step: 1,
+               importType: 'products',
+               sheetName: '',
+               headerRow: 1,
+               headers: [],
+               loading: false,
+               err: '',
+               colMap: {},
+               fieldDefs: {
+                 products: [{k:'name',l:'Название'},{k:'category',l:'Категория'},{k:'price',l:'Цена'}],
+                 inventory: [{k:'shop',l:'Магазин'},{k:'product',l:'Товар'},{k:'quantity',l:'Остаток'}],
+                 sales: [{k:'date',l:'Дата'},{k:'product',l:'Товар'},{k:'shop',l:'Магазин'},{k:'quantity',l:'Количество'},{k:'price',l:'Цена'}],
+                 staff: [{k:'name',l:'Имя'},{k:'shop',l:'Магазин'},{k:'phone',l:'Телефон'}],
+                 plans: [{k:'type',l:'Тип'},{k:'metric',l:'Метрика'},{k:'target',l:'Цель'},{k:'period',l:'Период'},{k:'shop',l:'Магазин'},{k:'seller',l:'Продавец'}]
+               },
+               get curFields() { return this.fieldDefs[this.importType] || []; },
+               colMapJson() {
+                 let m = {};
+                 this.curFields.forEach(f => { if (this.colMap[f.k] !== undefined && this.colMap[f.k] !== '') m[f.k] = parseInt(this.colMap[f.k]); });
+                 return JSON.stringify(m);
+               },
+               loadHeaders() {
+                 if (!this.sheetName.trim()) { this.err = 'Укажите имя листа'; return; }
+                 this.loading = true; this.err = ''; this.headers = []; this.colMap = {};
+                 fetch('/integration/{{ c.id }}/sheet-headers?sheet=' + encodeURIComponent(this.sheetName) + '&header_row=' + this.headerRow)
+                   .then(r => r.json())
+                   .then(d => {
+                     if (d.ok && d.headers) {
+                       this.headers = d.headers;
+                       let fl = this.curFields;
+                       fl.forEach((f, fi) => {
+                         let hi = d.headers.findIndex(h => h && h.toLowerCase().replace(/[^a-zа-я0-9]/gi,'').includes(f.l.toLowerCase().replace(/[^a-zа-я0-9]/gi,'')));
+                         this.colMap[f.k] = (hi >= 0 ? hi : fi);
+                       });
+                       this.step = 2;
+                     } else { this.err = d.error || 'Ошибка загрузки заголовков'; }
+                   })
+                   .catch(e => { this.err = String(e); })
+                   .finally(() => { this.loading = false; });
+               }
+             }">
             <button @click="open = !open" class="flex items-center justify-between w-full text-left">
                 <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">📥 Импорт данных из таблицы</span>
                 <svg :class="open ? 'rotate-180' : ''" class="w-3.5 h-3.5 text-slate-400 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
@@ -981,14 +1141,14 @@
                 {% if not c.has_token %}
                 <p class="text-[11px] text-amber-600 mb-2">⚠️ Сначала авторизуйте подключение.</p>
                 {% endif %}
-                <form method="post" action="/integration/{{ c.id }}/import"
-                      data-confirm="Импортировать данные в базу? Существующие записи могут быть дополнены.">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+
+                <!-- Step 1: choose what and where -->
+                <div x-show="step === 1">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
                         <div>
                             <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Тип данных</label>
-                            <select name="import_type" required
-                                    class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <select x-model="importType"
+                                    class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
                                 <option value="products">Товары</option>
                                 <option value="inventory">Остатки</option>
                                 <option value="sales">Продажи</option>
@@ -998,21 +1158,86 @@
                         </div>
                         <div>
                             <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Лист</label>
-                            <input type="text" name="sheet_name" required placeholder="Лист1"
-                                   class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <input type="text" x-model="sheetName" placeholder="Лист1"
+                                   class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
                             <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Строка шапки</label>
-                            <input type="number" name="header_row" value="1" min="1"
-                                   class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <input type="number" x-model="headerRow" value="1" min="1"
+                                   class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                     </div>
-                    <button type="submit" {% if not c.has_token %}disabled{% endif %}
-                            class="text-xs px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                        📥 Импортировать
-                    </button>
-                    <p class="text-[11px] text-slate-400 mt-2">Колонки читаются по умолчанию слева направо. Для точной привязки колонок используйте мастер импорта в боте.</p>
-                </form>
+                    <div x-show="err" x-cloak class="mb-2 text-[11px] text-red-500" x-text="err"></div>
+                    <div class="flex gap-2">
+                        <button type="button" {% if not c.has_token %}disabled{% endif %}
+                                :disabled="loading || !sheetName.trim()"
+                                @click="loadHeaders()"
+                                class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                x-text="loading ? 'Загрузка…' : '📋 Загрузить заголовки'"></button>
+                        <button type="button" {% if not c.has_token %}disabled{% endif %}
+                                :disabled="loading || !sheetName.trim()"
+                                @click="colMap={}; step=2; headers=[];"
+                                class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                            Пропустить →
+                        </button>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-1.5">«Загрузить заголовки» — прочитает первую строку и предложит привязать колонки. «Пропустить» — импорт по порядку (A→поле1, B→поле2…).</p>
+                </div>
+
+                <!-- Step 2: column mapping -->
+                <div x-show="step === 2" x-cloak>
+                    <!-- Headers preview -->
+                    <div x-show="headers.length > 0" class="mb-2 flex flex-wrap gap-1">
+                        <template x-for="(h, hi) in headers" :key="hi">
+                            <span class="inline-block bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 text-[9px] font-mono text-slate-500"
+                                  x-text="(hi+1)+': '+h"></span>
+                        </template>
+                    </div>
+
+                    <!-- Field → column mapping -->
+                    <form method="post" action="/integration/{{ c.id }}/import"
+                          data-confirm="Импортировать данные в базу? Существующие записи могут быть дополнены.">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="import_type" :value="importType">
+                        <input type="hidden" name="sheet_name" :value="sheetName">
+                        <input type="hidden" name="header_row" :value="headerRow">
+                        <input type="hidden" name="col_mapping" :value="colMapJson()">
+
+                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+                            <template x-for="f in curFields" :key="f.k">
+                                <div>
+                                    <label class="block text-[10px] text-slate-500 mb-0.5" x-text="f.l"></label>
+                                    <div x-show="headers.length > 0">
+                                        <select :name="'_col_'+f.k" x-model="colMap[f.k]"
+                                                class="w-full border border-slate-200 rounded px-1.5 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                            <option value="">— не привязывать</option>
+                                            <template x-for="(h, hi) in headers" :key="hi">
+                                                <option :value="hi" x-text="(hi+1)+': '+h"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div x-show="headers.length === 0">
+                                        <input type="number" :name="'_col_'+f.k" x-model="colMap[f.k]" min="1"
+                                               :placeholder="'Столбец (1-based)'"
+                                               class="w-full border border-slate-200 rounded px-1.5 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <div class="flex gap-2">
+                            <button type="button" @click="step=1; err='';"
+                                    class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-medium transition-colors">
+                                ← Назад
+                            </button>
+                            <button type="submit" {% if not c.has_token %}disabled{% endif %}
+                                    class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                                📥 Импортировать
+                            </button>
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-1.5">Привязка колонок позволяет точно указать что где лежит. Пустые поля используют позицию по умолчанию.</p>
+                    </form>
+                </div>
             </div>
         </div>
 

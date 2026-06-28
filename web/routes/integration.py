@@ -606,9 +606,15 @@ async def integration_import(
     import_type: Annotated[str, Form()],
     sheet_name: Annotated[str, Form()],
     header_row: Annotated[int, Form()] = 1,
+    col_mapping: Annotated[str, Form()] = "",
     csrf_token: str = Form(default=""),
 ):
-    """Run a data import from a Google Sheet using default column order."""
+    """Run a data import from a Google Sheet.
+
+    col_mapping is an optional JSON object mapping system field names to
+    0-based column indices, e.g. {"name": 0, "category": 1, "price": 2}.
+    When empty, default positional mapping is used.
+    """
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from urllib.parse import quote
@@ -638,6 +644,17 @@ async def integration_import(
             status_code=302,
         )
 
+    parsed_col_mapping: dict | None = None
+    if col_mapping and col_mapping.strip():
+        try:
+            parsed_col_mapping = json.loads(col_mapping)
+            if not isinstance(parsed_col_mapping, dict):
+                parsed_col_mapping = None
+            else:
+                parsed_col_mapping = {k: int(v) for k, v in parsed_col_mapping.items()}
+        except Exception:
+            parsed_col_mapping = None
+
     try:
         db = get_web_db(telegram_id, org_db)
         from integration.manager import integration_manager
@@ -645,7 +662,7 @@ async def integration_import(
             db, cid, import_type,
             sheet_name=sheet_name.strip(),
             header_row=int(header_row) if header_row else 1,
-            col_mapping=None,
+            col_mapping=parsed_col_mapping,
         )
         imported = result.get("imported", 0)
         skipped = result.get("skipped", 0)
@@ -705,6 +722,78 @@ def integration_edit(
         return RedirectResponse(url="/integration?error=Ошибка+сохранения", status_code=302)
 
     return RedirectResponse(url="/integration?msg=Подключение+обновлено", status_code=302)
+
+
+@router.get("/integration/{cid}/sheet-rows")
+async def integration_sheet_rows(request: Request, cid: int, sheet: str = "", max_rows: int = 12):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+
+    sheet = sheet.strip()
+    if not sheet:
+        return JSONResponse({"ok": False, "error": "Укажите имя листа"})
+
+    max_rows = max(1, min(max_rows, 30))
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn_row = db.get_integration_connection(cid)
+        if not conn_row:
+            return JSONResponse({"ok": False, "error": "Подключение не найдено"})
+        cfg = json.loads(conn_row[3] or "{}")
+        if not cfg.get("tokens", {}).get("access_token"):
+            return JSONResponse({"ok": False, "error": "Подключение не авторизовано"})
+        from integration.manager import integration_manager
+        conn_config = await integration_manager._ensure_valid_token(db, cid, cfg)
+        provider = integration_manager.providers.get("google_sheets")
+        rows_dict = await provider.get_first_rows(conn_config, sheet, max_rows=max_rows)
+        rows_list = [{"row": k, "cells": v} for k, v in sorted(rows_dict.items())]
+        return JSONResponse({"ok": True, "rows": rows_list})
+    except Exception as e:
+        logging.error(f"integration_sheet_rows: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@router.get("/integration/{cid}/sheet-headers")
+async def integration_sheet_headers(request: Request, cid: int, sheet: str = "", header_row: int = 1):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+
+    sheet = sheet.strip()
+    if not sheet:
+        return JSONResponse({"ok": False, "error": "Укажите имя листа"})
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn_row = db.get_integration_connection(cid)
+        if not conn_row:
+            return JSONResponse({"ok": False, "error": "Подключение не найдено"})
+        cfg = json.loads(conn_row[3] or "{}")
+        if not cfg.get("tokens", {}).get("access_token"):
+            return JSONResponse({"ok": False, "error": "Подключение не авторизовано"})
+        from integration.manager import integration_manager
+        conn_config = await integration_manager._ensure_valid_token(db, cid, cfg)
+        provider = integration_manager.providers.get("google_sheets")
+        data = await provider.read_all_data(conn_config, sheet, header_row=header_row)
+        return JSONResponse({"ok": True, "headers": data.get("headers", []), "row_count": len(data.get("rows", []))})
+    except Exception as e:
+        logging.error(f"integration_sheet_headers: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 @router.get("/integration/{cid}/test")
@@ -1013,6 +1102,7 @@ def integration_export_edit(
                 "data_start_row":   _int_or(data_start_row, existing_lc.get("data_start_row", 2)),
                 "data_start_col":   _int_or(data_start_col, existing_lc.get("data_start_col", 2)),
                 "operation":        _update_op,
+                "aliases":          existing_lc.get("aliases", {}),
             }
             update_kwargs["lookup_config"] = json.dumps(lc, ensure_ascii=False)
 
@@ -1163,6 +1253,92 @@ async def integration_export_sync_week(
     except Exception as e:
         logging.error(f"integration_export_sync_week: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Export rule aliases (stored inside lookup_config["aliases"])
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/integration/{cid}/export/{eid}/alias/add")
+def integration_export_alias_add(
+    request: Request,
+    cid: int,
+    eid: int,
+    alias_from: Annotated[str, Form()],
+    alias_to: Annotated[str, Form()],
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    alias_from = (alias_from or "").strip()
+    alias_to = (alias_to or "").strip()
+    if not alias_from or not alias_to:
+        return RedirectResponse(url=f"/integration?error={quote('Заполните оба поля псевдонима')}", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        exp = db.get_integration_export(eid)
+        if not exp or exp[1] != cid:
+            return RedirectResponse(url=f"/integration?error={quote('Правило не найдено')}", status_code=302)
+        lc = json.loads(exp[7]) if exp[7] else {}
+        aliases = lc.get("aliases") or {}
+        aliases[alias_from] = alias_to
+        lc["aliases"] = aliases
+        db.update_integration_export(eid, lookup_config=json.dumps(lc, ensure_ascii=False))
+    except Exception as e:
+        logging.error(f"integration_export_alias_add: {e}")
+        return RedirectResponse(url=f"/integration?error={quote('Ошибка сохранения псевдонима')}", status_code=302)
+    return RedirectResponse(url="/integration?msg=Псевдоним+добавлен", status_code=302)
+
+
+@router.post("/integration/{cid}/export/{eid}/alias/delete")
+def integration_export_alias_delete(
+    request: Request,
+    cid: int,
+    eid: int,
+    alias_from: Annotated[str, Form()],
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        exp = db.get_integration_export(eid)
+        if not exp or exp[1] != cid:
+            return RedirectResponse(url=f"/integration?error={quote('Правило не найдено')}", status_code=302)
+        lc = json.loads(exp[7]) if exp[7] else {}
+        aliases = lc.get("aliases") or {}
+        aliases.pop((alias_from or "").strip(), None)
+        lc["aliases"] = aliases
+        db.update_integration_export(eid, lookup_config=json.dumps(lc, ensure_ascii=False))
+    except Exception as e:
+        logging.error(f"integration_export_alias_delete: {e}")
+        return RedirectResponse(url=f"/integration?error={quote('Ошибка удаления псевдонима')}", status_code=302)
+    return RedirectResponse(url="/integration?msg=Псевдоним+удалён", status_code=302)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
