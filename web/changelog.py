@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.285.0"
+CURRENT_VERSION = "1.286.0"
 
 ENTRIES = [
+    {
+        "version": "1.286.0",
+        "date": "28 июня 2026",
+        "items": [
+            "Improve visibility and usability of quantity adjustment buttons in the cart",
+        ],
+    },
     {
         "version": "1.285.0",
         "date": "28 июня 2026",

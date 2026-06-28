@@ -2652,12 +2652,12 @@ function mainApp() {
         if (side === 'left') {
             wrap.style.left = PEEK_OFF + 'px';
             tabEl.style.right = '0'; tabEl.style.left = 'auto';
-            tabEl.style.borderRadius = '8px 0 0 8px';
+            tabEl.style.borderRadius = '0 8px 8px 0'; /* flat at left edge, rounded into screen */
             tabArrow.textContent = '›';
         } else {
             wrap.style.right = PEEK_OFF + 'px';
             tabEl.style.left = '0'; tabEl.style.right = 'auto';
-            tabEl.style.borderRadius = '0 8px 8px 0';
+            tabEl.style.borderRadius = '8px 0 0 8px'; /* rounded into screen, flat at right edge */
             tabArrow.textContent = '‹';
         }
         tabEl.style.display = 'flex';
