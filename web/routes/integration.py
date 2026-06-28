@@ -650,6 +650,13 @@ def integration_export_create(
     operation: Annotated[str, Form()],
     schedule: Annotated[str, Form()] = "immediate",
     schedule_custom: Annotated[str, Form()] = "",
+    row_search_col: Annotated[str, Form()] = "",
+    row_search_field: Annotated[str, Form()] = "",
+    col_search_row: Annotated[str, Form()] = "",
+    col_search_field: Annotated[str, Form()] = "",
+    value_field: Annotated[str, Form()] = "",
+    data_start_row: Annotated[str, Form()] = "",
+    data_start_col: Annotated[str, Form()] = "",
     csrf_token: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token
@@ -719,7 +726,25 @@ def integration_export_create(
         fields = _DEFAULT_FIELDS.get(export_type, [])
         mapping_json = json.dumps({f: f for f in fields}, ensure_ascii=False)
     elif operation == 'update_cell':
-        lookup_json = json.dumps(_DEFAULT_LOOKUP.get(export_type, {}), ensure_ascii=False)
+        default_lc = _DEFAULT_LOOKUP.get(export_type, {})
+        def _int_or(s, default):
+            try:
+                return int(s)
+            except (ValueError, TypeError):
+                return default
+        def _str_or(s, default):
+            return s.strip() if s and s.strip() else default
+        lc = {
+            "row_search_col":   _int_or(row_search_col,   default_lc.get("row_search_col", 1)),
+            "row_search_field": _str_or(row_search_field, default_lc.get("row_search_field", "shop_name")),
+            "col_search_row":   _int_or(col_search_row,   default_lc.get("col_search_row", 1)),
+            "col_search_field": _str_or(col_search_field, default_lc.get("col_search_field", "product_name")),
+            "value_field":      _str_or(value_field,      default_lc.get("value_field", "quantity")),
+            "data_start_row":   _int_or(data_start_row,   default_lc.get("data_start_row", 2)),
+            "data_start_col":   _int_or(data_start_col,   default_lc.get("data_start_col", 2)),
+            "operation":        default_lc.get("operation", "set"),
+        }
+        lookup_json = json.dumps(lc, ensure_ascii=False)
 
     enabled = 0 if schedule == 'disabled' else 1
 

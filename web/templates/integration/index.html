@@ -249,6 +249,9 @@
                         <span class="text-slate-700 font-medium min-w-[60px]">{{ e.export_type }}</span>
                         <span class="text-slate-400">→ <span class="font-mono">{{ e.target_sheet or '—' }}</span></span>
                         <span class="text-slate-400 hidden sm:inline">{{ e.operation or '' }}</span>
+                        {% if e.operation == 'update_cell' and e.lookup_config %}
+                        <span class="hidden sm:inline text-[9px] bg-violet-50 text-violet-600 border border-violet-100 rounded px-1.5 py-0.5 font-mono whitespace-nowrap" title="Матрица: строка × столбец → значение">{{ e.lookup_config.get('row_search_field','?') }} × {{ e.lookup_config.get('col_search_field','?') }} → {{ e.lookup_config.get('value_field','?') }}</span>
+                        {% endif %}
                         <span class="text-slate-300 hidden sm:inline">|</span>
                         <span class="text-slate-400 hidden sm:inline {% if e.is_custom_sched %}font-mono{% endif %}">{{ e.schedule }}</span>
                         {% if e.last_run %}
@@ -463,7 +466,7 @@
             <div x-show="addExportOpen" x-cloak class="mt-2 bg-blue-50/60 border border-blue-100 rounded-xl p-3">
                 <p class="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-2">Новое правило экспорта</p>
                 <form method="post" action="/integration/{{ c.id }}/export/create"
-                      x-data="{ sched: 'immediate' }">
+                      x-data="{ sched: 'immediate', op: 'append_row' }">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
                         <div>
@@ -485,7 +488,7 @@
                         </div>
                         <div>
                             <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Операция</label>
-                            <select name="operation" required
+                            <select name="operation" required x-model="op"
                                     class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
                                 <option value="append_row">Добавить строку</option>
                                 <option value="replace_sheet">Заменить лист (снимок)</option>
@@ -509,6 +512,65 @@
                                 <p class="text-[9px] text-slate-400 mt-0.5">Пример: 0 18 * * 1-5 = в 18:00 по будням</p>
                             </div>
                         </div>
+                    </div>
+                    <!-- Matrix config (visible only for update_cell) -->
+                    <div x-show="op === 'update_cell'" x-cloak
+                         class="mb-2 p-2 bg-white border border-blue-200 rounded-lg">
+                        <p class="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-2">⚙️ Настройка матрицы</p>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
+                            <div>
+                                <label class="block text-[10px] text-slate-400 mb-1">Колонка строк</label>
+                                <input type="number" name="row_search_col" min="1" value="1"
+                                       class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                <p class="text-[9px] text-slate-400 mt-0.5">Номер столбца с идентиф. строк</p>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-400 mb-1">Поле строки</label>
+                                <select name="row_search_field"
+                                        class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    <option value="shop_name">🏪 Магазин</option>
+                                    <option value="seller_name">👤 Продавец</option>
+                                    <option value="product_name">📦 Товар</option>
+                                    <option value="category">📂 Категория</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-400 mb-1">Строка шапки</label>
+                                <input type="number" name="col_search_row" min="1" value="1"
+                                       class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                <p class="text-[9px] text-slate-400 mt-0.5">Строка с заголовками столбцов</p>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-400 mb-1">Поле столбцов</label>
+                                <select name="col_search_field"
+                                        class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    <option value="product_name">📦 Товар</option>
+                                    <option value="category">📂 Категория</option>
+                                    <option value="shop_name">🏪 Магазин</option>
+                                    <option value="seller_name">👤 Продавец</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-400 mb-1">Что записывать</label>
+                                <select name="value_field"
+                                        class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    <option value="quantity">🔢 Количество</option>
+                                    <option value="total">💰 Сумма</option>
+                                    <option value="price">💲 Цена</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-400 mb-1">Данные с строки</label>
+                                <input type="number" name="data_start_row" min="1" value="2"
+                                       class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-400 mb-1">Данные с колонки</label>
+                                <input type="number" name="data_start_col" min="1" value="2"
+                                       class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                            </div>
+                        </div>
+                        <p class="text-[9px] text-slate-400">💡 Строка = идентификатор (напр. магазин), Столбец = вторая ось (напр. товар). При каждой продаже бот найдёт нужную ячейку и запишет туда значение.</p>
                     </div>
                     <button type="submit"
                             class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
