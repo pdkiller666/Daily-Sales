@@ -933,7 +933,17 @@ async def task_mycomp_cb(callback: CallbackQuery, state: FSMContext):
                 if member_ids:
                     _comps = db.get_task_user_completions(task_id)
                     if member_ids.issubset({c['user_id'] for c in _comps}):
+                        _mc_old = task.get('status', '')
                         db.update_task_status(task_id, 'review')
+                        if _mc_old != 'review':
+                            try:
+                                from task_automation import run_rules as _run_rules
+                                _ev_task = dict(task)
+                                _ev_task['_old_status'] = _mc_old
+                                _ev_task['status'] = 'review'
+                                _run_rules(db, 'status_changed', _ev_task, my_db_id)
+                            except Exception as _are:
+                                logger.warning("task_mycomp_cb automation: %s", _are)
         except Exception as _ae:
             logger.error("task_mycomp_cb auto-advance: %s", _ae)
 
@@ -998,12 +1008,23 @@ async def task_reopen_cb(callback: CallbackQuery, state: FSMContext):
         except Exception:
             my_db_id = None
 
+        _ro_old = task.get('status', '')
         db.update_task_status(task_id, 'in_progress')
 
         try:
             db.add_task_history(task_id, my_db_id, 'status', task['status'], 'in_progress')
         except Exception:
             pass
+
+        if _ro_old != 'in_progress':
+            try:
+                from task_automation import run_rules as _run_rules
+                _ev_task = dict(task)
+                _ev_task['_old_status'] = _ro_old
+                _ev_task['status'] = 'in_progress'
+                _run_rules(db, 'status_changed', _ev_task, my_db_id)
+            except Exception as _are:
+                logger.warning("task_reopen_cb automation: %s", _are)
 
         # Уведомить исполнителя — Telegram + колокольчик + Web Push
         _assigned_to = task.get('assigned_to')

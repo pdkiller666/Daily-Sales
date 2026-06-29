@@ -1181,6 +1181,35 @@ try:
 except Exception as _e:
     _fn_fail("automation/SLA idempotency", _e)
 
+# ── Phase 2 (#60): все пути создания/смены статуса вызывают run_rules ──────────
+# Защита от регрессии: каждый хендлер, меняющий статус или создающий задачу,
+# обязан дёргать run_rules — иначе автоматизация молча пропускает события.
+try:
+    import inspect as _insp_hk
+    import web.routes.tasks as _wt_hk
+    import tasks_handlers as _th_hk
+
+    def _src_has_runrules(_mod, _fname):
+        _fn = getattr(_mod, _fname, None)
+        assert _fn is not None, f"{_mod.__name__}.{_fname} не найден"
+        _src = _insp_hk.getsource(_fn)
+        assert "run_rules" in _src, \
+            f"{_mod.__name__}.{_fname} не вызывает run_rules (хук автоматизации потерян)"
+
+    # web-роуты: создание (quick_add/new_post), смена статуса (change_status/
+    # kanban_move/bulk), авто-переход исполнителя (my_complete)
+    for _hk_name in ("tasks_quick_add", "tasks_new_post", "task_change_status",
+                     "tasks_kanban_move", "tasks_bulk", "task_my_complete"):
+        _src_has_runrules(_wt_hk, _hk_name)
+
+    # бот-хендлеры: смена статуса, авто-переход, возврат в работу, создание
+    for _hk_name in ("task_setstatus_cb", "task_mycomp_cb", "task_reopen_cb"):
+        _src_has_runrules(_th_hk, _hk_name)
+
+    _fn_ok("Автоматизация: run_rules присутствует во всех create/status-путях (web+bot)")
+except Exception as _e:
+    _fn_fail("automation hook coverage", _e)
+
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")
 print("=" * 55)

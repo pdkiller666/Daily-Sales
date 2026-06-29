@@ -446,7 +446,14 @@ def tasks_quick_add(
         my_db_id = my_row[0] if my_row else 0
         tid = int(topic_id) if topic_id and topic_id.isdigit() else None
         pri = priority if priority in ("low", "normal", "high", "urgent") else "normal"
-        db.create_task(title=title, created_by=my_db_id, topic_id=tid, priority=pri)
+        new_tid = db.create_task(title=title, created_by=my_db_id, topic_id=tid, priority=pri)
+        try:
+            from task_automation import run_rules as _run_rules
+            _new_task = db.get_task(new_tid) if new_tid else None
+            if _new_task:
+                _run_rules(db, 'task_created', dict(_new_task), my_db_id)
+        except Exception as _are:
+            logger.warning("tasks_quick_add automation: %s", _are)
     except Exception as e:
         logger.error("tasks_quick_add: %s", e)
         return RedirectResponse(url="/tasks?msg=error", status_code=303)
@@ -2140,13 +2147,24 @@ def tasks_bulk(request: Request, action: str = Form(""),
             new_status = STATUS_MAP[action]
             for tid in task_ids:
                 try:
-                    if not db.get_task(tid):
+                    _btask = db.get_task(tid)
+                    if not _btask:
                         continue
+                    _b_old = dict(_btask).get('status', '')
                     db.update_task_status(tid, new_status)
                     try:
                         db.add_task_history(tid, my_db_id, 'status', None, new_status)
                     except Exception:
                         pass
+                    if _b_old != new_status:
+                        try:
+                            from task_automation import run_rules as _run_rules
+                            _ev_task = dict(_btask)
+                            _ev_task['_old_status'] = _b_old
+                            _ev_task['status'] = new_status
+                            _run_rules(db, 'status_changed', _ev_task, my_db_id)
+                        except Exception as _are:
+                            logger.warning("tasks_bulk automation: %s", _are)
                     ok += 1
                 except Exception:
                     pass
@@ -3839,7 +3857,17 @@ def task_my_complete(
                 completed_ids = {c['user_id'] for c in completions_list}
                 member_ids = {m['id'] for m in task_members}
                 if member_ids and member_ids.issubset(completed_ids):
+                    _mc_old = task.get('status', '')
                     db.update_task_status(task_id, 'review')
+                    if _mc_old != 'review':
+                        try:
+                            from task_automation import run_rules as _run_rules
+                            _ev_task = dict(task)
+                            _ev_task['_old_status'] = _mc_old
+                            _ev_task['status'] = 'review'
+                            _run_rules(db, 'status_changed', _ev_task, my_db_id)
+                        except Exception as _are:
+                            logger.warning("task_my_complete automation: %s", _are)
         except Exception as _ae:
             logger.error("task_my_complete auto-advance: %s", _ae)
 

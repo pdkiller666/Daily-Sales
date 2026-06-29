@@ -233,13 +233,17 @@
   <div class="lg:w-52 shrink-0">
     <div class="card p-3 dark:bg-slate-900">
       <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Темы</p>
-      <a href="/tasks?status={{ status_filter }}{% if q %}&q={{ q | urlencode }}{% endif %}"
+      {% set _tp_all = "/tasks?status=" ~ status_filter ~ ("&q=" ~ (q | urlencode) if q else "") %}
+      <a href="{{ _tp_all }}"
+         hx-get="{{ _tp_all }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
          class="block px-2.5 py-1.5 rounded-lg text-sm mb-1 transition-colors
                 {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if not topic_filter else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
         Все темы
       </a>
       {% for t in topics %}
-      <a href="/tasks?status={{ status_filter }}&topic_id={{ t.id }}{% if q %}&q={{ q | urlencode }}{% endif %}"
+      {% set _tp_url = "/tasks?status=" ~ status_filter ~ "&topic_id=" ~ t.id ~ ("&q=" ~ (q | urlencode) if q else "") %}
+      <a href="{{ _tp_url }}"
+         hx-get="{{ _tp_url }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
          class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm transition-colors
                 {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if topic_filter == t.id else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
         <span class="w-2 h-2 rounded-full shrink-0
@@ -260,13 +264,17 @@
     {% if is_admin and staff_list %}
     <div class="card p-3 dark:bg-slate-900 mt-3">
       <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Исполнитель</p>
-      <a href="/tasks?status={{ status_filter }}{% if topic_filter %}&topic_id={{ topic_filter }}{% endif %}"
+      {% set _sf_all = "/tasks?status=" ~ status_filter ~ ("&topic_id=" ~ topic_filter if topic_filter else "") %}
+      <a href="{{ _sf_all }}"
+         hx-get="{{ _sf_all }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
          class="block px-2.5 py-1.5 rounded-lg text-sm mb-1 transition-colors
                 {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if not assigned_filter else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
         Все сотрудники
       </a>
       {% for s in staff_list %}
-      <a href="/tasks?status={{ status_filter }}{% if topic_filter %}&topic_id={{ topic_filter }}{% endif %}&assigned_filter={{ s.id }}"
+      {% set _sf_url = "/tasks?status=" ~ status_filter ~ ("&topic_id=" ~ topic_filter if topic_filter else "") ~ "&assigned_filter=" ~ s.id %}
+      <a href="{{ _sf_url }}"
+         hx-get="{{ _sf_url }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
          class="block px-2.5 py-1.5 rounded-lg text-sm transition-colors truncate
                 {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if assigned_filter == s.id else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
         {{ s.name }}
@@ -278,13 +286,17 @@
     {% if is_admin and shops_list %}
     <div class="card p-3 dark:bg-slate-900 mt-3">
       <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">По магазину</p>
-      <a href="/tasks?status={{ status_filter }}{% if topic_filter %}&topic_id={{ topic_filter }}{% endif %}"
+      {% set _sh_all = "/tasks?status=" ~ status_filter ~ ("&topic_id=" ~ topic_filter if topic_filter else "") %}
+      <a href="{{ _sh_all }}"
+         hx-get="{{ _sh_all }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
          class="block px-2.5 py-1.5 rounded-lg text-sm mb-1 transition-colors
                 {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if not shop_filter else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
         Все магазины
       </a>
       {% for sh in shops_list %}
-      <a href="/tasks?status={{ status_filter }}{% if topic_filter %}&topic_id={{ topic_filter }}{% endif %}&shop_filter={{ sh.name | urlencode }}"
+      {% set _sh_url = "/tasks?status=" ~ status_filter ~ ("&topic_id=" ~ topic_filter if topic_filter else "") ~ "&shop_filter=" ~ (sh.name | urlencode) %}
+      <a href="{{ _sh_url }}"
+         hx-get="{{ _sh_url }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
          class="block px-2.5 py-1.5 rounded-lg text-sm transition-colors truncate
                 {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if shop_filter == sh.name else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
         🏪 {{ sh.name }}

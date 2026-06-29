@@ -16,8 +16,7 @@ Actions: `notify(target)`, `set_status`, `set_priority`, `add_comment`. Targets:
 
 ## Hooks — every task creation/status point MUST call run_rules
 **Why:** the engine is only as complete as its call sites. Bot creation flows were initially missed → bot-created tasks silently skipped `task_created`/`task_assigned` while web worked.
-**How to apply:** when adding ANY new task-create or status-change path (web route, bot handler, import, API), mirror the web pattern: after `create_task`, `db.get_task(task_id)` then `run_rules('task_created')` always + `run_rules('task_assigned')` when assigned_to/assigned_shop/assign_all. Status paths: build dict with `_old_status` + new `status`, call `run_rules('status_changed')`.
-Known call sites: web `tasks_new_post`/status routes; bot `tsk_c_ok`, `tsk_ai_ok` (create), status handler (~line 624). Scheduler `sweep_sla_for_db` fires deadline_* + escalation.
+**How to apply:** when adding ANY new task-create or status-change path (web route, bot handler, import, API), mirror the web pattern: after `create_task`, `db.get_task(task_id)` then `run_rules('task_created')` always + `run_rules('task_assigned')` when assigned_to/assigned_shop/assign_all. Status paths: build dict with `_old_status` + new `status`, call `run_rules('status_changed')` (skip when old==new). Easy-to-miss paths beyond the obvious edit/status routes: quick-add, bulk status, "my complete" auto-advance to review, bot reopen→in_progress. A regression test in `test_imports.py` greps each handler's source for `run_rules` — keep it updated when you add a handler. Find all sites: `rg "run_rules" web/routes/tasks.py tasks_handlers.py`.
 
 ## Async-safety
 In bot/scheduler `db` is the SYNC `Database` (no await on `db.get_task`/`update_task_status`). Web uses sync `db` too inside `def` routes. Web Push goes through `_push_send` → daemon thread (never sync `send_web_push` on the loop); scheduler calls sweep via `asyncio.to_thread`.
