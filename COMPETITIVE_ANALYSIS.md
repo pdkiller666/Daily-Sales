@@ -399,4 +399,4 @@
 ---
 
 *Файл обновляется при существенных изменениях продукта или рыночной ситуации.*
-*Связанные документы: `.agents/memory/postgres-migration.md` — план миграции на PostgreSQL; `.agents/memory/billing-system.md` — модульный биллинг*
+*Связанные документы: `.agents/memory/postgres-migration.md` — план миграции на PostgreSQL; `.agents/memory/billing-system.md` — модульный биллинг* 
