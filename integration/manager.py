@@ -97,7 +97,7 @@ class IntegrationManager:
                                           'Токен отозван — подключение отключено автоматически')
                 except Exception:
                     pass
-                raise ValueError(str(revoked_exc)) from revoked_exc
+                return conn_config
             except Exception as exc:
                 logger.error(f"OAuth token refresh failed for conn {conn_id}: {exc}")
                 return conn_config
