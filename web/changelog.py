@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.304.0"
+CURRENT_VERSION = "1.305.0"
 
 ENTRIES = [
+    {
+        "version": "1.305.0",
+        "date": "29 июня 2026",
+        "items": [
+            "stability: try/finally for db connections, future-month salary guard, OAuth refresh fallback",
+        ],
+    },
     {
         "version": "1.304.0",
         "date": "29 июня 2026",

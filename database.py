@@ -9702,8 +9702,9 @@ class Database:
         """
         import calendar as _cal
         from datetime import date as _date, timedelta as _td
-        conn = self.get_connection()
+        conn = None
         try:
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Настройки: cap и enabled проверяет вызывающий код
@@ -9787,8 +9788,9 @@ class Database:
                         logger.debug("_calc_actual_for_plan: подавлено исключение: %s", _exc)
                 where = ' AND '.join(conditions)
                 q = f"SELECT {metric_expr} FROM sales s {join_clause} WHERE {where}"
-                c2 = self.get_connection()
+                c2 = None
                 try:
+                    c2 = self.get_connection()
                     cur2 = c2.cursor()
                     cur2.execute(q, params)
                     res = cur2.fetchone()[0] or 0.0
@@ -9796,7 +9798,8 @@ class Database:
                 except Exception:
                     return 0.0
                 finally:
-                    c2.close()
+                    if c2 is not None:
+                        c2.close()
 
             details = []
             pct_sum = 0.0
@@ -9839,7 +9842,8 @@ class Database:
             logger.error(f"Ошибка get_plan_motivation_coefficient: {e}")
             return 1.0, []
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     def get_plan_motivation_coefficient_for_user(self, user_id, year, month):
         """Обёртка: возвращает только коэффициент (float), учитывая настройку cap.
@@ -10648,8 +10652,9 @@ class Database:
 
     def get_seller_earnings(self, user_id, start_date=None, end_date=None):
         """Получение заработка продавца за период"""
-        conn = self.get_connection()
+        conn = None
         try:
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Проверяем, есть ли записи в таблице заработков
@@ -10724,12 +10729,14 @@ class Database:
             logger.error(f"Ошибка при получении заработка продавца: {e}")
             return []
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     def get_seller_total_earnings(self, user_id, start_date=None, end_date=None):
         """Получение общего заработка продавца за период"""
-        conn = self.get_connection()
+        conn = None
         try:
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Проверяем, есть ли записи в таблице заработков
@@ -10826,7 +10833,8 @@ class Database:
             logger.error(f"Ошибка при получении общего заработка: {e}")
             return {'total_earnings': 0.0, 'total_sales': 0}
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     def get_top_sellers_by_earnings(self, start_date=None, end_date=None, limit=10):
         """Получение топа продавцов по заработку"""
