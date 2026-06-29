@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.310.0"
+CURRENT_VERSION = "1.311.0"
 
 ENTRIES = [
+    {
+        "version": "1.311.0",
+        "date": "29 июня 2026",
+        "items": [
+            "Фаза 2 — автоматизация задач + контроль сроков (SLA)",
+            "Add new task views and improve task data filtering and aggregation",
+        ],
+    },
     {
         "version": "1.310.0",
         "date": "29 июня 2026",

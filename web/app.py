@@ -265,6 +265,9 @@ Disallow: /tasks
 Disallow: /tasks/attachment/
 Disallow: /tasks/views/
 Disallow: /tasks/automation
+Disallow: /tasks/calendar
+Disallow: /tasks/gantt
+Disallow: /tasks/workload
 Disallow: /ai-insights
 Disallow: /api/
 Disallow: /payment-proof/

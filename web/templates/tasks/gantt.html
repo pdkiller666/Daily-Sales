@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Задачи — Таймлайн{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/tasks" class="text-slate-500 dark:text-slate-400 hover:text-indigo-600 text-xs">Задачи</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm dark:text-slate-200">Таймлайн</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+  <div class="shrink-0">
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Таймлайн / Гант</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Сроки и зависимости задач</p>
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <a href="/tasks" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-slate-800 transition-colors" title="Список">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+      Список
+    </a>
+    <a href="/tasks/calendar" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-slate-800 transition-colors" title="Календарь">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      Календарь
+    </a>
+    <span class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-600 bg-indigo-600 text-white" title="Таймлайн">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h10M4 18h7"/></svg>
+      Таймлайн
+    </span>
+  </div>
+</div>
+
+{% if error %}
+<div class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
+  ⚠️ {{ error }}
+</div>
+{% endif %}
+
+<!-- Legend -->
+<div class="flex flex-wrap items-center gap-3 mb-4 text-[11px] text-slate-500 dark:text-slate-400">
+  <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded bg-blue-400"></span> Обычный</span>
+  <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-400"></span> Высокий</span>
+  <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded bg-red-500"></span> Срочный</span>
+  <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded bg-emerald-400"></span> Низкий</span>
+  <span class="inline-flex items-center gap-1"><span class="w-4 border-t-2 border-dashed border-slate-400"></span> Зависимость</span>
+</div>
+
+{% if not has_data %}
+<div class="text-center py-16 text-slate-400 dark:text-slate-600 text-sm">
+  Нет задач с дедлайнами для построения таймлайна
+</div>
+{% else %}
+<div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
+  <div id="ganttScroll" class="overflow-x-auto">
+    <div id="ganttInner" class="relative min-w-max"></div>
+  </div>
+</div>
+{% endif %}
+
+<script src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>
+<script nonce="{{ csp_nonce(request) }}">
+(function() {
+  const TASKS = {{ tasks_json | safe }};
+  const DEPS = {{ deps_json | safe }};
+  const inner = document.getElementById('ganttInner');
+  if (!inner || !TASKS.length) return;
+
+  const ROW_H = 38, BAR_H = 22, LABEL_W = 200, DAY_W = 26, PAD_T = 30;
+
+  function parseDate(s) { const p = s.split('-'); return new Date(Date.UTC(+p[0], +p[1]-1, +p[2])); }
+  function dayDiff(a, b) { return Math.round((b - a) / 86400000); }
+
+  let minD = parseDate(TASKS[0].start), maxD = parseDate(TASKS[0].end);
+  TASKS.forEach(t => {
+    const s = parseDate(t.start), e = parseDate(t.end);
+    if (s < minD) minD = s;
+    if (e > maxD) maxD = e;
+  });
+  const totalDays = Math.max(1, dayDiff(minD, maxD) + 1);
+  const chartW = LABEL_W + totalDays * DAY_W + 20;
+  const chartH = PAD_T + TASKS.length * ROW_H + 10;
+  inner.style.width = chartW + 'px';
+  inner.style.height = chartH + 'px';
+
+  const dark = document.documentElement.classList.contains('dark');
+  const xmlns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(xmlns, 'svg');
+  svg.setAttribute('width', chartW);
+  svg.setAttribute('height', chartH);
+  svg.style.position = 'absolute';
+  svg.style.left = '0';
+  svg.style.top = '0';
+  inner.appendChild(svg);
+
+  function el(tag, attrs) {
+    const n = document.createElementNS(xmlns, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+
+  const gridColor = dark ? '#334155' : '#e2e8f0';
+  const textColor = dark ? '#94a3b8' : '#64748b';
+
+  // Day/month gridlines + labels
+  let lastMonth = -1;
+  for (let i = 0; i <= totalDays; i++) {
+    const x = LABEL_W + i * DAY_W;
+    svg.appendChild(el('line', { x1: x, y1: PAD_T - 6, x2: x, y2: chartH - 5, stroke: gridColor, 'stroke-width': 1 }));
+    if (i < totalDays) {
+      const d = new Date(minD.getTime() + i * 86400000);
+      const m = d.getUTCMonth();
+      if (m !== lastMonth) {
+        lastMonth = m;
+        const months = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+        const lbl = el('text', { x: x + 2, y: 12, fill: textColor, 'font-size': 10, 'font-weight': 'bold' });
+        lbl.textContent = months[m] + ' ' + d.getUTCFullYear();
+        svg.appendChild(lbl);
+      }
+      const dn = el('text', { x: x + DAY_W/2, y: PAD_T - 10, fill: textColor, 'font-size': 8, 'text-anchor': 'middle' });
+      dn.textContent = d.getUTCDate();
+      svg.appendChild(dn);
+    }
+  }
+
+  // Build bars + record geometry
+  const geo = {};
+  const colorFor = p => p === 'urgent' ? '#ef4444' : p === 'high' ? '#f59e0b' : p === 'low' ? '#10b981' : '#3b82f6';
+
+  TASKS.forEach((t, idx) => {
+    const y = PAD_T + idx * ROW_H;
+    const sOff = dayDiff(minD, parseDate(t.start));
+    const eOff = dayDiff(minD, parseDate(t.end));
+    const x = LABEL_W + sOff * DAY_W;
+    const w = Math.max(DAY_W * 0.7, (eOff - sOff + 1) * DAY_W - 4);
+    geo[t.id] = { x, y: y + ROW_H/2, w, right: x + w, left: x };
+
+    // Row background label
+    const lt = el('text', { x: 4, y: y + ROW_H/2 + 4, fill: textColor, 'font-size': 11 });
+    lt.textContent = (t.title.length > 28 ? t.title.slice(0, 27) + '…' : t.title);
+    svg.appendChild(lt);
+
+    const barY = y + (ROW_H - BAR_H)/2;
+    const rect = el('rect', {
+      x: x, y: barY, width: w, height: BAR_H, rx: 6,
+      fill: colorFor(t.priority),
+      opacity: (t.status === 'done' || t.status === 'cancelled') ? 0.4 : 0.92,
+      style: 'cursor:pointer'
+    });
+    rect.addEventListener('click', () => { window.location = '/tasks/' + t.id; });
+    const titleEl = el('title', {});
+    titleEl.textContent = t.title + (t.assigned_name ? ' · ' + t.assigned_name : '') + ' (' + t.start + ' → ' + t.end + ')';
+    rect.appendChild(titleEl);
+    svg.appendChild(rect);
+
+    if (t.is_blocked) {
+      const blk = el('text', { x: x + 4, y: barY + BAR_H - 7, fill: '#fff', 'font-size': 10 });
+      blk.textContent = '⛔';
+      svg.appendChild(blk);
+    }
+  });
+
+  // Dependency connectors (blocker.right → blocked.left)
+  DEPS.forEach(dp => {
+    const a = geo[dp.blocker], b = geo[dp.blocked];
+    if (!a || !b) return;
+    const x1 = a.right, y1 = a.y, x2 = b.left, y2 = b.y;
+    const midX = Math.max(x1 + 12, x2 - 12);
+    const path = el('path', {
+      d: `M ${x1} ${y1} H ${midX} V ${y2} H ${x2}`,
+      fill: 'none', stroke: dark ? '#64748b' : '#94a3b8',
+      'stroke-width': 1.5, 'stroke-dasharray': '4 3'
+    });
+    svg.appendChild(path);
+    svg.appendChild(el('circle', { cx: x2, cy: y2, r: 3, fill: dark ? '#64748b' : '#94a3b8' }));
+  });
+})();
+</script>
+{% endblock %}

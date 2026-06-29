@@ -146,6 +146,7 @@
   const statusData = {{ chart_status | safe }};
   const statusLabels = Object.keys(statusData);
   const statusValues = Object.values(statusData);
+  const statusKeys = {{ chart_status_keys | safe }};
   const statusColors = statusLabels.map(l => {
     if (l.includes('Новые')) return '#6366f1';
     if (l.includes('работе')) return '#f59e0b';
@@ -158,11 +159,14 @@
   new Chart(document.getElementById('chartStatus'), {
     type: 'doughnut',
     data: { labels: statusLabels, datasets: [{ data: statusValues, backgroundColor: statusColors, borderWidth: 2, borderColor: dark ? '#1e293b' : '#fff' }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } } } }
+    options: { responsive: true, maintainAspectRatio: false,
+      onClick: (e, els) => { if (els.length) { const k = statusKeys[els[0].index]; if (k) window.location = '/tasks?status=' + encodeURIComponent(k); } },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } } } }
   });
 
   const priorityLabels = {{ chart_priority_labels | safe }};
   const priorityData = {{ chart_priority_data | safe }};
+  const priorityKeys = {{ chart_priority_keys | safe }};
   const priorityColors = priorityLabels.map(l => {
     if (l.includes('Крит')) return '#ef4444';
     if (l.includes('Высок')) return '#f59e0b';
@@ -174,17 +178,21 @@
   new Chart(document.getElementById('chartPriority'), {
     type: 'bar',
     data: { labels: priorityLabels, datasets: [{ label: 'Задач', data: priorityData, backgroundColor: priorityColors, borderRadius: 6, borderSkipped: false }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+    options: { responsive: true, maintainAspectRatio: false,
+      onClick: (e, els) => { if (els.length) { const k = priorityKeys[els[0].index]; if (k) window.location = '/tasks?priority=' + encodeURIComponent(k); } },
+      plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
   });
 
   const topicLabels = {{ chart_topics_labels | tojson }};
   const topicData = {{ chart_topics_data | safe }};
+  const topicIds = {{ chart_topics_ids | safe }};
   if (topicLabels.length && document.getElementById('chartTopics')) {
     new Chart(document.getElementById('chartTopics'), {
       type: 'bar',
       data: { labels: topicLabels, datasets: [{ label: 'Задач', data: topicData, backgroundColor: '#6366f1', borderRadius: 6, borderSkipped: false }] },
       options: {
         indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        onClick: (e, els) => { if (els.length) { const id = topicIds[els[0].index]; if (id) window.location = '/tasks?topic_id=' + encodeURIComponent(id); } },
         plugins: { legend: { display: false } },
         scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } }, y: { grid: { display: false } } }
       }
@@ -193,6 +201,7 @@
 
   const assigneeLabels = {{ chart_assignee_labels | tojson }};
   const assigneeData = {{ chart_assignee_data | safe }};
+  const assigneeIds = {{ chart_assignee_ids | safe }};
   if (assigneeLabels.length && document.getElementById('chartAssignee')) {
     const palette = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6','#14b8a6','#f97316','#84cc16','#06b6d4'];
     new Chart(document.getElementById('chartAssignee'), {
@@ -200,6 +209,7 @@
       data: { labels: assigneeLabels, datasets: [{ label: 'Задач', data: assigneeData, backgroundColor: palette, borderRadius: 6, borderSkipped: false }] },
       options: {
         indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        onClick: (e, els) => { if (els.length) { const id = assigneeIds[els[0].index]; if (id) window.location = '/tasks?assigned_filter=' + encodeURIComponent(id); } },
         plugins: { legend: { display: false } },
         scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } }, y: { grid: { display: false } } }
       }

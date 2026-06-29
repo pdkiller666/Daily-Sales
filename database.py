@@ -15016,6 +15016,7 @@ class Database:
                    is_admin: bool = False, my_user_id: int | None = None,
                    my_shop: str | None = None,
                    shop_filter: str | None = None,
+                   priority: str | None = None,
                    q: str | None = None) -> int:
         """Количество задач с теми же фильтрами что get_tasks (для пагинации)."""
         try:
@@ -15047,6 +15048,9 @@ class Database:
             if status:
                 where.append("t.status = ?")
                 params.append(status)
+            if priority:
+                where.append("t.priority = ?")
+                params.append(priority)
             if q:
                 where.append("(lower_u(t.title) LIKE lower_u(?) OR lower_u(t.description) LIKE lower_u(?))")
                 like = f"%{q}%"
@@ -15071,6 +15075,7 @@ class Database:
                   q: str | None = None,
                   sort: str | None = None,
                   parent_only: bool = False,
+                  priority: str | None = None,
                   limit: int | None = None, offset: int = 0) -> list:
         """Список задач с фильтрацией. Admin видит все, user — только свои."""
         try:
@@ -15102,6 +15107,9 @@ class Database:
             if status:
                 where.append("t.status = ?")
                 params.append(status)
+            if priority:
+                where.append("t.priority = ?")
+                params.append(priority)
             if q:
                 where.append("(lower_u(t.title) LIKE lower_u(?) OR lower_u(t.description) LIKE lower_u(?))")
                 like = f"%{q}%"
@@ -16163,55 +16171,55 @@ class Database:
             conn = self.get_connection()
             try:
                 by_status_rows = conn.execute(
-                    "SELECT status, COUNT(*) FROM tasks WHERE is_active=1 GROUP BY status"
+                    "SELECT status, COUNT(*) FROM tasks GROUP BY status"
                 ).fetchall()
                 by_status = {r[0]: r[1] for r in by_status_rows}
                 total = sum(by_status.values())
 
                 overdue = conn.execute(
                     """SELECT COUNT(*) FROM tasks
-                       WHERE is_active=1 AND status NOT IN ('done','cancelled')
+                       WHERE status NOT IN ('done','cancelled')
                          AND deadline IS NOT NULL AND deadline < datetime('now')"""
                 ).fetchone()[0]
 
                 topic_rows = conn.execute(
-                    """SELECT COALESCE(tt.name,'Без темы'), COUNT(t.id)
+                    """SELECT COALESCE(tt.name,'Без темы'), COUNT(t.id), COALESCE(t.topic_id, 0)
                        FROM tasks t LEFT JOIN task_topics tt ON t.topic_id=tt.id
-                       WHERE t.is_active=1 GROUP BY COALESCE(tt.name,'Без темы')
+                       GROUP BY t.topic_id
                        ORDER BY 2 DESC LIMIT 10"""
                 ).fetchall()
 
                 assignee_rows = conn.execute(
                     """SELECT COALESCE(u.first_name||CASE WHEN u.last_name IS NOT NULL THEN ' '||u.last_name ELSE '' END, 'Без назначения'),
-                              COUNT(t.id)
+                              COUNT(t.id), COALESCE(t.assigned_to, 0)
                        FROM tasks t LEFT JOIN users u ON t.assigned_to=u.id
-                       WHERE t.is_active=1 GROUP BY t.assigned_to ORDER BY 2 DESC LIMIT 10"""
+                       GROUP BY t.assigned_to ORDER BY 2 DESC LIMIT 10"""
                 ).fetchall()
 
                 priority_rows = conn.execute(
-                    "SELECT priority, COUNT(*) FROM tasks WHERE is_active=1 GROUP BY priority ORDER BY 2 DESC"
+                    "SELECT priority, COUNT(*) FROM tasks GROUP BY priority ORDER BY 2 DESC"
                 ).fetchall()
 
                 created_rows = conn.execute(
                     """SELECT DATE(created_at), COUNT(*) FROM tasks
-                       WHERE is_active=1 AND created_at >= datetime('now','-30 days')
+                       WHERE created_at >= datetime('now','-30 days')
                        GROUP BY DATE(created_at) ORDER BY 1"""
                 ).fetchall()
 
                 completed_rows = conn.execute(
                     """SELECT DATE(updated_at), COUNT(*) FROM tasks
-                       WHERE is_active=1 AND status='done'
+                       WHERE status='done'
                          AND updated_at >= datetime('now','-30 days')
                        GROUP BY DATE(updated_at) ORDER BY 1"""
                 ).fetchall()
 
                 rating_row = conn.execute(
-                    "SELECT AVG(CAST(rating AS REAL)), COUNT(*) FROM tasks WHERE is_active=1 AND rating IS NOT NULL"
+                    "SELECT AVG(CAST(rating AS REAL)), COUNT(*) FROM tasks WHERE rating IS NOT NULL"
                 ).fetchone()
 
                 avg_time_row = conn.execute(
                     """SELECT AVG(CAST((julianday(updated_at)-julianday(created_at))*24 AS REAL))
-                       FROM tasks WHERE is_active=1 AND status='done'
+                       FROM tasks WHERE status='done'
                          AND updated_at IS NOT NULL AND created_at IS NOT NULL"""
                 ).fetchone()
 
@@ -16219,8 +16227,8 @@ class Database:
                     'total': total,
                     'by_status': by_status,
                     'overdue': overdue,
-                    'by_topic': [(r[0], r[1]) for r in topic_rows],
-                    'by_assignee': [(r[0], r[1]) for r in assignee_rows],
+                    'by_topic': [(r[0], r[1], r[2]) for r in topic_rows],
+                    'by_assignee': [(r[0], r[1], r[2]) for r in assignee_rows],
                     'by_priority': [(r[0], r[1]) for r in priority_rows],
                     'created_daily': [(r[0], r[1]) for r in created_rows],
                     'completed_daily': [(r[0], r[1]) for r in completed_rows],
@@ -16233,6 +16241,92 @@ class Database:
         except Exception as e:
             logger.error("get_tasks_analytics: %s", e)
             return empty
+
+    def get_tasks_for_calendar(self, date_from: str, date_to: str,
+                               is_admin: bool = False,
+                               my_user_id: int | None = None,
+                               my_shop: str | None = None) -> list:
+        """Задачи с непустым deadline, попадающим в [date_from, date_to] (по дате).
+        Видимость как в get_tasks (admin — все, user — свои). Сравнение по ISO-дате."""
+        tasks = self.get_tasks(
+            is_admin=is_admin, my_user_id=my_user_id, my_shop=my_shop
+        )
+        df = (date_from or "")[:10]
+        dt = (date_to or "")[:10]
+        out = []
+        for t in tasks:
+            dl = t.get("deadline")
+            if not dl:
+                continue
+            d = str(dl)[:10]
+            if df <= d <= dt:
+                out.append(t)
+        return out
+
+    def get_team_workload(self) -> list:
+        """Загрузка команды: по сотруднику активные/всего задач, просрочка,
+        суммарная оценка (часы активных задач) и затраченное время (минуты логов)."""
+        try:
+            conn = self.get_connection()
+            try:
+                task_rows = conn.execute(
+                    """
+                    SELECT u.id,
+                           COALESCE(
+                             NULLIF(TRIM(COALESCE(u.first_name,'') ||
+                               CASE WHEN u.last_name IS NOT NULL AND u.last_name <> ''
+                                    THEN ' ' || u.last_name ELSE '' END), ''),
+                             u.username, 'Сотрудник #' || u.id) AS name,
+                           SUM(CASE WHEN t.status NOT IN ('done','cancelled') THEN 1 ELSE 0 END) AS active_count,
+                           COUNT(t.id) AS total_count,
+                           SUM(CASE WHEN t.status NOT IN ('done','cancelled')
+                                     AND t.deadline IS NOT NULL
+                                     AND t.deadline < datetime('now') THEN 1 ELSE 0 END) AS overdue_count,
+                           COALESCE(SUM(CASE WHEN t.status NOT IN ('done','cancelled')
+                                             THEN t.estimated_hours ELSE 0 END), 0) AS est_hours
+                    FROM tasks t
+                    JOIN users u ON u.id = t.assigned_to
+                    WHERE t.assigned_to IS NOT NULL
+                    GROUP BY u.id
+                    """
+                ).fetchall()
+                log_rows = conn.execute(
+                    "SELECT user_id, COALESCE(SUM(minutes), 0) FROM task_time_logs GROUP BY user_id"
+                ).fetchall()
+                logged = {r[0]: (r[1] or 0) for r in log_rows}
+                result = []
+                for r in task_rows:
+                    result.append({
+                        "user_id": r[0],
+                        "name": r[1],
+                        "active_count": r[2] or 0,
+                        "total_count": r[3] or 0,
+                        "overdue_count": r[4] or 0,
+                        "estimate_hours": round(r[5] or 0, 1),
+                        "logged_minutes": logged.get(r[0], 0),
+                    })
+                result.sort(key=lambda x: (-x["active_count"], -x["total_count"], x["name"]))
+                return result
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("get_team_workload: %s", e)
+            return []
+
+    def get_all_task_dependencies(self) -> list:
+        """Все рёбра зависимостей орга: [(blocker_id, blocked_id), ...] (для Ганта)."""
+        try:
+            conn = self.get_connection()
+            try:
+                rows = conn.execute(
+                    "SELECT blocker_id, blocked_id FROM task_dependencies"
+                ).fetchall()
+                return [(r[0], r[1]) for r in rows]
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("get_all_task_dependencies: %s", e)
+            return []
 
     def get_unassigned_tasks(self, topic_id: int | None = None, q: str | None = None) -> list:
         """Задачи без назначения (пул) — assign_all=0, assigned_to IS NULL, assigned_shop IS NULL, status=new."""

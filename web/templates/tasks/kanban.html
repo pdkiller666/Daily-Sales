@@ -16,116 +16,49 @@
 {% set _bg = _c.get(_ch, 'bg-slate-500') %}
 <span class="{{ cls }} rounded-full {{ _bg }} text-white font-bold inline-flex items-center justify-center shrink-0" title="{{ name | e }}">{{ _ch }}</span>
 {% endmacro %}
-<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
-  <div class="shrink-0">
-    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Канбан-доска</h1>
-    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Задачи по статусам</p>
-  </div>
-  <div class="flex flex-wrap items-center gap-2">
-    <!-- View toggle -->
-    <a href="/tasks" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-slate-800 transition-colors" title="Список">
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
-      Список
-    </a>
-    <span class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-600 bg-indigo-600 text-white" title="Канбан">
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
-      Канбан
-    </span>
-    {% if is_admin %}
-    <a href="/tasks/new"
-       class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-      </svg>
-      Создать
-    </a>
-    {% endif %}
-  </div>
-</div>
 
-{% if error %}
-<div class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
-  ⚠️ {{ error }}
-</div>
-{% endif %}
-
-<!-- Filters bar -->
-<div class="flex flex-wrap gap-2 mb-5">
-  {% if topics %}
-  <select id="topicFilter" data-change="applyFilters"
-          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
-    <option value="0" {% if not topic_filter %}selected{% endif %}>Все темы</option>
-    {% for t in topics %}
-    <option value="{{ t.id }}" {% if topic_filter == t.id %}selected{% endif %}>{{ t.name }}</option>
-    {% endfor %}
-  </select>
-  {% endif %}
-
-  {% if is_admin and shops_list %}
-  <select id="shopFilter" data-change="applyFilters"
-          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
-    <option value="" {% if not shop_filter %}selected{% endif %}>Все магазины</option>
-    {% for sh in shops_list %}
-    <option value="{{ sh.name | e }}" {% if shop_filter == sh.name %}selected{% endif %}>🏪 {{ sh.name }}</option>
-    {% endfor %}
-  </select>
-  {% endif %}
-
-  {% if is_admin and staff_list %}
-  <select id="staffFilter" data-change="applyFilters"
-          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
-    <option value="0" {% if not assigned_filter %}selected{% endif %}>Все сотрудники</option>
-    {% for s in staff_list %}
-    <option value="{{ s.id }}" {% if assigned_filter == s.id %}selected{% endif %}>{{ s.name }}</option>
-    {% endfor %}
-  </select>
-  {% endif %}
-
-  {% if topic_filter or shop_filter or assigned_filter %}
-  <a href="/tasks/kanban" class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-red-600 hover:border-red-300 transition-colors">
-    ✕ Сбросить
-  </a>
-  {% endif %}
-</div>
-
-<!-- Kanban board (horizontally scrollable) -->
+{% macro render_columns(columns, grouped, lane) %}
 <div class="overflow-x-auto -mx-4 px-4 pb-4">
   <div class="flex gap-4 min-w-max">
     {% for col in columns %}
+    {% set header_css = {
+      'new':         'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700',
+      'in_progress': 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800',
+      'review':      'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800',
+      'done':        'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800',
+      'cancelled':   'bg-slate-200 dark:bg-slate-800 border-slate-400 dark:border-slate-600',
+    } %}
     <div class="w-72 flex-shrink-0 flex flex-col"
-         id="col-{{ col.key }}"
-         data-status="{{ col.key }}"
-         data-drop-status="{{ col.key }}">
+         {% if not grouped %}id="col-{{ col.key }}" data-drop-status="{{ col.key }}"{% endif %}
+         data-status="{{ col.key }}">
 
       <!-- Column header -->
-      {% set header_css = {
-        'new':         'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700',
-        'in_progress': 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800',
-        'review':      'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800',
-        'done':        'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800',
-        'cancelled':   'bg-slate-200 dark:bg-slate-800 border-slate-400 dark:border-slate-600',
-      } %}
       <div class="flex items-center justify-between px-3 py-2 rounded-xl border mb-3
-                  {{ header_css.get(col.key, 'bg-slate-100 border-slate-300') }}">
+                  {{ header_css.get(col.key, 'bg-slate-100 border-slate-300') }}
+                  {% if col.over_wip %}ring-2 ring-red-400 dark:ring-red-600{% endif %}">
         <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">
           {{ col.icon }} {{ col.name }}
         </span>
-        <span class="text-xs font-bold px-2 py-0.5 rounded-full
-          {% if col.key == 'in_progress' %}bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300
+        <span id="count-{{ lane }}-{{ col.key }}" data-wip="{{ col.wip if col.wip else '' }}"
+          class="text-xs font-bold px-2 py-0.5 rounded-full
+          {% if col.over_wip %}bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300
+          {% elif col.key == 'in_progress' %}bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300
           {% elif col.key == 'review' %}bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300
           {% elif col.key == 'done' %}bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300
           {% else %}bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300{% endif %}">
-          {{ col.tasks | length }}
+          {{ col.count }}{% if col.wip %} / {{ col.wip }}{% endif %}
         </span>
       </div>
+      {% if col.over_wip %}
+      <div class="-mt-2 mb-2 text-[11px] text-red-600 dark:text-red-400 font-medium px-1">⚠️ Превышен WIP-лимит</div>
+      {% endif %}
 
       <!-- Cards drop zone -->
-      <div class="flex flex-col gap-2 min-h-24 rounded-xl" id="drop-{{ col.key }}">
+      <div class="flex flex-col gap-2 min-h-24 rounded-xl" {% if not grouped %}id="drop-{{ col.key }}"{% endif %}>
         {% for t in col.tasks %}
         {% set overdue = is_overdue(t.get('deadline'), t.get('status', '')) %}
         <div class="kanban-card bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 shadow-sm hover:shadow-md transition-shadow group relative"
-             id="card-{{ t.id }}"
-             draggable="true"
+             {% if not grouped %}id="card-{{ t.id }}" draggable="true"{% endif %}
              data-task-id="{{ t.id }}"
              data-status="{{ col.key }}">
 
@@ -137,13 +70,11 @@
             {% else %}bg-blue-400{% endif %}"></div>
 
           <div class="pl-3">
-            <!-- Title -->
             <a href="/tasks/{{ t.id }}"
                class="block text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 leading-snug mb-2 hover:underline line-clamp-2">
               {{ t.title }}
             </a>
 
-            <!-- Meta row -->
             <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
               {% if t.get('assign_all') %}
               <span class="inline-flex items-center gap-0.5">👥 Все</span>
@@ -217,9 +148,8 @@
         </div>
         {% endfor %}
 
-        <!-- Empty column placeholder -->
         {% if not col.tasks %}
-        <div class="text-center py-8 text-slate-300 dark:text-slate-600 text-xs border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl" id="empty-{{ col.key }}">
+        <div class="text-center py-8 text-slate-300 dark:text-slate-600 text-xs border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl" {% if not grouped %}id="empty-{{ col.key }}"{% endif %}>
           Нет задач
         </div>
         {% endif %}
@@ -228,6 +158,110 @@
     {% endfor %}
   </div>
 </div>
+{% endmacro %}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+  <div class="shrink-0">
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Канбан-доска</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Задачи по статусам</p>
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <!-- View toggle -->
+    <a href="/tasks" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-slate-800 transition-colors" title="Список">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+      Список
+    </a>
+    <span class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-600 bg-indigo-600 text-white" title="Канбан">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
+      Канбан
+    </span>
+    {% if is_admin %}
+    <a href="/tasks/new"
+       class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+      </svg>
+      Создать
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{% if error %}
+<div class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
+  ⚠️ {{ error }}
+</div>
+{% endif %}
+
+<!-- Filters bar -->
+<div class="flex flex-wrap gap-2 mb-5">
+  {% if topics %}
+  <select id="topicFilter" data-change="applyFilters"
+          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    <option value="0" {% if not topic_filter %}selected{% endif %}>Все темы</option>
+    {% for t in topics %}
+    <option value="{{ t.id }}" {% if topic_filter == t.id %}selected{% endif %}>{{ t.name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  {% if is_admin and shops_list %}
+  <select id="shopFilter" data-change="applyFilters"
+          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    <option value="" {% if not shop_filter %}selected{% endif %}>Все магазины</option>
+    {% for sh in shops_list %}
+    <option value="{{ sh.name | e }}" {% if shop_filter == sh.name %}selected{% endif %}>🏪 {{ sh.name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  {% if is_admin and staff_list %}
+  <select id="staffFilter" data-change="applyFilters"
+          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    <option value="0" {% if not assigned_filter %}selected{% endif %}>Все сотрудники</option>
+    {% for s in staff_list %}
+    <option value="{{ s.id }}" {% if assigned_filter == s.id %}selected{% endif %}>{{ s.name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  <select id="groupBy" data-change="applyFilters"
+          class="px-3 py-1.5 text-xs rounded-lg border border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    <option value="none" {% if group_by == 'none' %}selected{% endif %}>Без группировки</option>
+    <option value="assignee" {% if group_by == 'assignee' %}selected{% endif %}>↔ По сотруднику</option>
+    <option value="priority" {% if group_by == 'priority' %}selected{% endif %}>↔ По приоритету</option>
+  </select>
+
+  {% if topic_filter or shop_filter or assigned_filter or group_by != 'none' %}
+  <a href="/tasks/kanban" class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-red-600 hover:border-red-300 transition-colors">
+    ✕ Сбросить
+  </a>
+  {% endif %}
+</div>
+
+<!-- WIP limits hint -->
+<div class="text-[11px] text-slate-400 dark:text-slate-500 mb-3 px-0.5">
+  WIP-лимиты: В работе ≤ {{ wip_limits.in_progress }}, На проверке ≤ {{ wip_limits.review }} · колонка подсвечивается красным при превышении
+</div>
+
+<!-- Kanban board -->
+{% if group_by == 'none' %}
+{{ render_columns(columns, false, 0) }}
+{% else %}
+<div class="flex flex-col gap-6">
+  {% for lane in swimlanes %}
+  <div>
+    <div class="flex items-center gap-2 mb-2">
+      <span class="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 text-xs font-bold">{{ loop.index }}</span>
+      <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200">{{ lane.label }}</h2>
+    </div>
+    {{ render_columns(lane.columns, true, loop.index) }}
+  </div>
+  {% endfor %}
+  {% if not swimlanes %}
+  <div class="text-center py-12 text-slate-400 dark:text-slate-600 text-sm">Нет задач для группировки</div>
+  {% endif %}
+</div>
+{% endif %}
 
 <!-- Toast notification -->
 <div id="kanban-toast" class="fixed bottom-5 right-5 z-50 hidden">
@@ -238,6 +272,7 @@
 
 <script nonce="{{ csp_nonce(request) }}">
 const CSRF_TOKEN = {{ csrf_token | tojson }};
+const GROUPED = {{ 'true' if group_by != 'none' else 'false' }};
 let draggingId = null;
 let draggingFrom = null;
 
@@ -282,8 +317,13 @@ function moveCard(taskId, newStatus, el, e) {
     .then(r => r.json())
     .then(data => {
       if (data.ok) {
-        relocateCard(taskId, newStatus);
-        showToast('Статус изменён → ' + data.label, 'success');
+        if (GROUPED) {
+          showToast('Статус изменён → ' + data.label, 'success');
+          setTimeout(() => window.location.reload(), 500);
+        } else {
+          relocateCard(taskId, newStatus);
+          showToast('Статус изменён → ' + data.label, 'success');
+        }
       } else {
         showToast('Ошибка: ' + (data.error || 'неизвестно'), 'error');
       }
@@ -335,11 +375,17 @@ function relocateCard(taskId, newStatus) {
 
 function updateColumnCount(status) {
   const drop = document.getElementById('drop-' + status);
-  const col = document.getElementById('col-' + status);
-  if (!drop || !col) return;
+  if (!drop) return;
   const count = drop.querySelectorAll('.kanban-card').length;
-  const badge = col.querySelector('span.text-xs.font-bold');
-  if (badge) badge.textContent = count;
+  const badge = document.getElementById('count-0-' + status);
+  if (!badge) return;
+  const wip = parseInt(badge.dataset.wip || '0', 10);
+  badge.textContent = wip ? (count + ' / ' + wip) : String(count);
+  const over = wip > 0 && count > wip;
+  badge.classList.toggle('bg-red-100', over);
+  badge.classList.toggle('dark:bg-red-900', over);
+  badge.classList.toggle('text-red-700', over);
+  badge.classList.toggle('dark:text-red-300', over);
 }
 
 let toastTimer = null;
@@ -358,10 +404,12 @@ function applyFilters() {
   const topic = document.getElementById('topicFilter')?.value || '0';
   const shop  = encodeURIComponent(document.getElementById('shopFilter')?.value || '');
   const staff = document.getElementById('staffFilter')?.value || '0';
+  const grp   = document.getElementById('groupBy')?.value || 'none';
   let url = '/tasks/kanban?';
   if (topic !== '0') url += 'topic_id=' + topic + '&';
   if (shop) url += 'shop_filter=' + shop + '&';
   if (staff !== '0') url += 'assigned_filter=' + staff + '&';
+  if (grp !== 'none') url += 'group_by=' + grp + '&';
   window.location.href = url;
 }
 </script>

@@ -44,6 +44,17 @@
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
       Канбан
     </a>
+    <a href="/tasks/calendar" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-slate-800 transition-colors" title="Календарь дедлайнов">
+      📅 Календарь
+    </a>
+    <a href="/tasks/gantt" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-slate-800 transition-colors" title="Таймлайн и зависимости">
+      📈 Гант
+    </a>
+    {% if is_admin %}
+    <a href="/tasks/workload" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-slate-800 transition-colors" title="Загрузка команды">
+      ⚖️ Загрузка
+    </a>
+    {% endif %}
     {% else %}
     <span class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-600 bg-white dark:bg-slate-800 cursor-default" title="Требуется Задачи Pro">
       🔒 Канбан

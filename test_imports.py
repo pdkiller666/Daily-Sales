@@ -1210,6 +1210,120 @@ try:
 except Exception as _e:
     _fn_fail("automation hook coverage", _e)
 
+# ── Phase 3 (#61): визуализация — calendar/workload/dependencies агрегации ────
+try:
+    import tempfile as _tf_p3, os as _os_p3, time as _tm_p3
+    from datetime import datetime as _dt_p3, timedelta as _td_p3
+
+    _tmp_p3 = _os_p3.path.join(_tf_p3.gettempdir(), f'tasks_p3_{_tm_p3.time()}.db')
+    _db_p3 = Database(_tmp_p3)
+    _db_p3.create_tables()
+
+    # два сотрудника (add_user не возвращает id → берём через get_user)
+    _db_p3.add_user(telegram_id=90001, first_name="Алиса", last_name="А")
+    _db_p3.add_user(telegram_id=90002, first_name="Борис", last_name="Б")
+    _u1 = _db_p3.get_user(90001)[0]
+    _u2 = _db_p3.get_user(90002)[0]
+    assert _u1 and _u2, "add_user/get_user failed"
+
+    _today = _dt_p3.utcnow().date()
+    _in_month = _today.replace(day=15).strftime("%Y-%m-%d")
+    _df = _today.replace(day=1).strftime("%Y-%m-%d")
+    import calendar as _cal_p3
+    _last = _cal_p3.monthrange(_today.year, _today.month)[1]
+    _dt_to = _today.replace(day=_last).strftime("%Y-%m-%d")
+    # дедлайн за пределами месяца (следующий год) — не должен попасть в календарь
+    _out_month = f"{_today.year + 1}-{_today.month:02d}-15"
+
+    # задача с дедлайном в этом месяце, назначена u1, оценка 4ч
+    _t_cal = _db_p3.create_task("В календаре", created_by=_u1, assigned_to=_u1,
+                                deadline=_in_month + " 10:00:00", priority="high")
+    # задача с дедлайном вне месяца, назначена u1, оценка 2ч
+    _t_out = _db_p3.create_task("Вне месяца", created_by=_u1, assigned_to=_u1,
+                                deadline=_out_month + " 10:00:00")
+    # задача без дедлайна, назначена u2
+    _t_nodl = _db_p3.create_task("Без дедлайна", created_by=_u2, assigned_to=_u2)
+    assert _t_cal and _t_out and _t_nodl, "create_task failed"
+
+    # проставить оценки часов
+    _db_p3.update_task_estimated_hours(_t_cal, 4.0)
+    _db_p3.update_task_estimated_hours(_t_out, 2.0)
+
+    # (1) get_tasks_for_calendar — только дедлайны в диапазоне
+    _cal_rows = _db_p3.get_tasks_for_calendar(_df, _dt_to, is_admin=True)
+    _cal_ids = {r["id"] for r in _cal_rows}
+    assert _t_cal in _cal_ids, "задача в этом месяце должна попасть в календарь"
+    assert _t_out not in _cal_ids, "задача вне месяца не должна попасть в календарь"
+    assert _t_nodl not in _cal_ids, "задача без дедлайна не должна попасть в календарь"
+
+    # (2) get_team_workload — активные/оценка/затрачено
+    _db_p3.log_task_time(_t_cal, _u1, 90)   # 1.5ч
+    _db_p3.log_task_time(_t_cal, _u1, 30)   # +0.5ч → 120 мин у u1
+    _wl = _db_p3.get_team_workload()
+    _wl_by = {r["user_id"]: r for r in _wl}
+    assert _u1 in _wl_by, "u1 должен быть в загрузке (есть назначенные задачи)"
+    _r1 = _wl_by[_u1]
+    assert _r1["active_count"] == 2, f"u1 active_count ожидался 2, получено {_r1['active_count']}"
+    assert abs(_r1["estimate_hours"] - 6.0) < 0.01, \
+        f"u1 estimate_hours ожидался 6.0 (4+2), получено {_r1['estimate_hours']}"
+    assert _r1["logged_minutes"] == 120, \
+        f"u1 logged_minutes ожидался 120, получено {_r1['logged_minutes']}"
+    # завершить одну задачу u1 → active_count падает, estimate активных тоже
+    assert _db_p3.update_task_status(_t_out, 'done'), "update_task_status failed"
+    _wl2 = {r["user_id"]: r for r in _db_p3.get_team_workload()}
+    assert _wl2[_u1]["active_count"] == 1, \
+        f"после done active_count ожидался 1, получено {_wl2[_u1]['active_count']}"
+    assert abs(_wl2[_u1]["estimate_hours"] - 4.0) < 0.01, \
+        f"после done estimate активных ожидался 4.0, получено {_wl2[_u1]['estimate_hours']}"
+
+    # (3) get_all_task_dependencies — рёбра орга
+    assert _db_p3.add_task_blocker(_t_cal, _t_nodl), "add_task_blocker failed"
+    _edges = _db_p3.get_all_task_dependencies()
+    assert (_t_cal, _t_nodl) in _edges, \
+        f"ребро ({_t_cal},{_t_nodl}) должно быть в зависимостях, получено {_edges}"
+
+    # (4) get_tasks priority-фильтр (drill-down)
+    _hi = _db_p3.get_tasks(is_admin=True, priority='high')
+    _hi_ids = {t["id"] for t in _hi}
+    assert _t_cal in _hi_ids, "high-задача должна попасть в priority-фильтр"
+    assert _t_nodl not in _hi_ids, "normal-задача не должна попасть в priority=high"
+
+    # (5) TZ-граница: дедлайн у границы месяца в UTC не теряется при расширенном
+    # окне (логика роута: окно ±1 день + бакетинг по локальной дате)
+    from datetime import timedelta as _td_p3
+    from timezone_utils import get_user_time as _gut_p3
+    _boundary = _today.replace(day=_last)  # последний день месяца
+    _bnd_str = _boundary.strftime("%Y-%m-%d") + " 23:30:00"
+    _t_edge = _db_p3.create_task("Граница TZ", created_by=_u1, assigned_to=_u1,
+                                 deadline=_bnd_str)
+    _wf = (_today.replace(day=1) - _td_p3(days=1)).strftime("%Y-%m-%d")
+    _wt = (_boundary + _td_p3(days=1)).strftime("%Y-%m-%d")
+    _edge_rows = _db_p3.get_tasks_for_calendar(_wf, _wt, is_admin=True)
+    assert _t_edge in {r["id"] for r in _edge_rows}, \
+        "граничная задача должна попасть в расширенное ±1д окно"
+    # UTC 23:30 в Europe/Moscow (UTC+3) → следующий локальный день
+    _loc = _gut_p3(_bnd_str, "Europe/Moscow")
+    assert _loc is not None and _loc.date() > _boundary, \
+        "UTC 23:30 в Europe/Moscow должен сдвинуться на следующий день (TZ-бакетинг)"
+
+    _os_p3.unlink(_tmp_p3)
+    _fn_ok("Tasks Phase 3: calendar-диапазон + workload(estimate/logged/active) + deps + priority-фильтр")
+except Exception as _e:
+    _fn_fail("Tasks Phase 3 aggregations", _e)
+
+# ── Phase 3 (#61): новые шаблоны компилируются ───────────────────────────────
+try:
+    from jinja2 import Environment as _Env_p3, FileSystemLoader as _FSL_p3, \
+        select_autoescape as _sae_p3
+    _env_p3 = _Env_p3(loader=_FSL_p3('web/templates'),
+                      autoescape=_sae_p3(['html']))
+    for _tpl_p3 in ('tasks/calendar.html', 'tasks/gantt.html',
+                    'tasks/workload.html', 'tasks/kanban.html'):
+        _env_p3.get_template(_tpl_p3)
+    _fn_ok("Tasks Phase 3: шаблоны calendar/gantt/workload/kanban компилируются")
+except Exception as _e:
+    _fn_fail("Tasks Phase 3 templates compile", _e)
+
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")
 print("=" * 55)

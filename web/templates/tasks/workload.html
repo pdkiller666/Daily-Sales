@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Задачи — Загрузка команды{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/tasks" class="text-slate-500 dark:text-slate-400 hover:text-indigo-600 text-xs">Задачи</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm dark:text-slate-200">Загрузка</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+  <div class="shrink-0">
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Загрузка команды</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Задачи и трудозатраты по сотрудникам</p>
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <a href="/tasks" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-slate-800 transition-colors" title="Список">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+      Список
+    </a>
+    <a href="/tasks/analytics" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-slate-800 transition-colors" title="Аналитика">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6m4 6V5m4 14v-9M5 19h14"/></svg>
+      Аналитика
+    </a>
+  </div>
+</div>
+
+{% if error %}
+<div class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
+  ⚠️ {{ error }}
+</div>
+{% endif %}
+
+{% if not rows %}
+<div class="text-center py-16 text-slate-400 dark:text-slate-600 text-sm">Нет данных о загрузке команды</div>
+{% else %}
+
+<!-- Chart -->
+<div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-5">
+  <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Активные задачи и трудозатраты</h2>
+  <div class="relative" style="height: {{ (rows | length) * 42 + 60 }}px; min-height: 180px;">
+    <canvas id="chartWorkload"></canvas>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-slate-200 dark:border-slate-700 text-left text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          <th class="px-4 py-3 font-semibold">Сотрудник</th>
+          <th class="px-4 py-3 font-semibold text-center">Активные</th>
+          <th class="px-4 py-3 font-semibold text-center">Просрочено</th>
+          <th class="px-4 py-3 font-semibold text-center">Всего</th>
+          <th class="px-4 py-3 font-semibold text-center">Оценка, ч</th>
+          <th class="px-4 py-3 font-semibold text-center">Затрачено, ч</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+          <td class="px-4 py-3 font-medium text-slate-700 dark:text-slate-200">{{ r.name }}</td>
+          <td class="px-4 py-3 text-center">
+            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-full text-xs font-bold
+              {% if r.active_count and max_active and r.active_count >= (max_active * 0.75) %}bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300
+              {% elif r.active_count %}bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300
+              {% else %}bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500{% endif %}">
+              {{ r.active_count or 0 }}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-center">
+            {% if r.overdue_count %}
+            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300">⚠️ {{ r.overdue_count }}</span>
+            {% else %}
+            <span class="text-slate-300 dark:text-slate-600">—</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-center text-slate-500 dark:text-slate-400">{{ r.total_count or 0 }}</td>
+          <td class="px-4 py-3 text-center text-slate-500 dark:text-slate-400">{{ '%g' | format(r.estimate_hours or 0) }}</td>
+          <td class="px-4 py-3 text-center text-slate-500 dark:text-slate-400">{{ '%g' | format(r.logged_hours or 0) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<script src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>
+<script nonce="{{ csp_nonce(request) }}">
+(function() {
+  const el = document.getElementById('chartWorkload');
+  if (!el) return;
+  const dark = document.documentElement.classList.contains('dark');
+  const textColor = dark ? '#94a3b8' : '#64748b';
+  const gridColor = dark ? 'rgba(148,163,184,0.1)' : 'rgba(100,116,139,0.1)';
+  Chart.defaults.color = textColor;
+  Chart.defaults.borderColor = gridColor;
+
+  const labels = {{ rows | map(attribute='name') | list | tojson }};
+  const active = {{ rows | map(attribute='active_count') | list | tojson }};
+  const estimate = {{ rows | map(attribute='estimate_hours') | list | tojson }};
+  const logged = {{ rows | map(attribute='logged_hours') | list | tojson }};
+
+  new Chart(el, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Активные задачи', data: active, backgroundColor: '#6366f1', borderRadius: 6, borderSkipped: false },
+        { label: 'Оценка, ч', data: estimate, backgroundColor: '#f59e0b', borderRadius: 6, borderSkipped: false },
+        { label: 'Затрачено, ч', data: logged, backgroundColor: '#10b981', borderRadius: 6, borderSkipped: false }
+      ]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { boxWidth: 12, padding: 10, font: { size: 11 } } } },
+      scales: { x: { beginAtZero: true }, y: { grid: { display: false } } }
+    }
+  });
+
+  const obs = new MutationObserver(() => {
+    const isDark = document.documentElement.classList.contains('dark');
+    Chart.defaults.color = isDark ? '#94a3b8' : '#64748b';
+    Chart.defaults.borderColor = isDark ? 'rgba(148,163,184,0.1)' : 'rgba(100,116,139,0.1)';
+  });
+  obs.observe(document.documentElement, { attributeFilter: ['class'] });
+})();
+</script>
+{% endblock %}

@@ -296,7 +296,7 @@ def _is_overdue(deadline: str | None, status: str) -> bool:
 def tasks_list(request: Request, status: str = "", topic_id: int = 0,
                assigned_filter: int = 0, shop_filter: str = "", msg: str = "",
                q: str = "", page: int = 1, sort: str = "", group: str = "",
-               view_id: int = 0):
+               view_id: int = 0, priority: str = ""):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
     import math as _math
@@ -354,6 +354,7 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
             topic_id=topic_id or None,
             assigned_to=assigned_filter if assigned_filter else None,
             shop_filter=shop_filter or None,
+            priority=priority or None,
             is_admin=is_admin,
             my_user_id=my_db_id,
             my_shop=my_shop or None,
@@ -377,6 +378,7 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
 
         _parts = []
         if status: _parts.append(f"status={_urlparse.quote(status)}")
+        if priority: _parts.append(f"priority={_urlparse.quote(priority)}")
         if topic_id: _parts.append(f"topic_id={topic_id}")
         if assigned_filter: _parts.append(f"assigned_filter={assigned_filter}")
         if shop_filter: _parts.append(f"shop_filter={_urlparse.quote(shop_filter)}")
@@ -1522,7 +1524,8 @@ async def tasks_new_post(
 
 @router.get("/tasks/kanban")
 def tasks_kanban(request: Request, topic_id: int = 0, shop_filter: str = "",
-                 assigned_filter: int = 0):
+                 assigned_filter: int = 0, group_by: str = "none",
+                 wip_in_progress: int = 5, wip_review: int = 5):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -1538,12 +1541,22 @@ def tasks_kanban(request: Request, topic_id: int = 0, shop_filter: str = "",
     if not _has_module(telegram_id, 'tasks_pro'):
         return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
 
+    if group_by not in ("none", "assignee", "priority"):
+        group_by = "none"
+
+    # WIP-лимиты применяются только к рабочим колонкам
+    wip_limits = {
+        "in_progress": max(0, wip_in_progress),
+        "review": max(0, wip_review),
+    }
+
     ctx = {
         "request": request, "user": user, "is_admin": is_admin,
-        "columns": [],
+        "columns": [], "swimlanes": [],
         "topics": [], "staff_list": [], "shops_list": [],
         "topic_filter": topic_id, "shop_filter": shop_filter,
         "assigned_filter": assigned_filter,
+        "group_by": group_by, "wip_limits": wip_limits,
         "status_labels": STATUS_LABELS, "status_css": STATUS_CSS,
         "priority_labels": PRIORITY_LABELS, "priority_css": PRIORITY_CSS,
         "topic_colors": TOPIC_COLORS,
@@ -1585,16 +1598,57 @@ def tasks_kanban(request: Request, topic_id: int = 0, shop_filter: str = "",
         col_names = {'new': 'Новые', 'in_progress': 'В работе',
                      'review': 'На проверке', 'done': 'Выполнены',
                      'cancelled': 'Отменены'}
-        by_status = {s: [] for s in col_order}
-        for t in all_tasks:
-            s = t.get('status', 'new')
-            if s in by_status:
-                by_status[s].append(t)
-        ctx["columns"] = [
-            {"key": s, "icon": col_icons[s], "name": col_names[s],
-             "tasks": by_status[s]}
-            for s in col_order
-        ]
+
+        def _build_columns(tasks):
+            by_status = {s: [] for s in col_order}
+            for t in tasks:
+                s = t.get('status', 'new')
+                if s in by_status:
+                    by_status[s].append(t)
+            cols = []
+            for s in col_order:
+                lim = wip_limits.get(s)
+                cnt = len(by_status[s])
+                cols.append({
+                    "key": s, "icon": col_icons[s], "name": col_names[s],
+                    "tasks": by_status[s], "count": cnt,
+                    "wip": lim, "over_wip": (lim is not None and lim > 0 and cnt > lim),
+                })
+            return cols
+
+        # Плоская доска (без swimlane)
+        ctx["columns"] = _build_columns(all_tasks)
+
+        # Swimlane-группировка
+        if group_by == "assignee":
+            groups: dict = {}
+            order: list = []
+            for t in all_tasks:
+                name = t.get('assigned_name') or '— Не назначено'
+                key = t.get('assigned_to') or 0
+                if key not in groups:
+                    groups[key] = {"label": name, "tasks": []}
+                    order.append(key)
+                groups[key]["tasks"].append(t)
+            ctx["swimlanes"] = [
+                {"label": groups[k]["label"], "columns": _build_columns(groups[k]["tasks"])}
+                for k in order
+            ]
+        elif group_by == "priority":
+            prio_order = ['urgent', 'high', 'normal', 'medium', 'low']
+            present = [p for p in prio_order if any(
+                (t.get('priority') or 'normal') == p for t in all_tasks)]
+            extra = sorted({(t.get('priority') or 'normal') for t in all_tasks}
+                           - set(prio_order))
+            for p in extra:
+                present.append(p)
+            for p in present:
+                lane_tasks = [t for t in all_tasks
+                              if (t.get('priority') or 'normal') == p]
+                ctx["swimlanes"].append({
+                    "label": PRIORITY_LABELS.get(p, p),
+                    "columns": _build_columns(lane_tasks),
+                })
     except Exception as e:
         logger.error("tasks_kanban: %s", e)
         ctx["error"] = "Ошибка загрузки канбан-доски."
@@ -2340,10 +2394,10 @@ def tasks_analytics(request: Request):
     ctx = {
         "request": request, "user": user, "is_admin": is_admin,
         "stats": {}, "error": None,
-        "chart_status": "{}",
-        "chart_topics_labels": [], "chart_topics_data": "[]",
-        "chart_assignee_labels": [], "chart_assignee_data": "[]",
-        "chart_priority_labels": "[]", "chart_priority_data": "[]",
+        "chart_status": "{}", "chart_status_keys": "[]",
+        "chart_topics_labels": [], "chart_topics_data": "[]", "chart_topics_ids": "[]",
+        "chart_assignee_labels": [], "chart_assignee_data": "[]", "chart_assignee_ids": "[]",
+        "chart_priority_labels": "[]", "chart_priority_data": "[]", "chart_priority_keys": "[]",
         "chart_trend_labels": "[]",
         "chart_created_data": "[]", "chart_completed_data": "[]",
     }
@@ -2359,23 +2413,28 @@ def tasks_analytics(request: Request):
             'new': 'Новые', 'in_progress': 'В работе',
             'review': 'На проверке', 'done': 'Выполнены', 'cancelled': 'Отменены'
         }
+        _by_status = stats.get('by_status', {})
         ctx["chart_status"] = _json.dumps(
-            {STATUS_RU.get(k, k): v for k, v in stats.get('by_status', {}).items()}
+            {STATUS_RU.get(k, k): v for k, v in _by_status.items()}
         )
+        ctx["chart_status_keys"] = _json.dumps(list(_by_status.keys()))
 
         by_topic = stats.get('by_topic', [])
         ctx["chart_topics_labels"] = [r[0] for r in by_topic]
         ctx["chart_topics_data"] = _json.dumps([r[1] for r in by_topic])
+        ctx["chart_topics_ids"] = _json.dumps([(r[2] if len(r) > 2 else 0) for r in by_topic])
 
         by_assignee = stats.get('by_assignee', [])
         ctx["chart_assignee_labels"] = [r[0] for r in by_assignee]
         ctx["chart_assignee_data"] = _json.dumps([r[1] for r in by_assignee])
+        ctx["chart_assignee_ids"] = _json.dumps([(r[2] if len(r) > 2 else 0) for r in by_assignee])
 
         PRIORITY_RU = {'urgent': '🔴 Критичный', 'high': '🟠 Высокий',
                        'medium': '🔵 Средний', 'low': '🟢 Низкий'}
         by_priority = stats.get('by_priority', [])
         ctx["chart_priority_labels"] = _json.dumps([PRIORITY_RU.get(r[0], r[0]) for r in by_priority])
         ctx["chart_priority_data"] = _json.dumps([r[1] for r in by_priority])
+        ctx["chart_priority_keys"] = _json.dumps([r[0] for r in by_priority])
 
         # Trend: merge created + completed, fill gaps for last 30 days
         from datetime import date, timedelta
@@ -2392,6 +2451,242 @@ def tasks_analytics(request: Request):
 
     return request.app.state.templates.TemplateResponse(
         request, "tasks/analytics.html", ctx
+    )
+
+
+# ─── CALENDAR ────────────────────────────────────────────────────────────────
+
+@router.get("/tasks/calendar")
+def tasks_calendar(request: Request, year: int = 0, month: int = 0):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    from timezone_utils import get_user_time as _gut, DEFAULT_TZ as _DTZ
+    import calendar as _cal
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
+
+    ctx = {
+        "request": request, "user": user, "is_admin": is_admin,
+        "status_labels": STATUS_LABELS, "status_css": STATUS_CSS,
+        "priority_labels": PRIORITY_LABELS, "priority_css": PRIORITY_CSS,
+        "topic_colors": TOPIC_COLORS,
+        "weeks": [], "year": 0, "month": 0, "month_name": "",
+        "prev_url": "", "next_url": "", "today_iso": "",
+        "weekday_names": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
+        "fmt_deadline": _fmt_deadline, "is_overdue": _is_overdue,
+        "error": None,
+    }
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id, shop_name, timezone FROM users WHERE telegram_id = ?",
+                (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        my_shop = (my_row[1] or "") if my_row else ""
+        _tz = (my_row[2] or _DTZ) if my_row else _DTZ
+
+        now_local = _gut(datetime.utcnow(), _tz) or datetime.utcnow()
+        if not year or not month or month < 1 or month > 12:
+            year, month = now_local.year, now_local.month
+
+        from datetime import timedelta as _td
+        cal = _cal.Calendar(firstweekday=0)  # 0 = Monday
+        grid = cal.monthdatescalendar(year, month)
+        grid_start = grid[0][0]
+        grid_end = grid[-1][-1]
+        # Fetch in UTC по дате; расширяем окно на ±1 день, т.к. перевод deadline
+        # в локальную TZ может сдвинуть задачу на соседний день у границ грида.
+        date_from = (grid_start - _td(days=1)).isoformat()
+        date_to = (grid_end + _td(days=1)).isoformat()
+
+        tasks = db.get_tasks_for_calendar(
+            date_from, date_to, is_admin=is_admin,
+            my_user_id=my_db_id, my_shop=my_shop or None,
+        )
+
+        buckets: dict = {}
+        for t in tasks:
+            dl = t.get("deadline")
+            if not dl:
+                continue
+            s = str(dl)
+            if len(s) >= 13 and (("T" in s) or (" " in s[10:])):
+                loc = _gut(s, _tz)
+                key = loc.date().isoformat() if loc else s[:10]
+            else:
+                key = s[:10]
+            buckets.setdefault(key, []).append(t)
+
+        today_iso = now_local.date().isoformat()
+        weeks = []
+        for week in grid:
+            row = []
+            for d in week:
+                iso = d.isoformat()
+                row.append({
+                    "day": d.day, "iso": iso,
+                    "in_month": (d.month == month),
+                    "is_today": (iso == today_iso),
+                    "tasks": buckets.get(iso, []),
+                })
+            weeks.append(row)
+
+        _MONTHS_RU = ['', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                      'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
+        pm, py = (12, year - 1) if month == 1 else (month - 1, year)
+        nm, ny = (1, year + 1) if month == 12 else (month + 1, year)
+        ctx.update({
+            "weeks": weeks, "year": year, "month": month,
+            "month_name": _MONTHS_RU[month],
+            "prev_url": f"/tasks/calendar?year={py}&month={pm}",
+            "next_url": f"/tasks/calendar?year={ny}&month={nm}",
+            "today_iso": today_iso,
+        })
+    except Exception as e:
+        logger.error("tasks_calendar: %s", e)
+        ctx["error"] = "Ошибка загрузки календаря."
+
+    return request.app.state.templates.TemplateResponse(
+        request, "tasks/calendar.html", ctx
+    )
+
+
+# ─── GANTT / TIMELINE ────────────────────────────────────────────────────────
+
+@router.get("/tasks/gantt")
+def tasks_gantt(request: Request):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    import json as _json
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
+
+    ctx = {
+        "request": request, "user": user, "is_admin": is_admin,
+        "tasks_json": "[]", "deps_json": "[]", "has_data": False,
+        "error": None,
+    }
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        my_shop = (my_row[1] or "") if my_row else ""
+
+        tasks = db.get_tasks(
+            is_admin=is_admin, my_user_id=my_db_id, my_shop=my_shop or None,
+        )
+
+        items = []
+        ids_present = set()
+        for t in tasks:
+            dl = t.get("deadline")
+            if not dl:
+                continue  # Гант строится по дедлайну (конец отрезка)
+            end_key = str(dl)[:10]
+            start_raw = t.get("created_at") or dl
+            start_key = str(start_raw)[:10]
+            if start_key > end_key:
+                start_key = end_key
+            items.append({
+                "id": t["id"], "title": t["title"],
+                "start": start_key, "end": end_key,
+                "status": t.get("status", "new"),
+                "priority": t.get("priority", "normal"),
+                "is_blocked": bool(t.get("is_blocked")),
+                "assigned_name": t.get("assigned_name", ""),
+            })
+            ids_present.add(t["id"])
+
+        deps = [
+            {"blocker": b, "blocked": bd}
+            for (b, bd) in db.get_all_task_dependencies()
+            if b in ids_present and bd in ids_present
+        ]
+        ctx["tasks_json"] = _json.dumps(items, ensure_ascii=False)
+        ctx["deps_json"] = _json.dumps(deps, ensure_ascii=False)
+        ctx["has_data"] = bool(items)
+    except Exception as e:
+        logger.error("tasks_gantt: %s", e)
+        ctx["error"] = "Ошибка загрузки таймлайна."
+
+    return request.app.state.templates.TemplateResponse(
+        request, "tasks/gantt.html", ctx
+    )
+
+
+# ─── WORKLOAD ────────────────────────────────────────────────────────────────
+
+@router.get("/tasks/workload")
+def tasks_workload(request: Request):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
+    if not is_admin:
+        return RedirectResponse(url="/tasks?msg=forbidden", status_code=302)
+
+    ctx = {
+        "request": request, "user": user, "is_admin": is_admin,
+        "rows": [], "max_estimate": 0, "max_active": 0, "error": None,
+    }
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        rows = db.get_team_workload()
+        for r in rows:
+            r["logged_hours"] = round((r.get("logged_minutes") or 0) / 60.0, 1)
+        ctx["rows"] = rows
+        ctx["max_estimate"] = max([(r["estimate_hours"] or 0) for r in rows] + [0])
+        ctx["max_active"] = max([(r["active_count"] or 0) for r in rows] + [0])
+    except Exception as e:
+        logger.error("tasks_workload: %s", e)
+        ctx["error"] = "Ошибка загрузки данных о загрузке команды."
+
+    return request.app.state.templates.TemplateResponse(
+        request, "tasks/workload.html", ctx
     )
 
 
