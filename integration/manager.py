@@ -98,6 +98,9 @@ class IntegrationManager:
                 except Exception:
                     pass
                 raise ValueError(str(revoked_exc)) from revoked_exc
+            except Exception as exc:
+                logger.error(f"OAuth token refresh failed for conn {conn_id}: {exc}")
+                return conn_config
 
             tokens.update(new_tokens)
             updated_config = dict(conn_config)

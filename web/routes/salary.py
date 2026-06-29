@@ -210,6 +210,11 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         "is_current_month": (year == today.year and month == today.month),
     }
 
+    if ctx["is_future"]:
+        return request.app.state.templates.TemplateResponse(
+            request, "salary/earnings.html", ctx
+        )
+
     try:
         db = get_web_db(telegram_id, org_db)
         try:

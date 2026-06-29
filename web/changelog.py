@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.303.0"
+CURRENT_VERSION = "1.304.0"
 
 ENTRIES = [
+    {
+        "version": "1.304.0",
+        "date": "29 июня 2026",
+        "items": [
+            "security: audit phase 1 — fix str(e) leaks, col_mapping bounds, salary rate cap",
+        ],
+    },
     {
         "version": "1.303.0",
         "date": "29 июня 2026",

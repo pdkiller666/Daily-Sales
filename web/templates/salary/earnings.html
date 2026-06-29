@@ -46,6 +46,16 @@
     </a>
 </div>
 
+{% if is_future %}
+<div class="mb-5 flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-200">
+    <span class="shrink-0 text-lg">📅</span>
+    <div>
+        <p class="font-semibold">Данные за этот месяц недоступны</p>
+        <p class="mt-0.5 text-blue-700 dark:text-blue-300">Просмотр зарплаты за будущие месяцы недоступен — вернитесь в {{ month_name }} {{ year }}.</p>
+    </div>
+</div>
+{% else %}
+
 <!-- Summary cards -->
 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
     <div class="card p-4">
@@ -350,6 +360,8 @@
         </div>
     </div>
 </div>
+
+{% endif %}
 
 {% endblock %}
 {% block footer_info %}{{ month_name }} {{ year }}{% endblock %}
