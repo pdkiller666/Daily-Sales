@@ -1045,7 +1045,7 @@ def salary_rate_set(
         rate = float(daily_rate.replace(",", ".").strip())
         if rate < 0:
             raise ValueError("Ставка не может быть отрицательной")
-    except (ValueError, AttributeError) as exc:
+    except ValueError as exc:
         from urllib.parse import quote as _q
         return RedirectResponse(url=f"/salary?error={_q(str(exc))}", status_code=303)
 

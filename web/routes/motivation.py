@@ -329,7 +329,7 @@ def motivation_set(
             raise ValueError("Ставка должна быть больше 0")
         if motivation_type == "percentage" and val > 100:
             raise ValueError("Процент не может превышать 100")
-    except (ValueError, AttributeError) as exc:
+    except ValueError as exc:
         from urllib.parse import quote as _q
         return RedirectResponse(url=f"/motivation?error={_q(str(exc))}", status_code=303)
 
@@ -446,7 +446,7 @@ def motivation_set_category(
             raise ValueError("Ставка должна быть больше 0")
         if motivation_type == "percentage" and val > 100:
             raise ValueError("Процент не может превышать 100")
-    except (ValueError, AttributeError) as exc:
+    except ValueError as exc:
         from urllib.parse import quote as _q
         return RedirectResponse(url=f"/motivation?error={_q(str(exc))}&category={_q(category_name)}", status_code=303)
 

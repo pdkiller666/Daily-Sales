@@ -537,7 +537,7 @@ def integration_motiv_cache(request: Request, cid: int):
         return JSONResponse({"ok": True, "items": items, "total": len(items)})
     except Exception as e:
         logging.error(f"integration_motiv_cache: {e}")
-        return JSONResponse({"ok": False, "error": str(e)})
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка. Попробуйте позже."})
 
 
 @router.post("/integration/{cid}/sync-motiv")
@@ -652,6 +652,11 @@ async def integration_import(
                 parsed_col_mapping = None
             else:
                 parsed_col_mapping = {k: int(v) for k, v in parsed_col_mapping.items()}
+                if any(v < 0 for v in parsed_col_mapping.values()):
+                    return RedirectResponse(
+                        url="/integration?error=" + quote("Индекс колонки не может быть отрицательным"),
+                        status_code=302,
+                    )
         except Exception:
             parsed_col_mapping = None
 
@@ -758,7 +763,7 @@ async def integration_sheet_rows(request: Request, cid: int, sheet: str = "", ma
         return JSONResponse({"ok": True, "rows": rows_list})
     except Exception as e:
         logging.error(f"integration_sheet_rows: {e}")
-        return JSONResponse({"ok": False, "error": str(e)})
+        return JSONResponse({"ok": False, "error": "Не удалось загрузить строки листа. Попробуйте позже."})
 
 
 @router.get("/integration/{cid}/sheet-headers")
@@ -793,7 +798,7 @@ async def integration_sheet_headers(request: Request, cid: int, sheet: str = "",
         return JSONResponse({"ok": True, "headers": data.get("headers", []), "row_count": len(data.get("rows", []))})
     except Exception as e:
         logging.error(f"integration_sheet_headers: {e}")
-        return JSONResponse({"ok": False, "error": str(e)})
+        return JSONResponse({"ok": False, "error": "Не удалось загрузить заголовки листа. Попробуйте позже."})
 
 
 @router.get("/integration/{cid}/test")
@@ -1252,7 +1257,7 @@ async def integration_export_sync_week(
         })
     except Exception as e:
         logging.error(f"integration_export_sync_week: {e}")
-        return JSONResponse({"ok": False, "error": str(e)})
+        return JSONResponse({"ok": False, "error": "Ошибка синхронизации. Попробуйте позже."})
 
 
 # ─────────────────────────────────────────────────────────────────────────────

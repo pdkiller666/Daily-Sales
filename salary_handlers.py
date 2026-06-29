@@ -319,15 +319,16 @@ async def salary_rate_enter(message: Message, state: FSMContext):
         await clear_state_keep_org(state)
         return
     raw = message.text.strip().replace(",", ".").replace("₽", "").replace(" ", "")
+    _MAX_SALARY_RATE = 10_000_000
     try:
         rate = float(raw)
-        if rate < 0:
+        if rate < 0 or rate > _MAX_SALARY_RATE:
             raise ValueError()
     except ValueError:
         builder = InlineKeyboardBuilder()
         builder.add(back_button("slr_rates"))
         await fsm_edit(state, message,
-                       "❌ Введите корректное число, например: 1500 или 2000.50",
+                       f"❌ Введите корректное число от 0 до {_MAX_SALARY_RATE:,} ₽, например: 1500 или 2000.50".replace(",", " "),
                        reply_markup=builder.as_markup())
         return
     current_db = await get_db(uid, state)

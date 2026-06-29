@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.302.0"
+CURRENT_VERSION = "1.303.0"
 
 ENTRIES = [
+    {
+        "version": "1.303.0",
+        "date": "29 июня 2026",
+        "items": [
+            "Correctly replace cell data during weekly synchronization",
+        ],
+    },
     {
         "version": "1.302.0",
         "date": "28 июня 2026",
