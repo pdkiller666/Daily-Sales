@@ -8,6 +8,8 @@
 {% endblock %}
 
 {% block content %}
+{% import 'tasks/_macros.html' as tm %}
+{% set task_avatar = tm.task_avatar %}
 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
   <div class="shrink-0">
     <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Задачи</h1>
@@ -63,6 +65,12 @@
        class="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950 hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors">
       🏷 Темы
     </a>
+    {% if tasks_pro %}
+    <a href="/tasks/automation"
+       class="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950 hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors">
+      ⚙️ Автоматизация
+    </a>
+    {% endif %}
     <a href="/tasks/new"
        class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -75,11 +83,17 @@
 </div>
 
 {% set msg_map = {
-  'deleted':      '✅ Задача удалена.',
-  'not_found':    '⚠️ Задача не найдена.',
-  'csrf_error':   '⚠️ Ошибка безопасности. Попробуйте снова.',
-  'error':        '⚠️ Произошла ошибка.',
-  'pro_required': '🔒 Эта функция доступна в модуле «Задачи Pro» (249 ₽/мес). Обратитесь к владельцу организации.',
+  'deleted':        '✅ Задача удалена.',
+  'not_found':      '⚠️ Задача не найдена.',
+  'csrf_error':     '⚠️ Ошибка безопасности. Попробуйте снова.',
+  'error':          '⚠️ Произошла ошибка.',
+  'pro_required':   '🔒 Эта функция доступна в модуле «Задачи Pro» (249 ₽/мес). Обратитесь к владельцу организации.',
+  'created_1':      '✅ Задача создана.',
+  'view_saved':     '✅ Вид сохранён.',
+  'view_deleted':   '✅ Вид удалён.',
+  'blocker_added':  '✅ Блокировка добавлена.',
+  'blocker_removed':'✅ Блокировка снята.',
+  'forbidden':      '⚠️ Нет доступа.',
 } %}
 {% if msg and msg.startswith('bulk_ok_') %}
 <div class="mb-4 flex items-start gap-2 p-3 rounded-xl text-sm border bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300">
@@ -98,6 +112,60 @@
 </div>
 {% endif %}
 
+<!-- Saved views tabs -->
+{% if saved_views %}
+<div class="flex flex-wrap gap-1.5 mb-3 items-center">
+  <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mr-1">Виды:</span>
+  {% for v in saved_views %}
+  {% set vf = v.filters %}
+  <a href="/tasks?{% if vf.get('status') %}status={{ vf.status | urlencode }}&{% endif %}{% if vf.get('topic_id') %}topic_id={{ vf.topic_id }}&{% endif %}{% if vf.get('assigned_filter') %}assigned_filter={{ vf.assigned_filter }}&{% endif %}{% if vf.get('shop_filter') %}shop_filter={{ vf.shop_filter | urlencode }}&{% endif %}{% if vf.get('q') %}q={{ vf.q | urlencode }}&{% endif %}{% if vf.get('sort') %}sort={{ vf.sort | urlencode }}&{% endif %}{% if vf.get('group') %}group={{ vf.group | urlencode }}&{% endif %}view_id={{ v.id }}"
+     class="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border transition-colors
+            {{ 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950 dark:border-indigo-700 dark:text-indigo-300' if active_view_id == v.id else 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600' }}">
+    📌 {{ v.name | e }}
+  </a>
+  <form method="POST" action="/tasks/views/{{ v.id }}/delete" class="inline -ml-1">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" data-confirm="Удалить вид «{{ v.name | e }}»?" title="Удалить вид"
+            class="w-5 h-5 inline-flex items-center justify-center text-slate-300 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 transition-colors text-base leading-none">×</button>
+  </form>
+  {% endfor %}
+  <button type="button" data-action="showSaveView"
+          class="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-colors">
+    + Сохранить вид
+  </button>
+</div>
+{% else %}
+<div class="mb-3 flex justify-end">
+  <button type="button" data-action="showSaveView"
+          class="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-colors">
+    📌 Сохранить фильтры как вид
+  </button>
+</div>
+{% endif %}
+
+<!-- Save view dialog -->
+<div id="save-view-dialog" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+  <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
+    <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-3">Сохранить вид фильтров</h3>
+    <form method="POST" action="/tasks/views/save">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="status" value="{{ status_filter }}">
+      <input type="hidden" name="topic_id" value="{{ topic_filter or '' }}">
+      <input type="hidden" name="assigned_filter" value="{{ assigned_filter or '' }}">
+      <input type="hidden" name="shop_filter" value="{{ shop_filter or '' }}">
+      <input type="hidden" name="q" value="{{ q or '' }}">
+      <input type="hidden" name="sort" value="{{ sort or '' }}">
+      <input type="hidden" name="group" value="{{ group or '' }}">
+      <input type="text" name="view_name" placeholder="Название вида…" required maxlength="80" autofocus
+             class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-3">
+      <div class="flex gap-2 justify-end">
+        <button type="button" data-action="closeSaveView" class="px-3 py-1.5 text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">Отмена</button>
+        <button type="submit" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Search -->
 <form method="get" action="/tasks" class="mb-3">
   {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
@@ -110,6 +178,9 @@
     </svg>
     <input type="search" name="q" value="{{ q | e }}"
            placeholder="Поиск по названию или описанию…"
+           hx-get="/tasks" hx-target="#task-list-region" hx-swap="innerHTML"
+           hx-trigger="keyup changed delay:400ms, search"
+           hx-push-url="true" hx-include="closest form"
            class="w-full pl-9 pr-9 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400">
     {% if q %}
     <a href="/tasks?{% if status_filter %}status={{ status_filter }}&{% endif %}{% if topic_filter %}topic_id={{ topic_filter }}&{% endif %}{% if assigned_filter %}assigned_filter={{ assigned_filter }}&{% endif %}{% if shop_filter %}shop_filter={{ shop_filter | urlencode }}&{% endif %}"
@@ -123,12 +194,36 @@
   <!-- Status filter -->
   {% set statuses = [('', 'Все'), ('new', '🆕 Новые'), ('in_progress', '🔄 В работе'), ('review', '🔍 На проверке'), ('done', '✅ Выполнены'), ('cancelled', '🚫 Отменены')] %}
   {% for sv, sl in statuses %}
-  <a href="/tasks?status={{ sv }}{% if topic_filter %}&topic_id={{ topic_filter }}{% endif %}{% if assigned_filter %}&assigned_filter={{ assigned_filter }}{% endif %}{% if q %}&q={{ q | urlencode }}{% endif %}"
+  {% set _st_url = "/tasks?status=" ~ sv ~ ("&topic_id=" ~ topic_filter if topic_filter else "") ~ ("&assigned_filter=" ~ assigned_filter if assigned_filter else "") ~ ("&q=" ~ (q | urlencode) if q else "") %}
+  <a href="{{ _st_url }}"
+     hx-get="{{ _st_url }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
      class="px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors
             {{ 'bg-indigo-600 text-white border-indigo-600' if status_filter == sv else 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400' }}">
     {{ sl }}
   </a>
   {% endfor %}
+</div>
+
+<!-- Sort & group controls -->
+<div class="flex flex-wrap gap-1.5 mb-4 items-center">
+  <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mr-1">Сортировка:</span>
+  {% set sort_opts = [('', 'Авто'), ('deadline', '📅 Дедлайн'), ('priority', '🔥 Приоритет'), ('created', '🕐 Дата'), ('title', 'A-я Название')] %}
+  {% for sv, sl in sort_opts %}
+  {% set _so_url = "/tasks?" ~ ("status=" ~ status_filter ~ "&" if status_filter else "") ~ ("topic_id=" ~ topic_filter ~ "&" if topic_filter else "") ~ ("assigned_filter=" ~ assigned_filter ~ "&" if assigned_filter else "") ~ ("q=" ~ (q | urlencode) ~ "&" if q else "") ~ ("group=" ~ group ~ "&" if group else "") ~ ("sort=" ~ sv ~ "&" if sv else "") ~ "page=1" %}
+  <a href="{{ _so_url }}"
+     hx-get="{{ _so_url }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
+     class="px-2.5 py-1 text-xs rounded-lg border transition-colors
+            {{ 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-800 dark:border-slate-200' if sort == sv else 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
+    {{ sl }}
+  </a>
+  {% endfor %}
+  {% if q or status_filter or topic_filter or assigned_filter or shop_filter or sort or group %}
+  <a href="/tasks"
+     hx-get="/tasks" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
+     class="ml-1 px-2.5 py-1 text-xs rounded-lg border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 bg-white dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950 transition-colors" title="Сбросить все фильтры">
+    ✕ Сбросить всё
+  </a>
+  {% endif %}
 </div>
 
 <div class="flex flex-col lg:flex-row gap-5">
@@ -237,156 +332,55 @@
     </form>
     {% endif %}
 
-    {% if tasks %}
-    <div class="space-y-3">
-      {% for t in tasks %}
-      {% set overdue = is_overdue(t.get('deadline'), t.get('status', '')) %}
-      <div class="card p-4 hover:shadow-md dark:bg-slate-900 transition-shadow group relative"
-           :class="selected.has({{ t.id }}) ? 'ring-2 ring-indigo-500' : ''">
-        <div class="flex items-start gap-3">
-          {% if is_admin and tasks_pro %}
-          <input type="checkbox" :checked="selected.has({{ t.id }})"
-                 @click.stop="toggleSelect({{ t.id }})"
-                 class="mt-1 w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
-          {% endif %}
-          <!-- Priority dot -->
-          <div class="mt-1 w-2 h-2 rounded-full shrink-0
-            {% if t.priority == 'urgent' %}bg-red-500
-            {% elif t.priority == 'high' %}bg-amber-500
-            {% elif t.priority == 'low' %}bg-emerald-500
-            {% else %}bg-blue-400{% endif %}"></div>
-
-          <a href="/tasks/{{ t.id }}" class="flex-1 min-w-0 block">
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 truncate">
-                {{ t.title }}
-              </span>
-              <!-- Status badge -->
-              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border
-                {{ status_css.get(t.status, 'bg-slate-100 text-slate-600 border-slate-300') }}">
-                {{ status_labels.get(t.status, t.status) }}
-              </span>
-              {% if overdue %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-200">
-                ⚠️ Просрочена
-              </span>
-              {% endif %}
-            </div>
-
-            <div class="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-              {% if t.get('topic_name') %}
-              <span class="flex items-center gap-1">
-                <span class="w-1.5 h-1.5 rounded-full
-                  {% if t.topic_color == 'green' %}bg-emerald-500
-                  {% elif t.topic_color == 'amber' %}bg-amber-500
-                  {% elif t.topic_color == 'red' %}bg-red-500
-                  {% elif t.topic_color == 'purple' %}bg-purple-500
-                  {% else %}bg-blue-400{% endif %}"></span>
-                {{ t.topic_name }}
-              </span>
-              {% endif %}
-              {% if t.get('assign_all') %}
-              <span>👥 Вся команда</span>
-              {% elif t.get('assigned_shop') %}
-              <span>🏪 {{ t.assigned_shop }}</span>
-              {% elif t.get('assigned_name') %}
-              <span>👤 {{ t.assigned_name }}</span>
-              {% endif %}
-              {% if t.get('deadline') %}
-              <span class="{{ 'text-red-500 font-medium' if overdue else '' }}">
-                📅 {{ fmt_deadline(t.deadline) }}
-              </span>
-              {% endif %}
-              {% if t.get('checklist_total', 0) > 0 %}
-              <span>✓ {{ t.checklist_done }}/{{ t.checklist_total }}</span>
-              {% endif %}
-            </div>
-          </a>
-
-          {% if is_admin and t.status == 'done' %}
-          <div class="shrink-0 self-center"
-               x-data="inlineRating({{ t.id }}, {{ t.get('rating') or 0 }}, '{{ csrf_token }}')"
-               @click.stop>
-            <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                 :class="rated ? 'opacity-100' : ''"
-                 title="Оценить задачу">
-              <template x-for="s in [1,2,3,4,5]" :key="s">
-                <button type="button"
-                        @click="submitRating(s)"
-                        @mouseenter="hovered = s"
-                        @mouseleave="hovered = 0"
-                        :disabled="saving"
-                        class="text-base leading-none focus:outline-none disabled:opacity-50 transition-colors"
-                        :class="(hovered || current) >= s ? 'text-amber-400' : 'text-slate-300 dark:text-slate-600'">★</button>
-              </template>
-              <span x-show="saved" x-transition class="ml-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">✓</span>
-              <span x-show="err" x-transition class="ml-1 text-[10px] text-red-500 font-medium" x-text="err"></span>
-            </div>
-          </div>
-          {% endif %}
-
-          <svg class="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0 mt-0.5 group-hover:text-indigo-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-          </svg>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="card p-12 text-center dark:bg-slate-900">
-      <div class="text-4xl mb-3">📋</div>
-      <p class="text-slate-500 dark:text-slate-400 text-sm">
-        {% if q %}
-        По запросу «{{ q | e }}» задач не найдено.
-        <a href="/tasks?{% if status_filter %}status={{ status_filter }}{% endif %}" class="text-indigo-600 hover:underline ml-1">Сбросить поиск</a>
-      {% elif status_filter or topic_filter or assigned_filter %}
-        Задач по выбранным фильтрам нет.
-        <a href="/tasks" class="text-indigo-600 hover:underline ml-1">Сбросить фильтры</a>
-        {% elif is_admin %}
-        Задач ещё нет. <a href="/tasks/new" class="text-indigo-600 hover:underline">Создайте первую задачу</a>
-        {% else %}
-        Задач нет. Как только вам назначат задачу — она появится здесь.
+    <!-- Quick-add form -->
+    {% if is_admin %}
+    <form method="POST" action="/tasks/quick-add" class="mb-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {% if topic_filter %}
+      <input type="hidden" name="topic_id" value="{{ topic_filter }}">
+      {% endif %}
+      <div class="flex items-center gap-2">
+        <input type="text" name="title" placeholder="+ Быстро добавить задачу…" maxlength="200"
+               class="flex-1 px-3 py-2 text-sm rounded-xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-solid transition-colors">
+        {% if topics and not topic_filter %}
+        <select name="topic_id"
+                class="px-2 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="">Без темы</option>
+          {% for tp in topics %}
+          <option value="{{ tp.id }}">{{ tp.name }}</option>
+          {% endfor %}
+        </select>
         {% endif %}
-      </p>
-    </div>
+        <select name="priority"
+                class="px-2 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="normal">Обычная</option>
+          <option value="high">🔥 Высокая</option>
+          <option value="urgent">🚨 Срочная</option>
+          <option value="low">🟢 Низкая</option>
+        </select>
+        <button type="submit" class="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors shrink-0">
+          + Добавить
+        </button>
+      </div>
+    </form>
     {% endif %}
 
-    <!-- Pagination -->
-    {% if total_pages > 1 %}
-    <div class="mt-5 flex items-center justify-center gap-2 flex-wrap">
-      {% if page > 1 %}
-      <a href="{{ pagination_base }}{{ page - 1 }}"
-         class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-        ← Назад
-      </a>
-      {% else %}
-      <span class="px-3 py-1.5 text-sm rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-300 dark:text-slate-600 cursor-default">
-        ← Назад
-      </span>
-      {% endif %}
-
-      <span class="text-xs text-slate-500 dark:text-slate-400 px-2">
-        Стр. {{ page }} из {{ total_pages }} &middot; {{ total_tasks }} задач
-      </span>
-
-      {% if page < total_pages %}
-      <a href="{{ pagination_base }}{{ page + 1 }}"
-         class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-        Вперёд →
-      </a>
-      {% else %}
-      <span class="px-3 py-1.5 text-sm rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-300 dark:text-slate-600 cursor-default">
-        Вперёд →
-      </span>
-      {% endif %}
+    <div id="task-list-region">
+    {% include 'tasks/_list_fragment.html' %}
     </div>
-    {% endif %}
   </div>
 
 </div>
 
 {% block extra_js %}
 <script nonce="{{ csp_nonce(request) }}">
+// ── HTMX live filters: re-init Alpine on the swapped list region ──────────────
+document.body.addEventListener('htmx:afterSwap', function (e) {
+  if (e.target && e.target.id === 'task-list-region' && window.Alpine && Alpine.initTree) {
+    try { Alpine.initTree(e.target); } catch (_) {}
+  }
+});
+
 function bulkTasks() {
   return {
     selected: new Set(),
@@ -458,6 +452,89 @@ function inlineRating(taskId, initialRating, csrfToken) {
     }
   };
 }
+
+// ── Save-view dialog ────────────────────────────────────────────────────────
+const _CSRF_INDEX = {{ csrf_token | tojson | forceescape }};
+
+window.showSaveView = function() {
+  const dlg = document.getElementById('save-view-dialog');
+  if (!dlg) return;
+  dlg.classList.remove('hidden');
+  setTimeout(() => {
+    const inp = dlg.querySelector('input[name="view_name"]');
+    if (inp) inp.focus();
+  }, 50);
+};
+
+window.closeSaveView = function() {
+  const dlg = document.getElementById('save-view-dialog');
+  if (dlg) dlg.classList.add('hidden');
+};
+
+document.addEventListener('click', function(e) {
+  const dlg = document.getElementById('save-view-dialog');
+  if (dlg && !dlg.classList.contains('hidden') && e.target === dlg) closeSaveView();
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    const dlg = document.getElementById('save-view-dialog');
+    if (dlg && !dlg.classList.contains('hidden')) closeSaveView();
+  }
+});
+
+// ── Inline title editing (dblclick) ────────────────────────────────────────
+document.addEventListener('dblclick', function(e) {
+  const el = e.target.closest('[data-inline-title]');
+  if (!el) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const taskId = el.dataset.inlineTitle;
+  const oldText = el.textContent.trim();
+  const savedClass = el.className;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = oldText;
+  input.maxLength = 200;
+  input.className = 'text-sm font-semibold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-indigo-400 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 min-w-[120px] w-full';
+  el.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let submitted = false;
+
+  function restoreSpan(text) {
+    const sp = document.createElement('span');
+    sp.className = savedClass;
+    sp.dataset.inlineTitle = taskId;
+    sp.title = 'Двойной клик для редактирования';
+    sp.textContent = text;
+    input.replaceWith(sp);
+  }
+
+  async function submitEdit() {
+    if (submitted) return;
+    submitted = true;
+    const newVal = input.value.trim();
+    if (!newVal || newVal === oldText) { restoreSpan(oldText); return; }
+    try {
+      const fd = new FormData();
+      fd.append('csrf_token', _CSRF_INDEX);
+      fd.append('field', 'title');
+      fd.append('value', newVal);
+      const resp = await fetch('/tasks/' + taskId + '/inline-edit', { method: 'POST', body: fd });
+      const data = await resp.json();
+      restoreSpan(data.ok ? (data.value || newVal) : oldText);
+    } catch (_) { restoreSpan(oldText); }
+  }
+
+  input.addEventListener('blur', submitEdit);
+  input.addEventListener('keydown', function(ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); submitEdit(); }
+    if (ev.key === 'Escape') { submitted = true; restoreSpan(oldText); }
+  });
+});
 </script>
 {% endblock %}
 {% endblock %}

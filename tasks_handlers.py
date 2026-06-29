@@ -620,6 +620,15 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
+        try:
+            from task_automation import run_rules as _run_rules
+            _ev_task = dict(task)
+            _ev_task['_old_status'] = task.get('status', '')
+            _ev_task['status'] = new_status
+            _run_rules(db, 'status_changed', _ev_task, my_db_id)
+        except Exception as _are:
+            logger.warning("task status automation: %s", _are)
+
         if new_status in ('done', 'review') and (assign_all or assigned_shop):
             try:
                 db.record_task_user_completion(task_id, my_db_id, new_status)
@@ -1632,6 +1641,17 @@ async def tsk_c_ok(callback: CallbackQuery, state: FSMContext):
     except Exception as _ne:
         logger.warning("tsk_c_ok notify: %s", _ne)
 
+    # Automation rules: task created / assigned
+    try:
+        from task_automation import run_rules as _run_rules
+        _new_task = db.get_task(task_id) if task_id else None
+        if _new_task:
+            _run_rules(db, 'task_created', dict(_new_task), created_by)
+            if _new_task.get('assigned_to') or _new_task.get('assigned_shop') or _new_task.get('assign_all'):
+                _run_rules(db, 'task_assigned', dict(_new_task), created_by)
+    except Exception as _are:
+        logger.warning("tsk_c_ok automation: %s", _are)
+
     await clear_state_keep_org(state)
     await callback.answer("✅ Задача создана!")
     await callback.message.edit_text(
@@ -1809,12 +1829,20 @@ async def tsk_ai_ok(callback: CallbackQuery, state: FSMContext):
             conn.close()
         my_db_id = my_row[0] if my_row else 0
 
-        db.create_task(
+        task_id = db.create_task(
             title=title,
             description=description,
             created_by=my_db_id,
             priority=priority,
         )
+        # Automation rules: task created
+        try:
+            from task_automation import run_rules as _run_rules
+            _new_task = db.get_task(task_id) if task_id else None
+            if _new_task:
+                _run_rules(db, 'task_created', dict(_new_task), my_db_id)
+        except Exception as _are:
+            logger.warning("tsk_ai_ok automation: %s", _are)
         await clear_state_keep_org(state)
         await callback.answer("✅ Задача создана!")
         await callback.message.edit_text(

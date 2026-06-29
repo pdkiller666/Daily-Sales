@@ -34,6 +34,7 @@
 - [Competitive analysis](../COMPETITIVE_ANALYSIS.md) — DailySales vs МойСклад/RetailCRM/Bitrix24/Poster/1С; USP: Telegram-native, цена, зарплатная прозрачность; слабые места: ОФД, штрихкоды, API, SQLite-потолок
 - [Session workflow rules](session-workflow.md) — после каждой большой сессии: аудит+тест → обновить md → deploy.sh; каждые 5 деплоев: актуализация кода по трём репо (local/GitHub/Amvera)
 - [Tasks module architecture](tasks-module.md) — 4 таблицы в org_*.db; sidebar counter via open_tasks_count(request) global; APScheduler job check_task_deadlines (9:10); bot router tasks_router; Disallow /tasks в robots.txt
+- [Tasks Phase 1 PM foundation](tasks-pm-phase1.md) — subtasks (parent_task_id ALTER+create_task param), task_dependencies (add/remove_task_blocker), task_saved_views; get_subtask_progress returns (done,total) NOT (total,done); inline-edit dblclick via nonce-JS; quick-add POST /tasks/quick-add
 - [Tasks bot handler API rules](tasks-bot-api-rules.md) — get_db(tg_id, state) НЕ get_db(state); is_any_admin(tg_id) SYNC НЕ await; fsm_edit(state, msg, text, kb) — state ПЕРВЫЙ аргумент; tg_id извлекать ДО вызова get_db
 - [Web analytics features](web-analytics.md) — dark mode Chart.js (MutationObserver), drill-down, ABC, heatmap, turnover/dead-stock/seller-card reports; DB cols: inventory_turnover[0-8], dead_stock[0-7], seller_card_* methods
 - [Proposed improvements backlog](proposed-improvements.md) — 14 улучшений: безопасность (CSRF/TOCTOU/secrets), продукт (ABC, тренд, bulk), UX (inline-edit, history), инфра (тесты, кэш)
@@ -94,3 +95,4 @@
 - [Chat voice messages player](chat-voice-messages.md) — кастомный <voice-msg> заменил нативный <audio>; чинит webm Infinity-duration (currentTime=1e101); button НЕ наследует color → нужен color:inherit
 - [CSP nonce + JWT revocation](csp-nonce-jwt-revocation.md) — strict nonce-CSP (без unsafe-inline) ВКЛ; все inline on* убраны → делегирование в ds-delegate.js (click/submit/change/input) + per-page listener для drag/dblclick; новый inline on* молча ломает CSP
 - [Chat swipe hint dismissal](chat-swipe-hint.md) — in-place свайп-хинт прятать на СМЕНЕ состояния через display:none + стабильный id, не opacity на touchend
+- [Task automation & SLA engine](task-automation-sla.md) — run_rules идемпотентен (fire_key для time-events, claim_task_escalation атомарен, notify дедуп по tg_id); КАЖДЫЙ create/status путь (web+bot) обязан звать run_rules иначе хук молча мёртв

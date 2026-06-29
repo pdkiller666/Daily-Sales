@@ -97,6 +97,14 @@
         class="card p-6 dark:bg-slate-900 space-y-5"
         x-data="taskFormData()">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% if prefill_parent_task_id %}<input type="hidden" name="parent_task_id" value="{{ prefill_parent_task_id }}">{% endif %}
+
+    {% if prefill_parent_task %}
+    <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-700 dark:text-indigo-300">
+      <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      Подзадача для: <a href="/tasks/{{ prefill_parent_task.id }}" class="font-medium hover:underline ml-1">{{ prefill_parent_task.title }}</a>
+    </div>
+    {% endif %}
 
     <!-- Title -->
     <div>

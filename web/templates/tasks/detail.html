@@ -40,6 +40,9 @@
   'unwatched':       '👁 Подписка отменена.',
   'time_logged':     '⏱ Время записано.',
   'bad_time':        '⚠️ Укажите корректное время.',
+  'blocker_added':   '✅ Блокировка добавлена.',
+  'blocker_removed': '✅ Блокировка снята.',
+  'forbidden':       '⚠️ Нет доступа.',
 } %}
 {% if msg and msg in msg_map %}
 <div x-data="{ show: true }"
@@ -133,6 +136,21 @@
         {% endif %}
       </div>
 
+      {% if parent_task %}
+      <a href="/tasks/{{ parent_task.id }}"
+         class="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 mb-3 transition-colors">
+        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+        Родитель: {{ parent_task.title }}
+      </a>
+      {% endif %}
+      {% if task.get('is_blocked') %}
+      <div class="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 text-xs text-orange-700 dark:text-orange-300">
+        ⛔ Эта задача заблокирована — сначала выполните блокирующие задачи
+      </div>
+      {% endif %}
+
       {% if task.get('description') %}
       <div class="text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 rounded-lg p-3 whitespace-pre-wrap leading-relaxed">{{ task.description }}</div>
       {% endif %}
@@ -189,6 +207,53 @@
     </div>
     {% endif %}
 
+    <!-- Subtasks -->
+    {% if subtasks or is_admin %}
+    <div class="card p-5 dark:bg-slate-900">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Подзадачи{% if subtask_progress[1] > 0 %} <span class="text-slate-400 font-normal">({{ subtask_progress[0] }}/{{ subtask_progress[1] }})</span>{% endif %}
+        </h2>
+        {% if is_admin %}
+        <a href="/tasks/new?parent_id={{ task.id }}"
+           class="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200 transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Добавить подзадачу
+        </a>
+        {% endif %}
+      </div>
+      {% if subtask_progress[1] > 0 %}
+      <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 mb-3">
+        <div class="bg-indigo-500 h-1.5 rounded-full transition-all"
+             style="width: {{ (subtask_progress[0] / subtask_progress[1] * 100)|int }}%"></div>
+      </div>
+      {% endif %}
+      {% if subtasks %}
+      <div class="space-y-1">
+        {% for st in subtasks %}
+        <a href="/tasks/{{ st.id }}"
+           class="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors group">
+          <span class="w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0
+            {{ 'bg-emerald-500 border-emerald-500' if st.status == 'done' else 'border-slate-300 dark:border-slate-600' }}">
+            {% if st.status == 'done' %}<svg class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>{% endif %}
+          </span>
+          <span class="flex-1 text-sm text-slate-700 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 truncate
+            {{ 'line-through text-slate-400 dark:text-slate-500' if st.status == 'done' else '' }}">{{ st.title }}</span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full border shrink-0
+            {{ status_css.get(st.status, 'bg-slate-100 text-slate-600 border-slate-300') }}">{{ status_labels.get(st.status, st.status) }}</span>
+          {% if st.get('priority') and st.priority != 'normal' %}
+          <span class="w-1.5 h-1.5 rounded-full shrink-0
+            {% if st.priority == 'urgent' %}bg-red-500{% elif st.priority == 'high' %}bg-amber-500{% else %}bg-emerald-400{% endif %}"></span>
+          {% endif %}
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-sm text-slate-400 dark:text-slate-500 text-center py-3">Подзадач нет</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <!-- Attachments -->
     {% set can_upload = is_admin or (task.assigned_to == my_db_id) or task.get('assign_all') or (task.get('assigned_shop') and task.assigned_shop == my_shop) %}
     <div class="card p-5 dark:bg-slate-900">
@@ -234,6 +299,66 @@
       </form>
       {% endif %}
     </div>
+
+    <!-- Blockers / Blocking -->
+    {% if task_blockers or task_blocking or is_admin %}
+    <div class="card p-5 dark:bg-slate-900">
+      <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Зависимости</h2>
+
+      <!-- This task is blocked by ... -->
+      <div class="mb-4">
+        <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Блокируется задачами</p>
+        {% if task_blockers %}
+        <div class="space-y-1">
+          {% for bl in task_blockers %}
+          <div class="flex items-center gap-2 p-2 rounded-lg bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800">
+            <span class="text-orange-500 shrink-0 text-sm">⛔</span>
+            <a href="/tasks/{{ bl.id }}" class="flex-1 text-sm text-orange-700 dark:text-orange-300 hover:underline truncate">{{ bl.title }}</a>
+            <span class="text-[10px] text-orange-500 shrink-0">{{ status_labels.get(bl.status, bl.status) }}</span>
+            {% if is_admin %}
+            <form method="POST" action="/tasks/{{ task.id }}/remove-blocker" class="shrink-0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="blocker_id" value="{{ bl.id }}">
+              <button type="submit" title="Снять блокировку"
+                      class="text-slate-400 hover:text-red-500 transition-colors text-base leading-none">×</button>
+            </form>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-xs text-slate-400 dark:text-slate-500">Нет — задача не заблокирована</p>
+        {% endif %}
+        {% if is_admin %}
+        <form method="POST" action="/tasks/{{ task.id }}/add-blocker" class="flex gap-2 mt-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="number" name="blocker_id" placeholder="ID задачи-блокера…" min="1"
+                 class="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-400">
+          <button type="submit"
+                  class="px-3 py-1.5 bg-orange-100 hover:bg-orange-200 dark:bg-orange-950 dark:hover:bg-orange-900 text-orange-700 dark:text-orange-300 text-xs font-medium rounded-lg transition-colors">
+            + Добавить блокер
+          </button>
+        </form>
+        {% endif %}
+      </div>
+
+      <!-- This task is blocking ... -->
+      {% if task_blocking %}
+      <div>
+        <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Блокирует задачи</p>
+        <div class="space-y-1">
+          {% for bl in task_blocking %}
+          <div class="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            <span class="text-slate-400 shrink-0 text-sm">🔗</span>
+            <a href="/tasks/{{ bl.id }}" class="flex-1 text-sm text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline truncate">{{ bl.title }}</a>
+            <span class="text-[10px] text-slate-400 shrink-0">{{ status_labels.get(bl.status, bl.status) }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
 
     <!-- Comments -->
     <div class="card p-5 dark:bg-slate-900">

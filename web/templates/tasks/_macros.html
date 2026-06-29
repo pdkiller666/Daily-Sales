@@ -1,0 +1,6 @@
+{% macro task_avatar(name, cls='w-5 h-5 text-[10px]') %}
+{% set _c = {'А':'bg-indigo-500','Б':'bg-indigo-500','В':'bg-violet-500','Г':'bg-violet-500','Д':'bg-emerald-500','Е':'bg-emerald-500','Ж':'bg-amber-500','З':'bg-amber-500','И':'bg-rose-500','К':'bg-rose-500','Л':'bg-sky-500','М':'bg-sky-500','Н':'bg-fuchsia-500','О':'bg-fuchsia-500','П':'bg-teal-500','Р':'bg-teal-500','С':'bg-indigo-500','Т':'bg-indigo-500','У':'bg-violet-500','Ф':'bg-violet-500','Х':'bg-emerald-500','Ц':'bg-emerald-500','Ч':'bg-amber-500','Ш':'bg-amber-500','Щ':'bg-rose-500','Ю':'bg-sky-500','Я':'bg-fuchsia-500','A':'bg-indigo-500','B':'bg-indigo-600','C':'bg-violet-500','D':'bg-violet-600','E':'bg-emerald-500','F':'bg-emerald-600','G':'bg-amber-500','H':'bg-amber-600','I':'bg-rose-500','J':'bg-rose-600','K':'bg-sky-500','L':'bg-sky-600','M':'bg-fuchsia-500','N':'bg-fuchsia-600','O':'bg-teal-500','P':'bg-teal-600','Q':'bg-indigo-500','R':'bg-indigo-600','S':'bg-violet-500','T':'bg-violet-600','U':'bg-emerald-500','V':'bg-emerald-600','W':'bg-amber-500','X':'bg-amber-600','Y':'bg-rose-500','Z':'bg-rose-600'} %}
+{% set _ch = (name or '?')[0] | upper %}
+{% set _bg = _c.get(_ch, 'bg-slate-500') %}
+<span class="{{ cls }} rounded-full {{ _bg }} text-white font-bold inline-flex items-center justify-center shrink-0" title="{{ name | e }}">{{ _ch }}</span>
+{% endmacro %}

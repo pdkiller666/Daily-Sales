@@ -1011,6 +1011,176 @@ try:
 except Exception as _e:
     _fn_fail("Schedule Index", _e)
 
+# V. Tasks: subtasks hierarchy + blockers + saved views
+try:
+    import tempfile as _tf_tasks, os as _os_tasks, time as _tm_tasks
+    from database import Database as _DbTasks
+    _tmp_tk = _os_tasks.path.join(_tf_tasks.gettempdir(), f'tasks_test_{_tm_tasks.time()}.db')
+    _db_tk = _DbTasks(_tmp_tk)
+    _db_tk.create_tables()
+    # Check new tables created
+    _conn_tk = _db_tk.get_connection()
+    _tables_tk = {r[0] for r in _conn_tk.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    assert 'tasks' in _tables_tk, "tasks table missing"
+    assert 'task_dependencies' in _tables_tk, "task_dependencies table missing"
+    assert 'task_saved_views' in _tables_tk, "task_saved_views table missing"
+    # Check parent_task_id column on tasks
+    _cols_tk = {r[1] for r in _conn_tk.execute("PRAGMA table_info(tasks)").fetchall()}
+    assert 'parent_task_id' in _cols_tk, f"parent_task_id missing from tasks; cols={_cols_tk}"
+    _conn_tk.close()
+    # Create parent + child tasks
+    _parent_id = _db_tk.create_task("Родительская задача", created_by=1)
+    assert _parent_id, "create parent task failed"
+    _child_id = _db_tk.create_task("Подзадача", created_by=1, parent_task_id=_parent_id)
+    assert _child_id, "create child task failed"
+    # get_subtasks
+    _subs = _db_tk.get_subtasks(_parent_id)
+    assert len(_subs) == 1 and _subs[0]['id'] == _child_id, f"get_subtasks: ожидался 1 элемент, получено {_subs}"
+    # get_subtask_progress
+    _prog = _db_tk.get_subtask_progress(_parent_id)
+    assert isinstance(_prog, (tuple, list)) and len(_prog) == 2, f"get_subtask_progress bad shape: {_prog}"
+    assert _prog[1] == 1, f"total subtasks ожидалось 1, получено {_prog[1]}"
+    # Blockers
+    _task_a = _db_tk.create_task("Задача A", created_by=1)
+    _task_b = _db_tk.create_task("Задача B", created_by=1)
+    # add_task_blocker(blocker_id, blocked_id): A(blocker) blocks B(blocked)
+    _ok = _db_tk.add_task_blocker(_task_a, _task_b)
+    assert _ok, "add_task_blocker failed"
+    _blockers = _db_tk.get_task_blockers(_task_b)  # что блокирует B?
+    assert len(_blockers) == 1 and _blockers[0]['id'] == _task_a, f"get_task_blockers: {_blockers}"
+    _blocking = _db_tk.get_task_blocking(_task_a)  # что блокирует A?
+    assert len(_blocking) == 1 and _blocking[0]['id'] == _task_b, f"get_task_blocking: {_blocking}"
+    _ok_rm = _db_tk.remove_task_blocker(_task_a, _task_b)
+    assert _ok_rm, "remove_task_blocker failed"
+    assert _db_tk.get_task_blockers(_task_b) == [], "blockers должен быть пустым после удаления"
+    # Saved views
+    _vid = _db_tk.create_task_saved_view(user_id=1, name="Мой вид", filters_json='{"status":"open"}')
+    assert _vid, "create_task_saved_view failed"
+    _views = _db_tk.get_task_saved_views(user_id=1)
+    assert len(_views) == 1 and _views[0]['name'] == "Мой вид", f"get_task_saved_views: {_views}"
+    _ok_del = _db_tk.delete_task_saved_view(_vid, user_id=1)
+    assert _ok_del, "delete_task_saved_view failed"
+    assert _db_tk.get_task_saved_views(user_id=1) == [], "views пустой после удаления"
+    _os_tasks.unlink(_tmp_tk)
+    _fn_ok("Tasks: subtasks hierarchy + blockers + saved views")
+except Exception as _e:
+    _fn_fail("Tasks: subtasks/blockers/saved-views", _e)
+
+# ── Phase 2 (#60): automation rules + SLA — идемпотентность, без двойных уведомлений
+try:
+    import tempfile, os as _os_au, json as _json_au
+    import task_automation as _ta
+
+    _tmp_au = tempfile.mktemp(suffix='_automation.db')
+    _db_au = Database(_tmp_au)
+    _db_au.create_tables()
+
+    # схема Фазы 2
+    _conn_au = _db_au.get_connection()
+    _tbls_au = {r[0] for r in _conn_au.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    assert 'task_automation_rules' in _tbls_au, "task_automation_rules missing"
+    assert 'task_rule_firings' in _tbls_au, "task_rule_firings missing"
+    assert 'task_sla_policies' in _tbls_au, "task_sla_policies missing"
+    _tcols_au = {r[1] for r in _conn_au.execute("PRAGMA table_info(tasks)").fetchall()}
+    assert 'sla_status' in _tcols_au and 'sla_escalated' in _tcols_au, \
+        f"tasks SLA columns missing: {_tcols_au}"
+    _conn_au.close()
+
+    # перехват исходящих уведомлений (не дёргаем сеть, считаем вызовы)
+    _tg_calls = []
+    _push_calls = []
+    _orig_tg, _orig_push = _ta._tg_send, _ta._push_send
+    _ta._tg_send = lambda tg, txt: _tg_calls.append(tg)
+    _ta._push_send = lambda tg, t, b: _push_calls.append(tg)
+    try:
+        # (1) record_rule_firing идемпотентен: True один раз, потом False
+        _rid_au = _db_au.create_automation_rule(
+            name="Дедлайн прошёл → уведомить",
+            event="deadline_passed",
+            conditions_json='{}',
+            actions_json=_json_au.dumps([{"type": "notify", "target": "creator",
+                                          "text": "Срок истёк"}]),
+        )
+        assert _rid_au, "create_automation_rule вернул 0"
+        _fk = f"{_rid_au}:1:deadline_passed"
+        assert _db_au.record_rule_firing(_rid_au, 1, _fk) is True, \
+            "первое срабатывание должно вернуть True"
+        assert _db_au.record_rule_firing(_rid_au, 1, _fk) is False, \
+            "повторное срабатывание (тот же fire_key) должно вернуть False"
+
+        # (2) run_rules для time-based события идемпотентен по rule+task+event
+        _creator_au = _db_au.add_user(telegram_id=70001, first_name="Создатель", last_name="Тест")
+        _cid_au = _db_au.get_user(70001)[0]
+        _task_au = {"id": 555, "title": "Просроченная", "status": "in_progress",
+                    "priority": "high", "created_by": _cid_au, "assigned_to": None,
+                    "topic_id": 1}
+        _f1 = _ta.run_rules(_db_au, "deadline_passed", dict(_task_au))
+        _f2 = _ta.run_rules(_db_au, "deadline_passed", dict(_task_au))
+        assert _f1 == 1, f"первый прогон должен сработать 1 раз, получено {_f1}"
+        assert _f2 == 0, f"повторный прогон не должен срабатывать, получено {_f2}"
+        # ровно одно уведомление создателю (нет дублей)
+        assert _tg_calls.count(70001) == 1, \
+            f"создатель должен получить ровно 1 TG, получено {_tg_calls.count(70001)}"
+
+        # (3) notify_recipients дедуплицирует по tg_id
+        _tg_calls.clear(); _push_calls.clear()
+        _sent_au = _ta.notify_recipients(
+            _db_au,
+            [(_cid_au, 70001), (None, 70001), (_cid_au, 70001)],
+            "txt", "title", "body", "task_automation", "bell")
+        assert _sent_au == 1, f"дедуп по tg_id: ожидался 1 получатель, получено {_sent_au}"
+        assert _tg_calls == [70001], f"ровно один TG-вызов, получено {_tg_calls}"
+
+        # (4) SLA-эскалация атомарна: claim ровно один раз
+        _sla_tid = _db_au.create_task("SLA задача", created_by=_cid_au)
+        assert _db_au.claim_task_escalation(_sla_tid) is True, \
+            "первый claim эскалации должен вернуть True"
+        assert _db_au.claim_task_escalation(_sla_tid) is False, \
+            "повторный claim эскалации должен вернуть False"
+
+        # (5) compute_sla: ok < warning < breached от created_at
+        from datetime import datetime as _dt_au, timedelta as _td_au
+        _pol_au = _ta.policies_by_priority([
+            {"priority": "high", "react_hours": None, "resolve_hours": 10,
+             "is_active": True}])
+        _now_au = _dt_au(2026, 1, 1, 0, 0, 0)
+        def _mk(hrs):
+            return {"status": "in_progress", "priority": "high",
+                    "created_at": (_now_au - _td_au(hours=hrs)).strftime("%Y-%m-%d %H:%M:%S")}
+        assert _ta.compute_sla(_mk(1), _pol_au, _now_au) == "ok", "1ч из 10 → ok"
+        assert _ta.compute_sla(_mk(9), _pol_au, _now_au) == "warning", "9ч из 10 → warning"
+        assert _ta.compute_sla(_mk(11), _pol_au, _now_au) == "breached", "11ч из 10 → breached"
+        # завершённая задача — без SLA
+        _done_au = _mk(11); _done_au["status"] = "done"
+        assert _ta.compute_sla(_done_au, _pol_au, _now_au) == "none", "done → none"
+
+        # (6) sweep_sla_for_db: эскалация ровно один раз даже при повторных тиках
+        _conn_s = _db_au.get_connection()
+        _old_dl = (_dt_au.utcnow() - _td_au(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+        _old_cr = (_dt_au.utcnow() - _td_au(hours=50)).strftime("%Y-%m-%d %H:%M:%S")
+        _conn_s.execute(
+            "UPDATE tasks SET deadline=?, created_at=?, priority='high', "
+            "status='in_progress', sla_escalated=0, sla_status=NULL WHERE id=?",
+            (_old_dl, _old_cr, _sla_tid))
+        _conn_s.commit(); _conn_s.close()
+        # сбросить флаг эскалации, выставленный в шаге (4)
+        _conn_s2 = _db_au.get_connection()
+        _conn_s2.execute("UPDATE tasks SET sla_escalated=0 WHERE id=?", (_sla_tid,))
+        _conn_s2.commit(); _conn_s2.close()
+        _db_au.upsert_sla_policy("high", None, 10, 1)
+        _c1 = _ta.sweep_sla_for_db(_db_au)
+        _c2 = _ta.sweep_sla_for_db(_db_au)
+        assert _c1["escalated"] == 1, f"первый sweep должен эскалировать 1, получено {_c1}"
+        assert _c2["escalated"] == 0, f"повторный sweep не должен эскалировать, получено {_c2}"
+    finally:
+        _ta._tg_send, _ta._push_send = _orig_tg, _orig_push
+
+    _os_au.unlink(_tmp_au)
+    _fn_ok("Автоматизация/SLA: идемпотентность срабатываний+эскалаций, дедуп уведомлений")
+except Exception as _e:
+    _fn_fail("automation/SLA idempotency", _e)
+
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")
 print("=" * 55)

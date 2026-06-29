@@ -263,6 +263,8 @@ Disallow: /chat/dm
 Disallow: /ws/dm
 Disallow: /tasks
 Disallow: /tasks/attachment/
+Disallow: /tasks/views/
+Disallow: /tasks/automation
 Disallow: /ai-insights
 Disallow: /api/
 Disallow: /payment-proof/

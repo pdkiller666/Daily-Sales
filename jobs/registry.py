@@ -742,6 +742,37 @@ def register_inline_jobs(
         misfire_grace_time=60,
     )
 
+    # SLA-контроль задач + дедлайн-правила автоматизаций — каждый час
+    async def check_task_sla():
+        """Пересчёт SLA-статусов, авто-эскалация нарушителей руководителю и
+        срабатывание правил deadline_approaching/deadline_passed. Идемпотентно."""
+        try:
+            from database import Database
+            from task_automation import sweep_sla_for_db
+        except Exception as _imp:
+            logging.error("check_task_sla import: %s", _imp)
+            return
+        try:
+            _db_paths = _get_scheduler_db_paths()
+            for _db_path in _db_paths:
+                try:
+                    _db = Database(_db_path)
+                    # тяжёлый синхронный проход — не держим event loop
+                    await asyncio.to_thread(sweep_sla_for_db, _db, logging)
+                except Exception as _de:
+                    logging.error("check_task_sla db=%s: %s", _db_path, _de)
+        except Exception as _e:
+            logging.error("check_task_sla: %s", _e)
+
+    scheduler.add_job(
+        check_task_sla,
+        CronTrigger(minute=5),
+        id='check_task_sla',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=600,
+    )
+
     # AI инсайты сети — каждый понедельник в 09:00 UTC
     async def send_weekly_network_insights():
         """Для каждого владельца сети с ai_network_insights — отправить недельный дайджест."""

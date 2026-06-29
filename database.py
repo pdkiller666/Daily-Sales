@@ -1541,6 +1541,85 @@ class Database:
         except Exception:
             pass
 
+        # parent_task_id — subtask hierarchy (Phase 1)
+        try:
+            cursor.execute('ALTER TABLE tasks ADD COLUMN parent_task_id INTEGER DEFAULT NULL')
+        except Exception:
+            pass
+
+        # Task dependencies: blocker → blocked relationships (Phase 1)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_dependencies (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                blocker_id INTEGER NOT NULL,
+                blocked_id INTEGER NOT NULL,
+                created_at TEXT    DEFAULT (datetime('now')),
+                UNIQUE(blocker_id, blocked_id)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_td_blocker ON task_dependencies(blocker_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_td_blocked ON task_dependencies(blocked_id)')
+
+        # Saved views — named filter presets per user (Phase 1)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_saved_views (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER NOT NULL,
+                name         TEXT    NOT NULL,
+                filters_json TEXT    NOT NULL DEFAULT '{}',
+                created_at   TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_tsv_user ON task_saved_views(user_id)')
+
+        # ── Automation & SLA (Phase 2) ────────────────────────────────────────
+        # SLA status flag on tasks: NULL/'ok'/'warning'/'breached'
+        for _col, _def in [('sla_status',    "TEXT DEFAULT NULL"),
+                           ('sla_escalated', "INTEGER DEFAULT 0")]:
+            try:
+                cursor.execute(f'ALTER TABLE tasks ADD COLUMN {_col} {_def}')
+            except Exception as _exc:
+                logger.debug("create_tables: подавлено исключение: %s", _exc)
+
+        # Automation rules: event → conditions → actions (per-org)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_automation_rules (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT    NOT NULL,
+                event           TEXT    NOT NULL,
+                conditions_json TEXT    NOT NULL DEFAULT '{}',
+                actions_json    TEXT    NOT NULL DEFAULT '[]',
+                is_active       INTEGER NOT NULL DEFAULT 1,
+                created_by      INTEGER DEFAULT 0,
+                created_at      TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_tar_event ON task_automation_rules(event, is_active)')
+
+        # Rule firings: idempotency ledger for time-based rules + escalations
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_rule_firings (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_id    INTEGER NOT NULL,
+                task_id    INTEGER NOT NULL,
+                fire_key   TEXT    NOT NULL UNIQUE,
+                created_at TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_trf_task ON task_rule_firings(task_id)')
+
+        # SLA policies: react/resolve windows per priority (per-org)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_sla_policies (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                priority      TEXT    NOT NULL UNIQUE,
+                react_hours   REAL    DEFAULT NULL,
+                resolve_hours REAL    DEFAULT NULL,
+                is_active     INTEGER NOT NULL DEFAULT 1,
+                updated_at    TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
         # ── AI alerts log (per-org, история смарт-алертов и дайджестов) ─────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS ai_alerts_log (
@@ -14898,7 +14977,8 @@ class Database:
                     priority: str = 'normal', deadline: str | None = None,
                     linked_chat_topic_id: int | None = None,
                     checklist: list | None = None,
-                    recurrence: str | None = None) -> int:
+                    recurrence: str | None = None,
+                    parent_task_id: int | None = None) -> int:
         """Создать задачу. Возвращает task_id."""
         try:
             conn = self.get_connection()
@@ -14907,12 +14987,14 @@ class Database:
                 INSERT INTO tasks
                     (title, description, topic_id, created_by, assigned_to,
                      shop_id, assigned_shop, assign_all,
-                     priority, deadline, linked_chat_topic_id, recurrence)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     priority, deadline, linked_chat_topic_id, recurrence,
+                     parent_task_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (title, description, topic_id, created_by, assigned_to,
                  shop_id, assigned_shop, assign_all,
-                 priority, deadline, linked_chat_topic_id, recurrence)
+                 priority, deadline, linked_chat_topic_id, recurrence,
+                 parent_task_id)
             )
             task_id = cur.lastrowid
             if checklist:
@@ -14987,6 +15069,8 @@ class Database:
                   my_shop: str | None = None,
                   shop_filter: str | None = None,
                   q: str | None = None,
+                  sort: str | None = None,
+                  parent_only: bool = False,
                   limit: int | None = None, offset: int = 0) -> list:
         """Список задач с фильтрацией. Admin видит все, user — только свои."""
         try:
@@ -15022,7 +15106,24 @@ class Database:
                 where.append("(lower_u(t.title) LIKE lower_u(?) OR lower_u(t.description) LIKE lower_u(?))")
                 like = f"%{q}%"
                 params += [like, like]
+            if parent_only:
+                where.append("t.parent_task_id IS NULL")
             where_sql = " AND ".join(where)
+            # Sort order
+            _sort_map = {
+                'deadline':  "t.deadline ASC NULLS LAST, t.id DESC",
+                'priority':  "CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, t.id DESC",
+                'created':   "t.id DESC",
+                'title':     "t.title ASC",
+                'status':    "CASE t.status WHEN 'new' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'review' THEN 2 WHEN 'done' THEN 3 ELSE 4 END, t.id DESC",
+            }
+            order_sql = _sort_map.get(sort or '', (
+                "CASE t.status WHEN 'new' THEN 0 WHEN 'in_progress' THEN 1 "
+                "WHEN 'review' THEN 2 WHEN 'done' THEN 3 ELSE 4 END, "
+                "CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 "
+                "WHEN 'normal' THEN 2 ELSE 3 END, "
+                "t.deadline ASC NULLS LAST, t.id DESC"
+            ))
             limit_sql = ""
             if limit is not None:
                 limit_sql = "LIMIT ? OFFSET ?"
@@ -15038,18 +15139,15 @@ class Database:
                        t.assigned_shop, t.assign_all,
                        (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id) AS cl_total,
                        (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id AND cl.is_done = 1) AS cl_done,
-                       t.recurrence, t.rating
+                       t.recurrence, t.rating, t.parent_task_id,
+                       EXISTS(SELECT 1 FROM task_dependencies td WHERE td.blocked_id = t.id) AS is_blocked,
+                       t.sla_status
                 FROM tasks t
                 LEFT JOIN task_topics tt ON tt.id = t.topic_id
                 LEFT JOIN users ua ON ua.id = t.assigned_to
                 LEFT JOIN users uc ON uc.id = t.created_by
                 WHERE {where_sql}
-                ORDER BY
-                    CASE t.status WHEN 'new' THEN 0 WHEN 'in_progress' THEN 1
-                                  WHEN 'review' THEN 2 WHEN 'done' THEN 3 ELSE 4 END,
-                    CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
-                                    WHEN 'normal' THEN 2 ELSE 3 END,
-                    t.deadline ASC NULLS LAST, t.id DESC
+                ORDER BY {order_sql}
                 {limit_sql}
                 """,
                 params
@@ -15072,6 +15170,9 @@ class Database:
                     "checklist_total": r[23], "checklist_done": r[24],
                     "recurrence": r[25] or "none",
                     "rating": r[26],
+                    "parent_task_id": r[27],
+                    "is_blocked": bool(r[28]),
+                    "sla_status": r[29] or "none",
                 })
             return result
         except Exception as e:
@@ -15091,7 +15192,8 @@ class Database:
                        ua.first_name AS a_fn, ua.last_name AS a_ln, ua.username AS a_un,
                        uc.first_name AS c_fn, uc.last_name AS c_ln, uc.username AS c_un,
                        t.assigned_shop, t.assign_all, t.recurrence,
-                       t.rating, t.rating_comment, t.estimated_hours
+                       t.rating, t.rating_comment, t.estimated_hours,
+                       t.parent_task_id, t.sla_status, t.sla_escalated
                 FROM tasks t
                 LEFT JOIN task_topics tt ON tt.id = t.topic_id
                 LEFT JOIN users ua ON ua.id = t.assigned_to
@@ -15129,6 +15231,9 @@ class Database:
                 "recurrence": row[23] or "none",
                 "rating": row[24], "rating_comment": row[25] or "",
                 "estimated_hours": row[26],
+                "parent_task_id": row[27],
+                "sla_status": row[28] or "none",
+                "sla_escalated": int(row[29] or 0),
                 "checklist": checklist,
             }
         except Exception as e:
@@ -15228,6 +15333,235 @@ class Database:
             ]
         except Exception as e:
             logger.error("get_task_history: %s", e)
+            return []
+
+    # ── Automation rules (Phase 2) ───────────────────────────────────────────
+    def create_automation_rule(self, name: str, event: str,
+                               conditions_json: str = '{}',
+                               actions_json: str = '[]',
+                               is_active: int = 1,
+                               created_by: int = 0) -> int:
+        """Создать правило-автоматизацию. Возвращает rule_id (0 при ошибке)."""
+        try:
+            conn = self.get_connection()
+            try:
+                cur = conn.execute(
+                    "INSERT INTO task_automation_rules "
+                    "(name, event, conditions_json, actions_json, is_active, created_by) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (name.strip(), event, conditions_json, actions_json,
+                     1 if is_active else 0, created_by)
+                )
+                conn.commit()
+                return cur.lastrowid or 0
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("create_automation_rule: %s", e)
+            return 0
+
+    def update_automation_rule(self, rule_id: int, name: str, event: str,
+                               conditions_json: str, actions_json: str,
+                               is_active: int) -> bool:
+        try:
+            conn = self.get_connection()
+            try:
+                conn.execute(
+                    "UPDATE task_automation_rules SET name = ?, event = ?, "
+                    "conditions_json = ?, actions_json = ?, is_active = ? WHERE id = ?",
+                    (name.strip(), event, conditions_json, actions_json,
+                     1 if is_active else 0, rule_id)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            return True
+        except Exception as e:
+            logger.error("update_automation_rule: %s", e)
+            return False
+
+    def delete_automation_rule(self, rule_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            try:
+                conn.execute("DELETE FROM task_automation_rules WHERE id = ?", (rule_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            return True
+        except Exception as e:
+            logger.error("delete_automation_rule: %s", e)
+            return False
+
+    def get_automation_rules(self, only_active: bool = False) -> list:
+        """Все правила орга (для UI и движка)."""
+        try:
+            conn = self.get_connection()
+            try:
+                sql = ("SELECT id, name, event, conditions_json, actions_json, "
+                       "is_active, created_by, created_at FROM task_automation_rules")
+                if only_active:
+                    sql += " WHERE is_active = 1"
+                sql += " ORDER BY id DESC"
+                rows = conn.execute(sql).fetchall()
+            finally:
+                conn.close()
+            return [
+                {"id": r[0], "name": r[1], "event": r[2],
+                 "conditions_json": r[3] or '{}', "actions_json": r[4] or '[]',
+                 "is_active": bool(r[5]), "created_by": r[6], "created_at": r[7]}
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_automation_rules: %s", e)
+            return []
+
+    def get_active_rules_for_event(self, event: str) -> list:
+        """Активные правила для конкретного события (для движка)."""
+        try:
+            conn = self.get_connection()
+            try:
+                rows = conn.execute(
+                    "SELECT id, name, event, conditions_json, actions_json "
+                    "FROM task_automation_rules WHERE event = ? AND is_active = 1 ORDER BY id",
+                    (event,)
+                ).fetchall()
+            finally:
+                conn.close()
+            return [
+                {"id": r[0], "name": r[1], "event": r[2],
+                 "conditions_json": r[3] or '{}', "actions_json": r[4] or '[]'}
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_active_rules_for_event: %s", e)
+            return []
+
+    def record_rule_firing(self, rule_id: int, task_id: int, fire_key: str) -> bool:
+        """Идемпотентная отметка срабатывания. True — это первое срабатывание
+        (можно выполнять действия); False — уже срабатывало (пропустить)."""
+        try:
+            conn = self.get_connection()
+            try:
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO task_rule_firings (rule_id, task_id, fire_key) "
+                    "VALUES (?, ?, ?)",
+                    (rule_id, task_id, fire_key)
+                )
+                conn.commit()
+                return cur.rowcount == 1
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("record_rule_firing: %s", e)
+            return False
+
+    # ── SLA policies + status (Phase 2) ──────────────────────────────────────
+    def get_sla_policies(self, only_active: bool = False) -> list:
+        try:
+            conn = self.get_connection()
+            try:
+                sql = ("SELECT priority, react_hours, resolve_hours, is_active "
+                       "FROM task_sla_policies")
+                if only_active:
+                    sql += " WHERE is_active = 1"
+                rows = conn.execute(sql).fetchall()
+            finally:
+                conn.close()
+            return [
+                {"priority": r[0], "react_hours": r[1], "resolve_hours": r[2],
+                 "is_active": bool(r[3])}
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_sla_policies: %s", e)
+            return []
+
+    def upsert_sla_policy(self, priority: str, react_hours: float | None,
+                          resolve_hours: float | None, is_active: int = 1) -> bool:
+        """Создать/обновить SLA-политику для приоритета."""
+        try:
+            conn = self.get_connection()
+            try:
+                conn.execute(
+                    "INSERT INTO task_sla_policies "
+                    "(priority, react_hours, resolve_hours, is_active, updated_at) "
+                    "VALUES (?, ?, ?, ?, datetime('now')) "
+                    "ON CONFLICT(priority) DO UPDATE SET "
+                    "react_hours = excluded.react_hours, "
+                    "resolve_hours = excluded.resolve_hours, "
+                    "is_active = excluded.is_active, "
+                    "updated_at = datetime('now')",
+                    (priority,
+                     react_hours if react_hours and react_hours > 0 else None,
+                     resolve_hours if resolve_hours and resolve_hours > 0 else None,
+                     1 if is_active else 0)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            return True
+        except Exception as e:
+            logger.error("upsert_sla_policy: %s", e)
+            return False
+
+    def set_task_sla_status(self, task_id: int, sla_status: str | None) -> bool:
+        try:
+            conn = self.get_connection()
+            try:
+                conn.execute(
+                    "UPDATE tasks SET sla_status = ? WHERE id = ?",
+                    (sla_status, task_id)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            return True
+        except Exception as e:
+            logger.error("set_task_sla_status: %s", e)
+            return False
+
+    def claim_task_escalation(self, task_id: int) -> bool:
+        """Атомарно «забрать» право на эскалацию задачи. True ровно один раз —
+        пока sla_escalated=0; защищает от повторных эскалаций при каждом тике."""
+        try:
+            conn = self.get_connection()
+            try:
+                cur = conn.execute(
+                    "UPDATE tasks SET sla_escalated = 1 "
+                    "WHERE id = ? AND COALESCE(sla_escalated, 0) = 0",
+                    (task_id,)
+                )
+                conn.commit()
+                return cur.rowcount == 1
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("claim_task_escalation: %s", e)
+            return False
+
+    def get_open_tasks_for_sla(self) -> list:
+        """Незавершённые задачи (для SLA-проверки): id, priority, status,
+        created_at, deadline, title, assigned_to, created_by, sla_status, sla_escalated."""
+        try:
+            conn = self.get_connection()
+            try:
+                rows = conn.execute(
+                    "SELECT id, priority, status, created_at, deadline, title, "
+                    "assigned_to, created_by, sla_status, COALESCE(sla_escalated, 0) "
+                    "FROM tasks WHERE status NOT IN ('done', 'cancelled')"
+                ).fetchall()
+            finally:
+                conn.close()
+            return [
+                {"id": r[0], "priority": r[1] or 'normal', "status": r[2] or 'new',
+                 "created_at": r[3], "deadline": r[4], "title": r[5] or '—',
+                 "assigned_to": r[6], "created_by": r[7],
+                 "sla_status": r[8], "sla_escalated": int(r[9] or 0)}
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_open_tasks_for_sla: %s", e)
             return []
 
     def add_task_reminder(self, task_id: int, user_id: int, remind_at: str) -> int | None:
@@ -15345,12 +15679,214 @@ class Database:
             conn.execute("DELETE FROM task_watchers WHERE task_id = ?", (task_id,))
             conn.execute("DELETE FROM task_time_logs WHERE task_id = ?", (task_id,))
             conn.execute("DELETE FROM task_user_completions WHERE task_id = ?", (task_id,))
+            try:
+                conn.execute(
+                    "DELETE FROM task_dependencies WHERE blocker_id = ? OR blocked_id = ?",
+                    (task_id, task_id)
+                )
+            except Exception:
+                pass
             conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
             conn.commit()
             conn.close()
             return True
         except Exception as e:
             logger.error("delete_task: %s", e)
+            return False
+
+    # ── SUBTASKS ──────────────────────────────────────────────────────────────
+
+    def get_subtasks(self, parent_id: int) -> list:
+        """Список прямых подзадач задачи."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """
+                SELECT t.id, t.title, t.status, t.priority, t.deadline, t.assigned_to,
+                       ua.first_name AS a_fn, ua.last_name AS a_ln, ua.username AS a_un
+                FROM tasks t
+                LEFT JOIN users ua ON ua.id = t.assigned_to
+                WHERE t.parent_task_id = ?
+                ORDER BY t.id
+                """,
+                (parent_id,)
+            ).fetchall()
+            conn.close()
+            result = []
+            for r in rows:
+                aname = f"{r[6] or ''} {r[7] or ''}".strip() or r[8] or ""
+                result.append({
+                    "id": r[0], "title": r[1], "status": r[2] or "new",
+                    "priority": r[3] or "normal", "deadline": r[4],
+                    "assigned_to": r[5], "assigned_name": aname,
+                })
+            return result
+        except Exception as e:
+            logger.error("get_subtasks: %s", e)
+            return []
+
+    def get_subtask_progress(self, parent_id: int) -> tuple:
+        """Возвращает (done, total) подзадач для прогресс-бара."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT COUNT(*), SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) "
+                "FROM tasks WHERE parent_task_id = ?",
+                (parent_id,)
+            ).fetchone()
+            conn.close()
+            if not row or not row[0]:
+                return (0, 0)
+            return (row[1] or 0, row[0])  # (done, total)
+        except Exception as e:
+            logger.error("get_subtask_progress: %s", e)
+            return (0, 0)
+
+    # ── TASK DEPENDENCIES ─────────────────────────────────────────────────────
+
+    def add_task_blocker(self, blocker_id: int, blocked_id: int) -> bool:
+        """Добавить зависимость: blocker блокирует blocked."""
+        if blocker_id == blocked_id:
+            return False
+        try:
+            conn = self.get_connection()
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO task_dependencies (blocker_id, blocked_id) VALUES (?, ?)",
+                    (blocker_id, blocked_id)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            return True
+        except Exception as e:
+            logger.error("add_task_blocker: %s", e)
+            return False
+
+    def remove_task_blocker(self, blocker_id: int, blocked_id: int) -> bool:
+        """Удалить зависимость."""
+        try:
+            conn = self.get_connection()
+            try:
+                conn.execute(
+                    "DELETE FROM task_dependencies WHERE blocker_id = ? AND blocked_id = ?",
+                    (blocker_id, blocked_id)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            return True
+        except Exception as e:
+            logger.error("remove_task_blocker: %s", e)
+            return False
+
+    def get_task_blockers(self, task_id: int) -> list:
+        """Задачи, которые БЛОКИРУЮТ данную задачу."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """
+                SELECT t.id, t.title, t.status, t.priority
+                FROM task_dependencies td
+                JOIN tasks t ON t.id = td.blocker_id
+                WHERE td.blocked_id = ?
+                ORDER BY t.id
+                """,
+                (task_id,)
+            ).fetchall()
+            conn.close()
+            return [
+                {"id": r[0], "title": r[1], "status": r[2] or "new", "priority": r[3] or "normal"}
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_task_blockers: %s", e)
+            return []
+
+    def get_task_blocking(self, task_id: int) -> list:
+        """Задачи, которые БЛОКИРУЮТСЯ данной задачей."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """
+                SELECT t.id, t.title, t.status, t.priority
+                FROM task_dependencies td
+                JOIN tasks t ON t.id = td.blocked_id
+                WHERE td.blocker_id = ?
+                ORDER BY t.id
+                """,
+                (task_id,)
+            ).fetchall()
+            conn.close()
+            return [
+                {"id": r[0], "title": r[1], "status": r[2] or "new", "priority": r[3] or "normal"}
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_task_blocking: %s", e)
+            return []
+
+    # ── SAVED VIEWS ───────────────────────────────────────────────────────────
+
+    def get_task_saved_views(self, user_id: int) -> list:
+        """Список сохранённых видов (фильтров) пользователя."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                "SELECT id, name, filters_json, created_at FROM task_saved_views "
+                "WHERE user_id = ? ORDER BY id",
+                (user_id,)
+            ).fetchall()
+            conn.close()
+            result = []
+            for r in rows:
+                try:
+                    import json as _json
+                    filt = _json.loads(r[2] or '{}')
+                except Exception:
+                    filt = {}
+                result.append({
+                    "id": r[0], "name": r[1],
+                    "filters_json": r[2] or '{}', "filters": filt,
+                    "created_at": r[3],
+                })
+            return result
+        except Exception as e:
+            logger.error("get_task_saved_views: %s", e)
+            return []
+
+    def create_task_saved_view(self, user_id: int, name: str, filters_json: str) -> int:
+        """Создать сохранённый вид. Возвращает id."""
+        try:
+            conn = self.get_connection()
+            try:
+                cur = conn.execute(
+                    "INSERT INTO task_saved_views (user_id, name, filters_json) VALUES (?, ?, ?)",
+                    (user_id, name[:80], filters_json)
+                )
+                conn.commit()
+                return cur.lastrowid
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("create_task_saved_view: %s", e)
+            return 0
+
+    def delete_task_saved_view(self, view_id: int, user_id: int) -> bool:
+        """Удалить сохранённый вид (только свой)."""
+        try:
+            conn = self.get_connection()
+            try:
+                conn.execute(
+                    "DELETE FROM task_saved_views WHERE id = ? AND user_id = ?",
+                    (view_id, user_id)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            return True
+        except Exception as e:
+            logger.error("delete_task_saved_view: %s", e)
             return False
 
     def add_task_comment(self, task_id: int, user_id: int, text: str) -> int:

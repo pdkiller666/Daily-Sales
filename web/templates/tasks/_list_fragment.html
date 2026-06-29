@@ -1,0 +1,164 @@
+{% import 'tasks/_macros.html' as tm %}
+{% if tasks %}
+<div class="space-y-3" id="task-list">
+  {% for t in tasks %}
+  {% set overdue = is_overdue(t.get('deadline'), t.get('status', '')) %}
+  <div class="card p-4 hover:shadow-md dark:bg-slate-900 transition-shadow group relative"
+       :class="selected.has({{ t.id }}) ? 'ring-2 ring-indigo-500' : ''">
+    <div class="flex items-start gap-3">
+      {% if is_admin and tasks_pro %}
+      <input type="checkbox" :checked="selected.has({{ t.id }})"
+             @click.stop="toggleSelect({{ t.id }})"
+             class="mt-1 w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+      {% endif %}
+      <!-- Priority dot -->
+      <div class="mt-1 w-2 h-2 rounded-full shrink-0
+        {% if t.priority == 'urgent' %}bg-red-500
+        {% elif t.priority == 'high' %}bg-amber-500
+        {% elif t.priority == 'low' %}bg-emerald-500
+        {% else %}bg-blue-400{% endif %}"></div>
+
+      <a href="/tasks/{{ t.id }}" class="flex-1 min-w-0 block">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 truncate"
+                data-inline-title="{{ t.id }}" title="Двойной клик для редактирования">
+            {{ t.title }}
+          </span>
+          <!-- Status badge -->
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border
+            {{ status_css.get(t.status, 'bg-slate-100 text-slate-600 border-slate-300') }}">
+            {{ status_labels.get(t.status, t.status) }}
+          </span>
+          {% if overdue %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-200">
+            ⚠️ Просрочена
+          </span>
+          {% endif %}
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+          {% if t.get('topic_name') %}
+          <span class="flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full
+              {% if t.topic_color == 'green' %}bg-emerald-500
+              {% elif t.topic_color == 'amber' %}bg-amber-500
+              {% elif t.topic_color == 'red' %}bg-red-500
+              {% elif t.topic_color == 'purple' %}bg-purple-500
+              {% else %}bg-blue-400{% endif %}"></span>
+            {{ t.topic_name }}
+          </span>
+          {% endif %}
+          {% if t.get('assign_all') %}
+          <span>👥 Вся команда</span>
+          {% elif t.get('assigned_shop') %}
+          <span>🏪 {{ t.assigned_shop }}</span>
+          {% elif t.get('assigned_name') %}
+          <span class="inline-flex items-center gap-1">
+            {{ tm.task_avatar(t.assigned_name) }}
+            <span>{{ t.assigned_name }}</span>
+          </span>
+          {% endif %}
+          {% if t.get('deadline') %}
+          <span class="{{ 'text-red-500 font-medium' if overdue else '' }}">
+            📅 {{ fmt_deadline(t.deadline) }}
+          </span>
+          {% endif %}
+          {% if t.get('checklist_total', 0) > 0 %}
+          <span>✓ {{ t.checklist_done }}/{{ t.checklist_total }}</span>
+          {% endif %}
+          {% if t.get('is_blocked') %}
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-orange-50 text-orange-600 border border-orange-200 dark:bg-orange-950 dark:border-orange-800 dark:text-orange-400">⛔ Блок.</span>
+          {% endif %}
+          {% if t.get('sla_status') == 'breached' %}
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-50 text-red-600 border border-red-200 dark:bg-red-950 dark:border-red-800 dark:text-red-400" title="SLA нарушен">🚨 SLA</span>
+          {% elif t.get('sla_status') == 'warning' %}
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-600 border border-amber-200 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-400" title="SLA под угрозой">⏳ SLA</span>
+          {% endif %}
+          {% if t.get('parent_task_id') %}
+          <a href="/tasks/{{ t.parent_task_id }}" class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-50 text-slate-500 border border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 hover:border-indigo-300 hover:text-indigo-600" title="Родительская задача">
+            ↳ подзадача
+          </a>
+          {% endif %}
+        </div>
+      </a>
+
+      {% if is_admin and t.status == 'done' %}
+      <div class="shrink-0 self-center"
+           x-data="inlineRating({{ t.id }}, {{ t.get('rating') or 0 }}, '{{ csrf_token }}')"
+           @click.stop>
+        <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+             :class="rated ? 'opacity-100' : ''"
+             title="Оценить задачу">
+          <template x-for="s in [1,2,3,4,5]" :key="s">
+            <button type="button"
+                    @click="submitRating(s)"
+                    @mouseenter="hovered = s"
+                    @mouseleave="hovered = 0"
+                    :disabled="saving"
+                    class="text-base leading-none focus:outline-none disabled:opacity-50 transition-colors"
+                    :class="(hovered || current) >= s ? 'text-amber-400' : 'text-slate-300 dark:text-slate-600'">★</button>
+          </template>
+          <span x-show="saved" x-transition class="ml-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">✓</span>
+          <span x-show="err" x-transition class="ml-1 text-[10px] text-red-500 font-medium" x-text="err"></span>
+        </div>
+      </div>
+      {% endif %}
+
+      <svg class="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0 mt-0.5 group-hover:text-indigo-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card p-12 text-center dark:bg-slate-900">
+  <div class="text-4xl mb-3">📋</div>
+  <p class="text-slate-500 dark:text-slate-400 text-sm">
+    {% if q %}
+    По запросу «{{ q | e }}» задач не найдено.
+    <a href="/tasks?{% if status_filter %}status={{ status_filter }}{% endif %}" class="text-indigo-600 hover:underline ml-1">Сбросить поиск</a>
+  {% elif status_filter or topic_filter or assigned_filter %}
+    Задач по выбранным фильтрам нет.
+    <a href="/tasks" class="text-indigo-600 hover:underline ml-1">Сбросить фильтры</a>
+    {% elif is_admin %}
+    Задач ещё нет. <a href="/tasks/new" class="text-indigo-600 hover:underline">Создайте первую задачу</a>
+    {% else %}
+    Задач нет. Как только вам назначат задачу — она появится здесь.
+    {% endif %}
+  </p>
+</div>
+{% endif %}
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+<div class="mt-5 flex items-center justify-center gap-2 flex-wrap">
+  {% if page > 1 %}
+  <a href="{{ pagination_base }}{{ page - 1 }}"
+     hx-get="{{ pagination_base }}{{ page - 1 }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
+     class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+    ← Назад
+  </a>
+  {% else %}
+  <span class="px-3 py-1.5 text-sm rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-300 dark:text-slate-600 cursor-default">
+    ← Назад
+  </span>
+  {% endif %}
+
+  <span class="text-xs text-slate-500 dark:text-slate-400 px-2">
+    Стр. {{ page }} из {{ total_pages }} &middot; {{ total_tasks }} задач
+  </span>
+
+  {% if page < total_pages %}
+  <a href="{{ pagination_base }}{{ page + 1 }}"
+     hx-get="{{ pagination_base }}{{ page + 1 }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
+     class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+    Вперёд →
+  </a>
+  {% else %}
+  <span class="px-3 py-1.5 text-sm rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-300 dark:text-slate-600 cursor-default">
+    Вперёд →
+  </span>
+  {% endif %}
+</div>
+{% endif %}

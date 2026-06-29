@@ -295,7 +295,8 @@ def _is_overdue(deadline: str | None, status: str) -> bool:
 @router.get("/tasks")
 def tasks_list(request: Request, status: str = "", topic_id: int = 0,
                assigned_filter: int = 0, shop_filter: str = "", msg: str = "",
-               q: str = "", page: int = 1):
+               q: str = "", page: int = 1, sort: str = "", group: str = "",
+               view_id: int = 0):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
     import math as _math
@@ -319,6 +320,8 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
         "status_filter": status, "topic_filter": topic_id,
         "assigned_filter": assigned_filter, "shop_filter": shop_filter,
         "q": q,
+        "sort": sort, "group": group, "active_view_id": view_id,
+        "saved_views": [],
         "status_labels": STATUS_LABELS, "status_css": STATUS_CSS,
         "priority_labels": PRIORITY_LABELS, "priority_css": PRIORITY_CSS,
         "topic_colors": TOPIC_COLORS,
@@ -363,6 +366,7 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
 
         tasks = db.get_tasks(
             **_filter_kwargs,
+            sort=sort or None,
             limit=_PAGE_SIZE,
             offset=(page - 1) * _PAGE_SIZE,
         )
@@ -377,6 +381,9 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
         if assigned_filter: _parts.append(f"assigned_filter={assigned_filter}")
         if shop_filter: _parts.append(f"shop_filter={_urlparse.quote(shop_filter)}")
         if q: _parts.append(f"q={_urlparse.quote(q)}")
+        if sort: _parts.append(f"sort={_urlparse.quote(sort)}")
+        if group: _parts.append(f"group={_urlparse.quote(group)}")
+        if view_id: _parts.append(f"view_id={view_id}")
         _base = "/tasks?" + ("&".join(_parts) + "&" if _parts else "") + "page="
         ctx["pagination_base"] = _base
 
@@ -384,13 +391,360 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
             ctx["staff_list"] = _get_staff_list(db)
             ctx["shops_list"] = _get_shops_list(db)
         ctx["my_db_id"] = my_db_id
+        try:
+            ctx["saved_views"] = db.get_task_saved_views(my_db_id) if my_db_id else []
+        except Exception:
+            ctx["saved_views"] = []
     except Exception as e:
         logger.error("tasks_list: %s", e)
         ctx["error"] = "Ошибка загрузки задач."
 
+    if request.headers.get("HX-Request") == "true":
+        return request.app.state.templates.TemplateResponse(
+            request, "tasks/_list_fragment.html", ctx
+        )
+
     return request.app.state.templates.TemplateResponse(
         request, "tasks/index.html", ctx
     )
+
+
+# ─── QUICK-ADD ───────────────────────────────────────────────────────────────
+
+@router.post("/tasks/quick-add")
+def tasks_quick_add(
+    request: Request,
+    csrf_token: str = Form(""),
+    title: str = Form(""),
+    topic_id: str = Form(""),
+    priority: str = Form("normal"),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks?msg=csrf_error", status_code=303)
+
+    title = title.strip()[:200]
+    if not title:
+        return RedirectResponse(url="/tasks?msg=error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        tid = int(topic_id) if topic_id and topic_id.isdigit() else None
+        pri = priority if priority in ("low", "normal", "high", "urgent") else "normal"
+        db.create_task(title=title, created_by=my_db_id, topic_id=tid, priority=pri)
+    except Exception as e:
+        logger.error("tasks_quick_add: %s", e)
+        return RedirectResponse(url="/tasks?msg=error", status_code=303)
+    return RedirectResponse(url="/tasks?msg=created_1", status_code=303)
+
+
+# ─── SAVED VIEWS ─────────────────────────────────────────────────────────────
+
+@router.post("/tasks/views/save")
+def tasks_views_save(
+    request: Request,
+    csrf_token: str = Form(""),
+    view_name: str = Form(""),
+    status: str = Form(""),
+    topic_id: str = Form(""),
+    assigned_filter: str = Form(""),
+    shop_filter: str = Form(""),
+    q: str = Form(""),
+    sort: str = Form(""),
+    group: str = Form(""),
+):
+    import json as _json
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks?msg=csrf_error", status_code=303)
+
+    view_name = view_name.strip()[:80]
+    if not view_name:
+        return RedirectResponse(url="/tasks?msg=error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        filters = {}
+        if status: filters["status"] = status
+        if topic_id and topic_id.isdigit(): filters["topic_id"] = int(topic_id)
+        if assigned_filter and assigned_filter.isdigit(): filters["assigned_filter"] = int(assigned_filter)
+        if shop_filter: filters["shop_filter"] = shop_filter
+        if q: filters["q"] = q
+        if sort: filters["sort"] = sort
+        if group: filters["group"] = group
+        db.create_task_saved_view(my_db_id, view_name, _json.dumps(filters, ensure_ascii=False))
+    except Exception as e:
+        logger.error("tasks_views_save: %s", e)
+        return RedirectResponse(url="/tasks?msg=error", status_code=303)
+    return RedirectResponse(url="/tasks?msg=view_saved", status_code=303)
+
+
+@router.post("/tasks/views/{view_id}/delete")
+def tasks_views_delete(
+    request: Request,
+    view_id: int,
+    csrf_token: str = Form(""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        db.delete_task_saved_view(view_id, my_db_id)
+    except Exception as e:
+        logger.error("tasks_views_delete: %s", e)
+    return RedirectResponse(url="/tasks?msg=view_deleted", status_code=303)
+
+
+# ─── INLINE EDIT ─────────────────────────────────────────────────────────────
+
+@router.post("/tasks/{task_id}/inline-edit")
+def task_inline_edit(
+    request: Request,
+    task_id: int,
+    csrf_token: str = Form(""),
+    field: str = Form(""),
+    value: str = Form(""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "not_auth"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"error": "csrf"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+    ALLOWED_FIELDS = {"title", "priority", "deadline"}
+    if is_admin:
+        ALLOWED_FIELDS.add("assigned_to")
+    if field not in ALLOWED_FIELDS:
+        return JSONResponse({"error": "invalid_field"}, status_code=400)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+            task_row = conn.execute(
+                "SELECT id, title, priority, deadline, assigned_to, status, created_by FROM tasks WHERE id = ?",
+                (task_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if not task_row:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+
+        my_db_id = my_row[0] if my_row else 0
+        t_created_by = task_row[6]
+        if not is_admin and my_db_id != t_created_by:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+
+        new_db_val = None
+
+        if field == "title":
+            cleaned = value.strip()[:200]
+            if not cleaned:
+                return JSONResponse({"error": "empty_title"}, status_code=400)
+            old_val = task_row[1]
+            new_db_val = cleaned
+            conn2 = db.get_connection()
+            try:
+                conn2.execute(
+                    "UPDATE tasks SET title=?, updated_at=datetime('now') WHERE id=?",
+                    (cleaned, task_id)
+                )
+                conn2.commit()
+            finally:
+                conn2.close()
+            db.add_task_history(task_id, my_db_id, "title_changed", old_val, cleaned)
+
+        elif field == "priority":
+            if value not in {"low", "normal", "high", "urgent"}:
+                return JSONResponse({"error": "invalid_value"}, status_code=400)
+            old_val = task_row[2]
+            new_db_val = value
+            conn2 = db.get_connection()
+            try:
+                conn2.execute(
+                    "UPDATE tasks SET priority=?, updated_at=datetime('now') WHERE id=?",
+                    (value, task_id)
+                )
+                conn2.commit()
+            finally:
+                conn2.close()
+            db.add_task_history(task_id, my_db_id, "priority_changed", old_val, value)
+
+        elif field == "deadline":
+            dl = value.strip() or None
+            if dl:
+                try:
+                    from datetime import date as _date
+                    _date.fromisoformat(dl[:10])
+                    dl = dl[:10]
+                except ValueError:
+                    return JSONResponse({"error": "invalid_date"}, status_code=400)
+            old_val = task_row[3]
+            new_db_val = dl
+            conn2 = db.get_connection()
+            try:
+                conn2.execute(
+                    "UPDATE tasks SET deadline=?, updated_at=datetime('now') WHERE id=?",
+                    (dl, task_id)
+                )
+                conn2.commit()
+            finally:
+                conn2.close()
+            db.add_task_history(task_id, my_db_id, "deadline_changed", old_val, dl)
+
+        elif field == "assigned_to" and is_admin:
+            try:
+                new_uid = int(value) if value and value.strip() != "0" else None
+            except ValueError:
+                return JSONResponse({"error": "invalid_value"}, status_code=400)
+            old_val = str(task_row[4] or "")
+            new_db_val = str(new_uid or "")
+            conn2 = db.get_connection()
+            try:
+                conn2.execute(
+                    "UPDATE tasks SET assigned_to=?, updated_at=datetime('now') WHERE id=?",
+                    (new_uid, task_id)
+                )
+                conn2.commit()
+            finally:
+                conn2.close()
+            db.add_task_history(task_id, my_db_id, "assignee_changed", old_val, new_db_val)
+
+        return JSONResponse({"ok": True, "field": field, "value": new_db_val})
+
+    except Exception as e:
+        logger.error("task_inline_edit %s: %s", task_id, e)
+        return JSONResponse({"error": "server_error"}, status_code=500)
+
+
+# ─── BLOCKERS ────────────────────────────────────────────────────────────────
+
+@router.post("/tasks/{task_id}/add-blocker")
+def task_add_blocker(
+    request: Request,
+    task_id: int,
+    csrf_token: str = Form(""),
+    blocker_id: str = Form(""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=forbidden", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        bid = int(blocker_id)
+        if bid == task_id:
+            raise ValueError("self-reference")
+    except (ValueError, TypeError):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        db.add_task_blocker(bid, task_id)
+    except Exception as e:
+        logger.error("task_add_blocker: %s", e)
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+    return RedirectResponse(url=f"/tasks/{task_id}?msg=blocker_added", status_code=303)
+
+
+@router.post("/tasks/{task_id}/remove-blocker")
+def task_remove_blocker(
+    request: Request,
+    task_id: int,
+    csrf_token: str = Form(""),
+    blocker_id: str = Form(""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=forbidden", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        bid = int(blocker_id)
+    except (ValueError, TypeError):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        db.remove_task_blocker(bid, task_id)
+    except Exception as e:
+        logger.error("task_remove_blocker: %s", e)
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+    return RedirectResponse(url=f"/tasks/{task_id}?msg=blocker_removed", status_code=303)
 
 
 # ─── NEW FORM ────────────────────────────────────────────────────────────────
@@ -790,7 +1144,7 @@ def task_save_as_template(request: Request, task_id: int, csrf_token: str = Form
 
 
 @router.get("/tasks/new")
-def tasks_new_form(request: Request, template_id: int = 0):
+def tasks_new_form(request: Request, template_id: int = 0, parent_id: int = 0):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -819,6 +1173,8 @@ def tasks_new_form(request: Request, template_id: int = 0):
         "prefill_title": "", "prefill_description": "",
         "prefill_priority": "normal", "prefill_topic_id": 0,
         "prefill_checklist": "",
+        "prefill_parent_task_id": parent_id or 0,
+        "prefill_parent_task": None,
         "msg": None,
     }
     try:
@@ -829,6 +1185,11 @@ def tasks_new_form(request: Request, template_id: int = 0):
         ctx["search_items_json"] = _build_search_items_json(ctx["staff_list"], ctx["shops_list"])
         ctx["init_selected_json"] = "[]"
         ctx["init_assign_all"] = "false"
+        if parent_id:
+            try:
+                ctx["prefill_parent_task"] = db.get_task(parent_id)
+            except Exception:
+                pass
         if tasks_pro:
             ctx["templates"] = db.get_task_templates()
             if template_id:
@@ -866,6 +1227,7 @@ async def tasks_new_post(
     checklist_items: str = Form(""),
     recipients_json: str = Form(""),
     estimated_hours: str = Form(""),
+    parent_task_id: str = Form(""),
     files: List[UploadFile] = File(default=[]),
 ):
     from web.auth import get_session_user, verify_csrf_token
@@ -910,6 +1272,7 @@ async def tasks_new_post(
 
         _topic_id = int(topic_id) if topic_id.isdigit() else None
         _deadline = deadline.strip() or None
+        _parent_task_id = int(parent_task_id) if str(parent_task_id).strip().isdigit() else None
         if priority not in PRIORITY_LABELS:
             priority = 'normal'
 
@@ -1010,6 +1373,7 @@ async def tasks_new_post(
             linked_chat_topic_id=_linked_chat_topic_id,
             checklist=items,
             recurrence=recurrence if recurrence not in ('none', '') else None,
+            parent_task_id=_parent_task_id,
         )
         if task_id:
             try:
@@ -1094,6 +1458,17 @@ async def tasks_new_post(
             if my_db_id and not any(uid == my_db_id for uid, _ in members):
                 _safe_add_notif(my_db_id, "task_assigned",
                                 f"📋 Задача создана: «{title}» → вся команда")
+
+        # Automation rules: task created / assigned
+        try:
+            from task_automation import run_rules as _run_rules
+            _new_task = db.get_task(task_id) if task_id else None
+            if _new_task:
+                _run_rules(db, 'task_created', dict(_new_task), my_db_id)
+                if _new_task.get('assigned_to') or _new_task.get('assigned_shop') or _new_task.get('assign_all'):
+                    _run_rules(db, 'task_assigned', dict(_new_task), my_db_id)
+        except Exception as _are:
+            logger.warning("tasks_new_post automation: %s", _are)
 
         # Вложения при создании задачи
         if files:
@@ -1277,6 +1652,14 @@ def tasks_kanban_move(request: Request,
                                 STATUS_LABELS.get(status, status))
         except Exception:
             pass
+        try:
+            from task_automation import run_rules as _run_rules
+            _ev_task = dict(task)
+            _ev_task['_old_status'] = old_status_kb
+            _ev_task['status'] = status
+            _run_rules(db, 'status_changed', _ev_task, my_db_id)
+        except Exception as _are:
+            logger.warning("tasks_kanban_move automation: %s", _are)
         return JSONResponse({"ok": True, "new_status": status,
                              "label": STATUS_LABELS[status]})
     except Exception as e:
@@ -1443,6 +1826,267 @@ def tasks_topics_delete(
         return RedirectResponse(url="/tasks/topics?msg=error", status_code=303)
 
     return RedirectResponse(url="/tasks/topics?msg=deleted", status_code=303)
+
+
+# ─── AUTOMATION & SLA (Phase 2, tasks_pro) ──────────────────────────────────
+
+_SLA_PRIORITIES = [
+    ("urgent", "🔴 Срочный"), ("high", "🟠 Высокий"),
+    ("normal", "🔵 Обычный"), ("low", "🟢 Низкий"),
+]
+_RULE_EVENTS = [
+    ("status_changed", "Смена статуса"),
+    ("task_created", "Создание задачи"),
+    ("task_assigned", "Назначение исполнителя"),
+    ("deadline_approaching", "Приближается дедлайн"),
+    ("deadline_passed", "Дедлайн прошёл"),
+]
+_RULE_ACTIONS = [
+    ("notify", "Уведомить"),
+    ("set_status", "Сменить статус"),
+    ("set_priority", "Сменить приоритет"),
+    ("add_comment", "Добавить комментарий"),
+]
+_RULE_TARGETS = [
+    ("assignee", "Исполнителя"), ("creator", "Постановщика"),
+    ("admins", "Руководителя"), ("team", "Команду"),
+]
+
+
+def _automation_ctx(request, telegram_id, org_db):
+    from web.auth import get_csrf_token
+    from web.deps import get_web_db
+    ctx = {
+        "request": request, "is_admin": True,
+        "csrf_token": get_csrf_token(request),
+        "rules": [], "sla_policies": {}, "topics": [],
+        "sla_priorities": _SLA_PRIORITIES, "rule_events": _RULE_EVENTS,
+        "rule_actions": _RULE_ACTIONS, "rule_targets": _RULE_TARGETS,
+        "statuses": [("new", "Новая"), ("in_progress", "В работе"),
+                     ("review", "На проверке"), ("done", "Выполнена"),
+                     ("cancelled", "Отменена")],
+        "priorities": _SLA_PRIORITIES,
+        "event_labels": dict(_RULE_EVENTS), "action_labels": dict(_RULE_ACTIONS),
+    }
+    try:
+        db = get_web_db(telegram_id, org_db)
+        ctx["topics"] = db.get_task_topics()
+        ctx["rules"] = db.get_automation_rules()
+        ctx["sla_policies"] = {p["priority"]: p for p in db.get_sla_policies()}
+    except Exception as e:
+        logger.error("_automation_ctx: %s", e)
+    return ctx
+
+
+@router.get("/tasks/automation")
+def tasks_automation(request: Request, msg: str = ""):
+    from web.auth import get_session_user
+    from billing_utils import has_module as _has_module
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+
+    telegram_id = int(user["sub"])
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
+
+    ctx = _automation_ctx(request, telegram_id, user.get("org_db"))
+    ctx["user"] = user
+    ctx["msg"] = msg
+    return request.app.state.templates.TemplateResponse(
+        request, "tasks/automation.html", ctx
+    )
+
+
+@router.post("/tasks/automation/sla")
+async def tasks_automation_sla(request: Request):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from billing_utils import has_module as _has_module
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+
+    telegram_id = int(user["sub"])
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks", status_code=302)
+
+    form = await request.form()
+    if not verify_csrf_token(request, form.get("csrf_token", "")):
+        return RedirectResponse(url="/tasks/automation?msg=csrf_error", status_code=303)
+
+    def _num(v):
+        try:
+            f = float(str(v).strip().replace(",", "."))
+            return f if f > 0 else None
+        except Exception:
+            return None
+
+    try:
+        db = get_web_db(telegram_id, user.get("org_db"))
+        for prio, _ in _SLA_PRIORITIES:
+            react = _num(form.get(f"react_{prio}", ""))
+            resolve = _num(form.get(f"resolve_{prio}", ""))
+            is_active = 1 if form.get(f"active_{prio}") else 0
+            db.upsert_sla_policy(prio, react, resolve, is_active)
+    except Exception as e:
+        logger.error("tasks_automation_sla: %s", e)
+        return RedirectResponse(url="/tasks/automation?msg=error", status_code=303)
+
+    return RedirectResponse(url="/tasks/automation?msg=sla_saved", status_code=303)
+
+
+def _build_rule_payload(form):
+    """Build (conditions_json, actions_json) from the rule form."""
+    import json as _json
+    from task_automation import (
+        VALID_EVENTS, VALID_ACTIONS, _PRIORITIES, _STATUSES,
+    )
+    conditions = {}
+    if form.get("cond_topic_id"):
+        try:
+            conditions["topic_id"] = int(form.get("cond_topic_id"))
+        except Exception:
+            pass
+    if form.get("cond_priority") in _PRIORITIES:
+        conditions["priority"] = form.get("cond_priority")
+    if form.get("cond_to_status") in _STATUSES:
+        conditions["to_status"] = form.get("cond_to_status")
+
+    atype = form.get("action_type", "notify")
+    if atype not in VALID_ACTIONS:
+        atype = "notify"
+    action = {"type": atype}
+    if atype == "notify":
+        target = form.get("action_target", "assignee")
+        action["target"] = target if target in dict(_RULE_TARGETS) else "assignee"
+        if (form.get("action_text") or "").strip():
+            action["text"] = form.get("action_text").strip()
+    elif atype == "set_status":
+        action["value"] = form.get("action_status") if form.get("action_status") in _STATUSES else "in_progress"
+    elif atype == "set_priority":
+        action["value"] = form.get("action_priority") if form.get("action_priority") in _PRIORITIES else "high"
+    elif atype == "add_comment":
+        action["text"] = (form.get("action_text") or "").strip()
+    return _json.dumps(conditions, ensure_ascii=False), _json.dumps([action], ensure_ascii=False)
+
+
+@router.post("/tasks/automation/rules/new")
+async def tasks_automation_rule_new(request: Request):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from billing_utils import has_module as _has_module
+    from task_automation import VALID_EVENTS
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+
+    telegram_id = int(user["sub"])
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks", status_code=302)
+
+    form = await request.form()
+    if not verify_csrf_token(request, form.get("csrf_token", "")):
+        return RedirectResponse(url="/tasks/automation?msg=csrf_error", status_code=303)
+
+    name = (form.get("name") or "").strip()
+    event = form.get("event", "")
+    if not name:
+        return RedirectResponse(url="/tasks/automation?msg=no_name", status_code=303)
+    if event not in VALID_EVENTS:
+        return RedirectResponse(url="/tasks/automation?msg=bad_event", status_code=303)
+
+    try:
+        conditions_json, actions_json = _build_rule_payload(form)
+        db = get_web_db(telegram_id, user.get("org_db"))
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        db.create_automation_rule(name, event, conditions_json, actions_json,
+                                  1, my_db_id)
+    except Exception as e:
+        logger.error("tasks_automation_rule_new: %s", e)
+        return RedirectResponse(url="/tasks/automation?msg=error", status_code=303)
+
+    return RedirectResponse(url="/tasks/automation?msg=rule_created", status_code=303)
+
+
+@router.post("/tasks/automation/rules/{rid}/toggle")
+def tasks_automation_rule_toggle(request: Request, rid: int,
+                                 csrf_token: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from billing_utils import has_module as _has_module
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+
+    telegram_id = int(user["sub"])
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks/automation?msg=csrf_error", status_code=303)
+
+    try:
+        db = get_web_db(telegram_id, user.get("org_db"))
+        rules = {r["id"]: r for r in db.get_automation_rules()}
+        r = rules.get(rid)
+        if not r:
+            return RedirectResponse(url="/tasks/automation?msg=not_found", status_code=303)
+        db.update_automation_rule(rid, r["name"], r["event"],
+                                  r["conditions_json"], r["actions_json"],
+                                  0 if r["is_active"] else 1)
+    except Exception as e:
+        logger.error("tasks_automation_rule_toggle: %s", e)
+        return RedirectResponse(url="/tasks/automation?msg=error", status_code=303)
+
+    return RedirectResponse(url="/tasks/automation?msg=rule_saved", status_code=303)
+
+
+@router.post("/tasks/automation/rules/{rid}/delete")
+def tasks_automation_rule_delete(request: Request, rid: int,
+                                 csrf_token: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from billing_utils import has_module as _has_module
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+
+    telegram_id = int(user["sub"])
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks/automation?msg=csrf_error", status_code=303)
+
+    try:
+        db = get_web_db(telegram_id, user.get("org_db"))
+        db.delete_automation_rule(rid)
+    except Exception as e:
+        logger.error("tasks_automation_rule_delete: %s", e)
+        return RedirectResponse(url="/tasks/automation?msg=error", status_code=303)
+
+    return RedirectResponse(url="/tasks/automation?msg=rule_deleted", status_code=303)
 
 
 # ─── BULK OPERATIONS ─────────────────────────────────────────────────────────
@@ -1756,6 +2400,8 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
     ctx = {
         "request": request, "user": user, "is_admin": is_admin,
         "task": None, "comments": [], "my_db_id": 0,
+        "subtasks": [], "subtask_progress": (0, 0),
+        "task_blockers": [], "task_blocking": [], "parent_task": None,
         "status_labels": STATUS_LABELS, "status_css": STATUS_CSS,
         "priority_labels": PRIORITY_LABELS, "priority_css": PRIORITY_CSS,
         "topic_colors": TOPIC_COLORS,
@@ -1813,6 +2459,20 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
             ctx["attachments"] = db.get_task_attachments(task_id)
         except Exception:
             ctx["attachments"] = []
+        try:
+            ctx["subtasks"] = db.get_subtasks(task_id)
+            ctx["subtask_progress"] = db.get_subtask_progress(task_id)
+            ctx["task_blockers"] = db.get_task_blockers(task_id)
+            ctx["task_blocking"] = db.get_task_blocking(task_id)
+            pt_id = (task or {}).get("parent_task_id")
+            ctx["parent_task"] = db.get_task(pt_id) if pt_id else None
+        except Exception as _e:
+            logger.error("task_detail subtasks/blockers: %s", _e)
+            ctx["subtasks"] = []
+            ctx["subtask_progress"] = (0, 0)
+            ctx["task_blockers"] = []
+            ctx["task_blocking"] = []
+            ctx["parent_task"] = None
 
         # Team completion tracking (admin + assign_all/shop tasks)
         _assign_all = task.get('assign_all', False)
@@ -2250,6 +2910,16 @@ def task_change_status(
                                 STATUS_LABELS.get(status, status))
         except Exception:
             pass
+
+        # Automation rules: status changed
+        try:
+            from task_automation import run_rules as _run_rules
+            _ev_task = dict(task)
+            _ev_task['_old_status'] = old_status
+            _ev_task['status'] = status
+            _run_rules(db, 'status_changed', _ev_task, my_db_id)
+        except Exception as _are:
+            logger.warning("task_change_status automation: %s", _are)
 
         # Record per-user completion for team tasks
         if status in ('done', 'review') and (task.get('assign_all') or task.get('assigned_shop')):
@@ -3031,6 +3701,21 @@ def task_edit_post(
                         send_web_push(_sm_tg, f"📋 {_sh_tg_hdr}", title, "/tasks")
                     except Exception:
                         pass
+
+        # Automation rules: reassignment fires task_assigned
+        try:
+            _reassigned = (
+                (_assigned_to and _assigned_to != old_task.get("assigned_to"))
+                or (_assigned_shop_val and _assigned_shop_val != old_task.get("assigned_shop"))
+                or (_assign_all and not old_task.get("assign_all"))
+            )
+            if _reassigned:
+                from task_automation import run_rules as _run_rules
+                _new_t = db.get_task(task_id)
+                if _new_t:
+                    _run_rules(db, 'task_assigned', dict(_new_t), _ed_uid if '_ed_uid' in dir() else None)
+        except Exception as _are:
+            logger.warning("task_edit_post automation: %s", _are)
     except Exception as e:
         logger.error("task_edit_post: %s", e)
         return RedirectResponse(url=f"/tasks/{task_id}/edit?msg=error", status_code=303)
