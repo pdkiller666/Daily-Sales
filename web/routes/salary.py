@@ -735,6 +735,15 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         except Exception:
             xls_bulk = {'worked': {}, 'adj_sum': {}, 'earnings': {}, 'earnings_detail': {}}
 
+        # Earnings bulk: joint-бонусы + план-коэффициент (как в web-таблице)
+        xls_earnings_bulk: dict = {}
+        try:
+            xls_earnings_bulk = db.get_seller_total_earnings_bulk(
+                xls_non_admin_uids, start_date, end_date, year, month
+            )
+        except Exception:
+            pass
+
         rows: list = []
         total_fund = 0.0
         motivation_details: dict = {}
@@ -746,7 +755,8 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
             worked = xls_bulk['worked'].get(uid, 0)
             paid_abs = xls_paid_abs_bulk.get(uid, 0)
             adj = xls_bulk['adj_sum'].get(uid, 0.0)
-            motivation = round(xls_bulk['earnings'].get(uid, 0.0), 2)
+            motivation = round(float((xls_earnings_bulk.get(uid) or {}).get(
+                'total_earnings', xls_bulk['earnings'].get(uid, 0.0)) or 0), 2)
             contest_r = round(xls_contest_bulk.get(row[4], 0.0), 2)
             base = rate * (worked + paid_abs)
             total = base + adj + motivation + contest_r

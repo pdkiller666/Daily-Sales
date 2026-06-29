@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.307.0"
+CURRENT_VERSION = "1.308.0"
 
 ENTRIES = [
+    {
+        "version": "1.308.0",
+        "date": "29 июня 2026",
+        "items": [
+            "salary list bulk query, eliminates N+1 (150+ queries → 7)",
+        ],
+    },
     {
         "version": "1.307.0",
         "date": "29 июня 2026",

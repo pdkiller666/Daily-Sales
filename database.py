@@ -12391,8 +12391,19 @@ class Database:
                         [start_date, end_date],
                     ).fetchall()
                 }
-                user_shop_comm: dict = {}
+                # Магазины, где каждый пользователь продавал за период —
+                # берём из sales (как в оригинальном get_joint_bonus_adjustment),
+                # чтобы учесть пользователей без seller_earnings строк.
                 user_shops: dict = {}
+                for uid, sn in conn.execute(
+                    f'SELECT DISTINCT user_id, shop_name FROM sales '
+                    f'WHERE user_id IN ({ph}) AND sale_date >= ? AND sale_date <= ?',
+                    uids + [start_date, end_date],
+                ).fetchall():
+                    user_shops.setdefault(uid, set()).add(sn)
+
+                # Личный вклад из seller_earnings (может быть 0 для пользователей без SE)
+                user_shop_comm: dict = {}
                 for uid, sn, amt in conn.execute(
                     f'SELECT se.user_id, s.shop_name, COALESCE(SUM(se.commission_amount), 0.0) '
                     f'FROM seller_earnings se JOIN sales s ON se.sale_id = s.id '
@@ -12401,7 +12412,6 @@ class Database:
                     uids + [start_date, end_date],
                 ).fetchall():
                     user_shop_comm[(uid, sn)] = float(amt)
-                    user_shops.setdefault(uid, set()).add(sn)
 
                 for uid in uids:
                     adj_total = 0.0
