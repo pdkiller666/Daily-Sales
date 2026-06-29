@@ -475,6 +475,15 @@ def salary_page(
         except Exception:
             pass
 
+        # Earnings bulk: replaces N+1 get_seller_total_earnings calls (joint+plan_coeff included)
+        earnings_bulk: dict = {}
+        try:
+            earnings_bulk = db.get_seller_total_earnings_bulk(
+                non_admin_uids, start_date, end_date, year, month
+            )
+        except Exception:
+            pass
+
         for row in all_rates:
             if env_manager.is_super_admin(row[4]):
                 continue
@@ -485,9 +494,7 @@ def salary_page(
             adj_sum = bk['adj_sum']
             paid_abs = paid_abs_bulk.get(uid, 0)
             base = rate * (worked + paid_abs)
-            # Correct motivation: includes joint_bonus + plan_coeff
-            earn = db.get_seller_total_earnings(uid, start_date=start_date, end_date=end_date) or {}
-            motivation = round(float(earn.get('total_earnings', 0.0) or 0), 2)
+            motivation = round(float((earnings_bulk.get(uid) or {}).get('total_earnings', 0.0) or 0), 2)
             # Contest prizes
             contest_rewards = round(contest_bulk.get(row[4], 0.0), 2)
             total = base + adj_sum + motivation + contest_rewards

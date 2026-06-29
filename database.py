@@ -12279,6 +12279,181 @@ class Database:
             logger.error(f"get_salary_bulk_stats: {e}")
         return result
 
+    def get_seller_total_earnings_bulk(
+        self,
+        uids: list,
+        start_date: str,
+        end_date: str,
+        year: int,
+        month: int,
+    ) -> dict:
+        """Bulk-версия get_seller_total_earnings для списка зарплат.
+
+        Возвращает {uid: {'total_earnings': float, 'total_sales': int, 'plan_coeff': float|None}}
+        для каждого uid из списка.
+
+        Использует ~7 запросов к БД независимо от числа сотрудников
+        (против N×8 у пооперационного get_seller_total_earnings).
+        Результат идентичен пооперационному методу: учитываются joint-бонусы и
+        план-коэффициент.
+        """
+        if not uids:
+            return {}
+
+        ph = ','.join('?' * len(uids))
+        result: dict = {uid: {'total_earnings': 0.0, 'total_sales': 0, 'plan_coeff': None}
+                        for uid in uids}
+
+        conn = None
+        try:
+            conn = self.get_connection()
+
+            # 1. Какие из uids имеют записи в seller_earnings (определяет путь расчёта)
+            se_exists: set = set(
+                row[0] for row in conn.execute(
+                    f'SELECT DISTINCT user_id FROM seller_earnings WHERE user_id IN ({ph})',
+                    uids,
+                ).fetchall()
+            )
+
+            # 2. Суммы комиссий из seller_earnings (для тех, у кого они есть)
+            comm_by_uid: dict = {}
+            sales_by_uid: dict = {}
+
+            if se_exists:
+                se_ph = ','.join('?' * len(se_exists))
+                se_list = list(se_exists)
+                for uid, comm, cnt in conn.execute(
+                    f'SELECT se.user_id, COALESCE(SUM(se.commission_amount), 0), COUNT(se.id) '
+                    f'FROM seller_earnings se JOIN sales s ON se.sale_id = s.id '
+                    f'WHERE se.user_id IN ({se_ph}) AND s.sale_date >= ? AND s.sale_date <= ? '
+                    f'GROUP BY se.user_id',
+                    se_list + [start_date, end_date],
+                ).fetchall():
+                    comm_by_uid[uid] = round(float(comm or 0), 2)
+                    sales_by_uid[uid] = int(cnt or 0)
+
+            # 3. Для пользователей без seller_earnings — считаем продажи (комиссия 0)
+            no_se_uids = [uid for uid in uids if uid not in se_exists]
+            if no_se_uids:
+                no_se_ph = ','.join('?' * len(no_se_uids))
+                for uid, cnt in conn.execute(
+                    f'SELECT user_id, COUNT(*) FROM sales '
+                    f'WHERE user_id IN ({no_se_ph}) AND sale_date >= ? AND sale_date <= ? '
+                    f'GROUP BY user_id',
+                    no_se_uids + [start_date, end_date],
+                ).fetchall():
+                    sales_by_uid[uid] = int(cnt)
+
+            for uid in uids:
+                result[uid]['total_earnings'] = comm_by_uid.get(uid, 0.0)
+                result[uid]['total_sales'] = sales_by_uid.get(uid, 0)
+
+            # 4. Joint-бонусы (bulk): условия → пул → вклад каждого пользователя
+            joint_conds = conn.execute(
+                "SELECT shop_name, min_sellers, coefficient FROM motivation_extra_conditions "
+                "WHERE condition_type='multi_seller_coeff' AND calc_mode='joint' AND is_active=1"
+            ).fetchall()
+
+            shop_to_cond: dict = {}
+            global_cond = None
+            for sn, min_s, coeff in joint_conds:
+                if sn is None:
+                    global_cond = (min_s, coeff)
+                else:
+                    shop_to_cond[sn] = (min_s, coeff)
+
+            monthly_conds = conn.execute(
+                "SELECT shop_name, min_sellers, coefficient FROM extra_conditions_schedule "
+                "WHERE condition_type='multi_seller_coeff' AND calc_mode='joint' "
+                "AND is_active=1 AND year=? AND month=?",
+                (year, month),
+            ).fetchall()
+            for sn, min_s, coeff in monthly_conds:
+                if sn is None:
+                    global_cond = (min_s, coeff)
+                else:
+                    shop_to_cond[sn] = (min_s, coeff)
+
+            if shop_to_cond or global_cond is not None:
+                pool_by_shop: dict = {
+                    sn: float(v) for sn, v in conn.execute(
+                        'SELECT s.shop_name, COALESCE(SUM(se.commission_amount), 0.0) '
+                        'FROM seller_earnings se JOIN sales s ON se.sale_id = s.id '
+                        'WHERE s.sale_date >= ? AND s.sale_date <= ? GROUP BY s.shop_name',
+                        [start_date, end_date],
+                    ).fetchall()
+                }
+                sellers_by_shop: dict = {
+                    sn: int(cnt) for sn, cnt in conn.execute(
+                        'SELECT shop_name, COUNT(DISTINCT user_id) FROM sales '
+                        'WHERE sale_date >= ? AND sale_date <= ? GROUP BY shop_name',
+                        [start_date, end_date],
+                    ).fetchall()
+                }
+                user_shop_comm: dict = {}
+                user_shops: dict = {}
+                for uid, sn, amt in conn.execute(
+                    f'SELECT se.user_id, s.shop_name, COALESCE(SUM(se.commission_amount), 0.0) '
+                    f'FROM seller_earnings se JOIN sales s ON se.sale_id = s.id '
+                    f'WHERE se.user_id IN ({ph}) AND s.sale_date >= ? AND s.sale_date <= ? '
+                    f'GROUP BY se.user_id, s.shop_name',
+                    uids + [start_date, end_date],
+                ).fetchall():
+                    user_shop_comm[(uid, sn)] = float(amt)
+                    user_shops.setdefault(uid, set()).add(sn)
+
+                for uid in uids:
+                    adj_total = 0.0
+                    for sn in user_shops.get(uid, set()):
+                        cond = shop_to_cond.get(sn) or global_cond
+                        if cond is None:
+                            continue
+                        min_sellers, coefficient = cond
+                        if sellers_by_shop.get(sn, 0) < min_sellers:
+                            continue
+                        base_pool = pool_by_shop.get(sn, 0.0)
+                        joint_total = round(base_pool * coefficient, 2)
+                        user_individual = user_shop_comm.get((uid, sn), 0.0)
+                        adj_total += joint_total - user_individual
+                    if adj_total:
+                        result[uid]['total_earnings'] = round(
+                            result[uid]['total_earnings'] + adj_total, 2
+                        )
+
+            # 5. План-коэффициент: читаем notification_settings всех пользователей
+            #    за 1 запрос, затем вызываем get_plan_motivation_coefficient только
+            #    для тех, у кого plan_coeff_enabled=True (обычно никто или единицы).
+            ns_rows = conn.execute(
+                f'SELECT * FROM notification_settings WHERE user_id IN ({ph})',
+                uids,
+            ).fetchall()
+            for ns_row in ns_rows:
+                uid = ns_row[1]
+                plan_coeff_enabled = bool(ns_row[12]) if len(ns_row) > 12 else False
+                if not plan_coeff_enabled:
+                    continue
+                plan_coeff_cap = bool(ns_row[13]) if len(ns_row) > 13 else True
+                try:
+                    raw_coeff, details = self.get_plan_motivation_coefficient(uid, year, month)
+                    if details:
+                        if plan_coeff_cap:
+                            raw_coeff = min(raw_coeff, 1.0)
+                        result[uid]['total_earnings'] = round(
+                            result[uid]['total_earnings'] * raw_coeff, 2
+                        )
+                        result[uid]['plan_coeff'] = raw_coeff
+                except Exception as _exc:
+                    logger.debug("get_seller_total_earnings_bulk plan_coeff uid=%s: %s", uid, _exc)
+
+        except Exception as exc:
+            logger.error("get_seller_total_earnings_bulk: %s", exc)
+        finally:
+            if conn is not None:
+                conn.close()
+
+        return result
+
     def delete_salary_adjustment(self, adjustment_id, user_id=None):
         """Удалить корректировку по id.
         Если передан user_id — удаляет только если запись принадлежит этому пользователю.
