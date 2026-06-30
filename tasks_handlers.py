@@ -25,7 +25,7 @@ from pagination_utils import page_nav_row
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 from utils import he
-from states import TaskCreateStates, AiTaskCreateStates
+from states import TaskCreateStates, AiTaskCreateStates, TaskEditStates
 from notif_utils import add_read_btn as _add_read_btn_tasks
 
 tasks_router = Router()
@@ -165,6 +165,10 @@ def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
                 callback_data=f"tsk_setstatus_{task['id']}_{next_status}"
             ))
         if is_admin:
+            kb.row(InlineKeyboardButton(
+                text="✏️ Редактировать",
+                callback_data=f"tsk_edit_{task['id']}"
+            ))
             kb.row(InlineKeyboardButton(
                 text="🚫 Отменить задачу",
                 callback_data=f"tsk_setstatus_{task['id']}_cancelled"
@@ -1853,3 +1857,759 @@ async def tsk_ai_cancel(callback: CallbackQuery, state: FSMContext):
     await clear_state_keep_org(state)
     await callback.answer("Отменено")
     await _show_tasks_list(callback, state, page=0)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# РЕДАКТИРОВАНИЕ ЗАДАЧИ (только admin) — FSM-wizard по одному полю
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _task_edit_keyboard(task_id: int) -> InlineKeyboardMarkup:
+    """Меню выбора поля для редактирования задачи."""
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(text="✏️ Название",   callback_data=f"tsk_ed_t_{task_id}"),
+        InlineKeyboardButton(text="📝 Описание",   callback_data=f"tsk_ed_d_{task_id}"),
+    )
+    kb.row(
+        InlineKeyboardButton(text="🎯 Приоритет",  callback_data=f"tsk_ed_p_{task_id}"),
+        InlineKeyboardButton(text="📅 Дедлайн",    callback_data=f"tsk_ed_l_{task_id}"),
+    )
+    kb.row(InlineKeyboardButton(text="👤 Исполнитель", callback_data=f"tsk_ed_w_{task_id}"))
+    kb.row(back_button(f"tsk_view_{task_id}", "⬅️ К задаче"))
+    return kb.as_markup()
+
+
+def _te_prio_kb(task_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(text="🟢 Низкий",  callback_data=f"tsk_ep_{task_id}_low"),
+        InlineKeyboardButton(text="🔵 Обычный", callback_data=f"tsk_ep_{task_id}_normal"),
+    )
+    kb.row(
+        InlineKeyboardButton(text="🟡 Высокий", callback_data=f"tsk_ep_{task_id}_high"),
+        InlineKeyboardButton(text="🔴 Срочно",  callback_data=f"tsk_ep_{task_id}_urgent"),
+    )
+    kb.row(back_button(f"tsk_edit_{task_id}", "⬅️ Назад"))
+    return kb.as_markup()
+
+
+def _te_who_kb(task_id: int, db) -> InlineKeyboardMarkup:
+    """Клавиатура выбора исполнителя для редактирования (task_id в FSM)."""
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="👥 Всей команде", callback_data="tsk_ew_a"))
+    try:
+        conn = _get_sync_db(db).get_connection()
+        shops = conn.execute(
+            "SELECT DISTINCT shop_name FROM users "
+            "WHERE shop_name IS NOT NULL AND shop_name != '' ORDER BY shop_name"
+        ).fetchall()
+        conn.close()
+        for (sh,) in shops[:6]:
+            kb.row(InlineKeyboardButton(
+                text=f"🏪 {sh}",
+                callback_data=safe_cb("tsk_ews_", sh)
+            ))
+    except Exception:
+        pass
+    kb.row(InlineKeyboardButton(text="👤 Конкретный сотрудник", callback_data="tsk_ew_u"))
+    kb.row(InlineKeyboardButton(text="📋 Без назначения",        callback_data="tsk_ew_n"))
+    kb.row(back_button(f"tsk_edit_{task_id}", "⬅️ Назад"))
+    return kb.as_markup()
+
+
+def _te_users_kb(task_id: int, db, page: int = 0) -> InlineKeyboardMarkup:
+    """Список сотрудников для назначения при редактировании."""
+    kb = InlineKeyboardBuilder()
+    try:
+        rows = _get_sync_db(db).get_all_users()
+        PAGE = 8
+        start = page * PAGE
+        chunk = rows[start:start + PAGE]
+        for r in chunk:
+            uid = r[0]
+            name = f"{r[2] or ''} {r[3] or ''}".strip() or (r[12] if len(r) > 12 else None) or f"User#{uid}"
+            shop = f" ({r[8]})" if len(r) > 8 and r[8] else ""
+            kb.row(InlineKeyboardButton(
+                text=f"👤 {name}{shop}",
+                callback_data=f"tsk_eu2_{uid}"
+            ))
+        _tp = max(1, -(-len(rows) // PAGE))
+        nav = page_nav_row("tsk_eup_", page, page > 0, start + PAGE < len(rows), _tp)
+        if nav:
+            kb.row(*nav)
+    except Exception:
+        pass
+    kb.row(back_button(f"tsk_ed_w_{task_id}", "⬅️ Назад"))
+    return kb.as_markup()
+
+
+async def _te_get_my_db_id(db, tg_id: int) -> int | None:
+    """Внутренний id пользователя в org-БД."""
+    try:
+        conn = _get_sync_db(db).get_connection()
+        row = conn.execute("SELECT id FROM users WHERE telegram_id = ?", (tg_id,)).fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+async def _te_notify_assignee(db, task: dict, bot, editor_tg: int,
+                               field_ru: str, new_val_str: str):
+    """Уведомить исполнителя задачи об изменении поля."""
+    assigned_to = task.get('assigned_to')
+    if not assigned_to:
+        return
+    try:
+        conn = _get_sync_db(db).get_connection()
+        row = conn.execute("SELECT telegram_id FROM users WHERE id = ?", (assigned_to,)).fetchone()
+        conn.close()
+        if not row or row[0] == editor_tg:
+            return
+        await bot.send_message(
+            row[0],
+            f"✏️ <b>Задача изменена</b>\n\n"
+            f"<b>{he(task['title'])}</b>\n"
+            f"{field_ru}: {he(new_val_str)}",
+            parse_mode="HTML",
+            reply_markup=_add_read_btn_tasks()
+        )
+    except Exception:
+        pass
+
+
+def _te_done_kb(task_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📋 К задаче", callback_data=f"tsk_view_{task_id}")
+    ]])
+
+
+# ── Точка входа: показать меню редактирования ────────────────────────────────
+
+@tasks_router.callback_query(F.data.startswith("tsk_edit_"))
+async def tsk_edit_entry_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    tg_id = callback.from_user.id
+    if not is_any_admin(tg_id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    task = await db.get_task(task_id)
+    if not task:
+        await callback.answer("Задача не найдена")
+        return
+    await callback.answer()
+    await callback.message.edit_text(
+        f"✏️ <b>Редактирование задачи</b>\n\n"
+        f"<b>{he(task['title'])}</b>\n\n"
+        "Выберите поле для изменения:",
+        parse_mode="HTML",
+        reply_markup=_task_edit_keyboard(task_id)
+    )
+
+
+# ── Редактирование: НАЗВАНИЕ ──────────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data.startswith("tsk_ed_t_"))
+async def tsk_ed_title_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await state.update_data(tsk_edit_task_id=task_id)
+    await state.set_state(TaskEditStates.waiting_title)
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="❌ Отменить", callback_data=f"tsk_edit_{task_id}"))
+    await callback.answer()
+    await callback.message.edit_text(
+        "✏️ <b>Новое название задачи:</b>\n"
+        "<i>Введите название (до 200 символов)</i>",
+        parse_mode="HTML",
+        reply_markup=kb.as_markup()
+    )
+
+
+@tasks_router.message(TaskEditStates.waiting_title)
+async def tsk_ed_title_msg(message: Message, state: FSMContext):
+    data = await state.get_data()
+    task_id = data.get('tsk_edit_task_id')
+    if not task_id:
+        await clear_state_keep_org(state)
+        return
+    new_title = (message.text or "").strip()[:200]
+    if not new_title:
+        await message.answer("⚠️ Название не может быть пустым.")
+        return
+    tg_id = message.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await clear_state_keep_org(state)
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await message.answer("Задача не найдена.")
+            await clear_state_keep_org(state)
+            return
+        my_db_id = await _te_get_my_db_id(db, tg_id)
+        old_title = task['title']
+        await db.update_task(
+            task_id, new_title, task.get('description', ''),
+            task.get('topic_id'), task.get('assigned_to'), task.get('shop_id'),
+            task.get('priority', 'normal'), task.get('deadline'),
+            task.get('assigned_shop') or '', int(task.get('assign_all', False)),
+            task.get('recurrence') or 'none'
+        )
+        try:
+            await db.add_task_history(task_id, my_db_id, 'edit_title', old_title, new_title)
+        except Exception:
+            pass
+        await clear_state_keep_org(state)
+        await message.answer(
+            f"✅ Название обновлено.\n\n<b>{he(new_title)}</b>",
+            parse_mode="HTML",
+            reply_markup=_te_done_kb(task_id)
+        )
+    except Exception as e:
+        logger.error("tsk_ed_title_msg: %s", e)
+        await message.answer("⚠️ Ошибка сохранения.")
+        await clear_state_keep_org(state)
+
+
+# ── Редактирование: ОПИСАНИЕ ──────────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data.startswith("tsk_ed_d_"))
+async def tsk_ed_desc_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await state.update_data(tsk_edit_task_id=task_id)
+    await state.set_state(TaskEditStates.waiting_desc)
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🗑 Очистить описание", callback_data=f"tsk_ed_dc_{task_id}"))
+    kb.row(InlineKeyboardButton(text="❌ Отменить",          callback_data=f"tsk_edit_{task_id}"))
+    await callback.answer()
+    await callback.message.edit_text(
+        "📝 <b>Новое описание задачи:</b>\n"
+        "<i>Введите текст или нажмите «Очистить описание»</i>",
+        parse_mode="HTML",
+        reply_markup=kb.as_markup()
+    )
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_ed_dc_"))
+async def tsk_ed_desc_clear_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await clear_state_keep_org(state)
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        my_db_id = await _te_get_my_db_id(db, tg_id)
+        await db.update_task(
+            task_id, task['title'], '',
+            task.get('topic_id'), task.get('assigned_to'), task.get('shop_id'),
+            task.get('priority', 'normal'), task.get('deadline'),
+            task.get('assigned_shop') or '', int(task.get('assign_all', False)),
+            task.get('recurrence') or 'none'
+        )
+        try:
+            await db.add_task_history(task_id, my_db_id, 'edit_desc', task.get('description', ''), '')
+        except Exception:
+            pass
+        await callback.answer("✅ Описание очищено")
+        await callback.message.edit_text("✅ Описание очищено.", reply_markup=_te_done_kb(task_id))
+    except Exception as e:
+        logger.error("tsk_ed_desc_clear_cb: %s", e)
+        await callback.answer("Ошибка")
+
+
+@tasks_router.message(TaskEditStates.waiting_desc)
+async def tsk_ed_desc_msg(message: Message, state: FSMContext):
+    data = await state.get_data()
+    task_id = data.get('tsk_edit_task_id')
+    if not task_id:
+        await clear_state_keep_org(state)
+        return
+    new_desc = (message.text or "").strip()[:2000]
+    tg_id = message.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await clear_state_keep_org(state)
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await message.answer("Задача не найдена.")
+            await clear_state_keep_org(state)
+            return
+        my_db_id = await _te_get_my_db_id(db, tg_id)
+        await db.update_task(
+            task_id, task['title'], new_desc,
+            task.get('topic_id'), task.get('assigned_to'), task.get('shop_id'),
+            task.get('priority', 'normal'), task.get('deadline'),
+            task.get('assigned_shop') or '', int(task.get('assign_all', False)),
+            task.get('recurrence') or 'none'
+        )
+        try:
+            await db.add_task_history(task_id, my_db_id, 'edit_desc', task.get('description', ''), new_desc)
+        except Exception:
+            pass
+        await clear_state_keep_org(state)
+        await message.answer("✅ Описание обновлено.", reply_markup=_te_done_kb(task_id))
+    except Exception as e:
+        logger.error("tsk_ed_desc_msg: %s", e)
+        await message.answer("⚠️ Ошибка сохранения.")
+        await clear_state_keep_org(state)
+
+
+# ── Редактирование: ПРИОРИТЕТ ─────────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data.startswith("tsk_ed_p_"))
+async def tsk_ed_prio_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.edit_text(
+        "🎯 <b>Выберите новый приоритет:</b>",
+        parse_mode="HTML",
+        reply_markup=_te_prio_kb(task_id)
+    )
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_ep_"))
+async def tsk_ep_cb(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")  # ['tsk', 'ep', '{id}', '{prio}']
+    if len(parts) < 4:
+        await callback.answer("Ошибка данных")
+        return
+    try:
+        task_id = int(parts[2])
+    except ValueError:
+        await callback.answer("Ошибка данных")
+        return
+    new_prio = parts[3]
+    if new_prio not in PRIORITY_LABELS:
+        await callback.answer("Неверный приоритет")
+        return
+    tg_id = callback.from_user.id
+    if not is_any_admin(tg_id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        my_db_id = await _te_get_my_db_id(db, tg_id)
+        old_prio = task.get('priority', 'normal')
+        await db.update_task(
+            task_id, task['title'], task.get('description', ''),
+            task.get('topic_id'), task.get('assigned_to'), task.get('shop_id'),
+            new_prio, task.get('deadline'),
+            task.get('assigned_shop') or '', int(task.get('assign_all', False)),
+            task.get('recurrence') or 'none'
+        )
+        try:
+            await db.add_task_history(task_id, my_db_id, 'edit_priority', old_prio, new_prio)
+        except Exception:
+            pass
+        prio_label = PRIORITY_LABELS.get(new_prio, new_prio)
+        await _te_notify_assignee(db, task, callback.bot, tg_id, "Приоритет", prio_label)
+        await callback.answer(f"✅ {prio_label}")
+        await callback.message.edit_text(
+            f"✅ <b>Приоритет изменён</b>\n\n"
+            f"<b>{he(task['title'])}</b>\n"
+            f"Приоритет: {prio_label}",
+            parse_mode="HTML",
+            reply_markup=_te_done_kb(task_id)
+        )
+    except Exception as e:
+        logger.error("tsk_ep_cb: %s", e)
+        await callback.answer("Ошибка")
+
+
+# ── Редактирование: ДЕДЛАЙН ───────────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data.startswith("tsk_ed_l_"))
+async def tsk_ed_dl_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await state.update_data(tsk_edit_task_id=task_id)
+    await state.set_state(TaskEditStates.waiting_deadline)
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🗑 Убрать дедлайн", callback_data=f"tsk_ed_lc_{task_id}"))
+    kb.row(InlineKeyboardButton(text="❌ Отменить",       callback_data=f"tsk_edit_{task_id}"))
+    await callback.answer()
+    await callback.message.edit_text(
+        "📅 <b>Новый дедлайн:</b>\n"
+        "<i>Форматы: 25.06 / 25.06.2026 / 25.06 14:00 / 25.06.2026 14:00</i>",
+        parse_mode="HTML",
+        reply_markup=kb.as_markup()
+    )
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_ed_lc_"))
+async def tsk_ed_dl_clear_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await clear_state_keep_org(state)
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        my_db_id = await _te_get_my_db_id(db, tg_id)
+        await db.update_task(
+            task_id, task['title'], task.get('description', ''),
+            task.get('topic_id'), task.get('assigned_to'), task.get('shop_id'),
+            task.get('priority', 'normal'), None,
+            task.get('assigned_shop') or '', int(task.get('assign_all', False)),
+            task.get('recurrence') or 'none'
+        )
+        try:
+            await db.add_task_history(task_id, my_db_id, 'edit_deadline', task.get('deadline') or '', '')
+        except Exception:
+            pass
+        await callback.answer("✅ Дедлайн убран")
+        await callback.message.edit_text("✅ Дедлайн убран.", reply_markup=_te_done_kb(task_id))
+    except Exception as e:
+        logger.error("tsk_ed_dl_clear_cb: %s", e)
+        await callback.answer("Ошибка")
+
+
+@tasks_router.message(TaskEditStates.waiting_deadline)
+async def tsk_ed_dl_msg(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    task_id = data.get('tsk_edit_task_id')
+    if not task_id:
+        await clear_state_keep_org(state)
+        return
+    dl_str = _tc_parse_deadline(message.text or "")
+    if dl_str is None:
+        await message.answer(
+            "⚠️ Не могу разобрать дату.\n"
+            "Форматы: <code>25.06</code> / <code>25.06.2026</code> / <code>25.06 14:00</code>",
+            parse_mode="HTML"
+        )
+        return
+    tg_id = message.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await clear_state_keep_org(state)
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await message.answer("Задача не найдена.")
+            await clear_state_keep_org(state)
+            return
+        my_db_id = await _te_get_my_db_id(db, tg_id)
+        old_dl = task.get('deadline') or ''
+        await db.update_task(
+            task_id, task['title'], task.get('description', ''),
+            task.get('topic_id'), task.get('assigned_to'), task.get('shop_id'),
+            task.get('priority', 'normal'), dl_str,
+            task.get('assigned_shop') or '', int(task.get('assign_all', False)),
+            task.get('recurrence') or 'none'
+        )
+        try:
+            await db.add_task_history(task_id, my_db_id, 'edit_deadline', old_dl, dl_str)
+        except Exception:
+            pass
+        await _te_notify_assignee(db, task, bot, tg_id, "Новый дедлайн", dl_str)
+        await clear_state_keep_org(state)
+        await message.answer(
+            f"✅ Дедлайн обновлён: <b>{he(dl_str)}</b>",
+            parse_mode="HTML",
+            reply_markup=_te_done_kb(task_id)
+        )
+    except Exception as e:
+        logger.error("tsk_ed_dl_msg: %s", e)
+        await message.answer("⚠️ Ошибка сохранения.")
+        await clear_state_keep_org(state)
+
+
+# ── Редактирование: ИСПОЛНИТЕЛЬ ───────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data.startswith("tsk_ed_w_"))
+async def tsk_ed_who_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await state.update_data(tsk_edit_task_id=task_id)
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    task = await db.get_task(task_id)
+    if not task:
+        await callback.answer("Задача не найдена")
+        return
+    await callback.answer()
+    await callback.message.edit_text(
+        "👤 <b>Изменить исполнителя:</b>",
+        parse_mode="HTML",
+        reply_markup=_te_who_kb(task_id, db)
+    )
+
+
+@tasks_router.callback_query(F.data == "tsk_ew_a")
+async def tsk_ew_all_cb(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    task_id = data.get('tsk_edit_task_id')
+    if not task_id:
+        await callback.answer("Ошибка сессии: перейдите к задаче заново", show_alert=True)
+        return
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        my_db_id = await _te_get_my_db_id(db, tg_id)
+        await db.update_task(
+            task_id, task['title'], task.get('description', ''),
+            task.get('topic_id'), None, None,
+            task.get('priority', 'normal'), task.get('deadline'),
+            None, 1, task.get('recurrence') or 'none'
+        )
+        try:
+            old = task.get('assigned_name') or task.get('assigned_shop') or '—'
+            await db.add_task_history(task_id, my_db_id, 'edit_assignee', old, 'Вся команда')
+        except Exception:
+            pass
+        await callback.answer("✅ Назначено всей команде")
+        await callback.message.edit_text(
+            "✅ Исполнитель: <b>👥 Вся команда</b>",
+            parse_mode="HTML",
+            reply_markup=_te_done_kb(task_id)
+        )
+    except Exception as e:
+        logger.error("tsk_ew_all_cb: %s", e)
+        await callback.answer("Ошибка")
+
+
+@tasks_router.callback_query(F.data == "tsk_ew_n")
+async def tsk_ew_none_cb(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    task_id = data.get('tsk_edit_task_id')
+    if not task_id:
+        await callback.answer("Ошибка сессии: перейдите к задаче заново", show_alert=True)
+        return
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        my_db_id = await _te_get_my_db_id(db, tg_id)
+        await db.update_task(
+            task_id, task['title'], task.get('description', ''),
+            task.get('topic_id'), None, None,
+            task.get('priority', 'normal'), task.get('deadline'),
+            None, 0, task.get('recurrence') or 'none'
+        )
+        try:
+            old = task.get('assigned_name') or task.get('assigned_shop') or '—'
+            await db.add_task_history(task_id, my_db_id, 'edit_assignee', old, 'Без назначения')
+        except Exception:
+            pass
+        await callback.answer("✅ Назначение снято")
+        await callback.message.edit_text(
+            "✅ Исполнитель: <b>📋 Без назначения</b>",
+            parse_mode="HTML",
+            reply_markup=_te_done_kb(task_id)
+        )
+    except Exception as e:
+        logger.error("tsk_ew_none_cb: %s", e)
+        await callback.answer("Ошибка")
+
+
+@tasks_router.callback_query(F.data == "tsk_ew_u")
+async def tsk_ew_users_cb(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    task_id = data.get('tsk_edit_task_id')
+    if not task_id:
+        await callback.answer("Ошибка сессии", show_alert=True)
+        return
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    await callback.answer()
+    await callback.message.edit_text(
+        "👤 <b>Выберите исполнителя:</b>",
+        parse_mode="HTML",
+        reply_markup=_te_users_kb(task_id, db, page=0)
+    )
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_eup_"))
+async def tsk_eup_cb(callback: CallbackQuery, state: FSMContext):
+    page = int(callback.data.split("_")[-1])
+    data = await state.get_data()
+    task_id = data.get('tsk_edit_task_id')
+    if not task_id:
+        await callback.answer("Ошибка сессии")
+        return
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=_te_users_kb(task_id, db, page=page))
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_eu2_"))
+async def tsk_eu2_cb(callback: CallbackQuery, state: FSMContext):
+    """Выбрать конкретного сотрудника как исполнителя (edit)."""
+    uid = int(callback.data.split("_")[-1])
+    data = await state.get_data()
+    task_id = data.get('tsk_edit_task_id')
+    if not task_id:
+        await callback.answer("Ошибка сессии: перейдите к задаче заново", show_alert=True)
+        return
+    tg_id = callback.from_user.id
+    if not is_any_admin(tg_id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        my_db_id = await _te_get_my_db_id(db, tg_id)
+        conn = _get_sync_db(db).get_connection()
+        row = conn.execute(
+            "SELECT first_name, last_name, username, telegram_id FROM users WHERE id = ?", (uid,)
+        ).fetchone()
+        conn.close()
+        if row:
+            assignee_name = f"{row[0] or ''} {row[1] or ''}".strip() or row[2] or f"User#{uid}"
+            assignee_tg = row[3]
+        else:
+            assignee_name = f"User#{uid}"
+            assignee_tg = None
+        await db.update_task(
+            task_id, task['title'], task.get('description', ''),
+            task.get('topic_id'), uid, None,
+            task.get('priority', 'normal'), task.get('deadline'),
+            None, 0, task.get('recurrence') or 'none'
+        )
+        try:
+            old = task.get('assigned_name') or task.get('assigned_shop') or '—'
+            await db.add_task_history(task_id, my_db_id, 'edit_assignee', old, assignee_name)
+        except Exception:
+            pass
+        if assignee_tg and assignee_tg != tg_id:
+            try:
+                await callback.bot.send_message(
+                    assignee_tg,
+                    f"👤 <b>Вам назначена задача</b>\n\n<b>{he(task['title'])}</b>",
+                    parse_mode="HTML",
+                    reply_markup=_add_read_btn_tasks()
+                )
+            except Exception:
+                pass
+        await callback.answer(f"✅ {assignee_name}")
+        await callback.message.edit_text(
+            f"✅ Исполнитель: <b>{he(assignee_name)}</b>",
+            parse_mode="HTML",
+            reply_markup=_te_done_kb(task_id)
+        )
+    except Exception as e:
+        logger.error("tsk_eu2_cb: %s", e)
+        await callback.answer("Ошибка")
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_ews_"))
+async def tsk_ews_cb(callback: CallbackQuery, state: FSMContext):
+    """Назначить задачу магазину (edit)."""
+    shop_name = resolve_cb_name("tsk_ews_", callback.data)
+    if not shop_name:
+        await callback.answer("Ошибка: имя магазина не найдено", show_alert=True)
+        return
+    data = await state.get_data()
+    task_id = data.get('tsk_edit_task_id')
+    if not task_id:
+        await callback.answer("Ошибка сессии: перейдите к задаче заново", show_alert=True)
+        return
+    tg_id = callback.from_user.id
+    if not is_any_admin(tg_id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        my_db_id = await _te_get_my_db_id(db, tg_id)
+        await db.update_task(
+            task_id, task['title'], task.get('description', ''),
+            task.get('topic_id'), None, None,
+            task.get('priority', 'normal'), task.get('deadline'),
+            shop_name, 0, task.get('recurrence') or 'none'
+        )
+        try:
+            old = task.get('assigned_name') or task.get('assigned_shop') or '—'
+            await db.add_task_history(task_id, my_db_id, 'edit_assignee', old, f"🏪 {shop_name}")
+        except Exception:
+            pass
+        await callback.answer(f"✅ Магазин: {shop_name}")
+        await callback.message.edit_text(
+            f"✅ Исполнитель: <b>🏪 {he(shop_name)}</b>",
+            parse_mode="HTML",
+            reply_markup=_te_done_kb(task_id)
+        )
+    except Exception as e:
+        logger.error("tsk_ews_cb: %s", e)
+        await callback.answer("Ошибка")

@@ -250,6 +250,11 @@ class TaskCreateStates(StatesGroup):
     waiting_desc     = State()
     waiting_deadline = State()
 
+class TaskEditStates(StatesGroup):
+    waiting_title    = State()
+    waiting_desc     = State()
+    waiting_deadline = State()
+
 class AiTaskCreateStates(StatesGroup):
     waiting_goal = State()   # пользователь вводит цель → AI генерирует задачу
     confirming   = State()   # предпросмотр AI-задачи → подтверждение
