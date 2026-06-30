@@ -485,6 +485,16 @@ async def task_take_cb(callback: CallbackQuery, state: FSMContext):
 async def task_view_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
     tg_id = callback.from_user.id
+
+    # ── Gate: модуль tasks_pro ─────────────────────────────────────────────
+    try:
+        from billing_utils import has_module as _hm_gate
+        if not _hm_gate(tg_id, 'tasks_pro'):
+            await callback.answer("Модуль задач не подключён", show_alert=True)
+            return
+    except Exception:
+        pass  # fail-open при ошибке биллинга
+
     db = await get_db(tg_id, state)
     if db is None:
         await callback.answer("Нет активной org")

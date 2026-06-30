@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.319.0"
+CURRENT_VERSION = "1.320.0"
 
 ENTRIES = [
+    {
+        "version": "1.320.0",
+        "date": "30 июня 2026",
+        "items": [
+            "баги точки входа — URL веба и gate модуля",
+        ],
+    },
     {
         "version": "1.319.0",
         "date": "30 июня 2026",
