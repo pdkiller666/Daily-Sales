@@ -790,13 +790,15 @@ async def admin_restore_backup(
         success, message = bm.restore_backup(filename)
         msg = "restored" if success else "restore_error"
     except Exception as exc:
+        import logging as _log
+        _log.error("backup_restore error: %s", exc)
         success = False
-        message = str(exc)
+        message = "Внутренняя ошибка восстановления"
         msg = "restore_error"
     try:
         from web.audit import log_admin_action
         log_admin_action(request, user, "backup_restore",
-                         target=filename, details=f"success={success} msg={message[:120]}")
+                         target=filename, details=f"success={success}")
     except Exception:
         pass
     if not success:

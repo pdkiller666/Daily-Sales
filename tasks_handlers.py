@@ -3225,7 +3225,7 @@ async def tsk_remind_cb(callback: CallbackQuery, state: FSMContext):
         )
         kb.row(
             InlineKeyboardButton(text="⏰ Через 4 часа", callback_data=f"tsk_rmd_{task_id}_240"),
-            InlineKeyboardButton(text="🌅 Завтра утром", callback_data=f"tsk_rmd_{task_id}_1440"),
+            InlineKeyboardButton(text="🌅 Завтра утром", callback_data=f"tsk_rmd_{task_id}_0"),
         )
         kb.row(InlineKeyboardButton(text="✏️ Своё время", callback_data=f"tsk_rmdc_{task_id}"))
         kb.row(back_button(f"tsk_view_{task_id}", "⬅️ К задаче"))
@@ -3275,17 +3275,20 @@ async def tsk_rmd_set_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Нет доступа")
             return
         from datetime import timezone as _tz, timedelta as _td
-        remind_at = (
-            datetime.now(tz=_tz.utc) + _td(minutes=minutes)
-        ).strftime("%Y-%m-%d %H:%M:%S")
-        await db.add_task_reminder(task_id, my_db_id, remind_at)
-        if minutes < 120:
-            when_str = f"через {minutes} мин."
-        elif minutes < 1441:
-            hrs = minutes // 60
-            when_str = f"через {hrs} ч."
+        now_utc = datetime.now(tz=_tz.utc)
+        if minutes == 0:
+            # «Завтра утром» — следующий день в 09:00 UTC
+            tomorrow = (now_utc + _td(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+            remind_at = tomorrow.strftime("%Y-%m-%d %H:%M:%S")
+            when_str = f"завтра в 09:00 UTC"
         else:
-            when_str = "завтра утром"
+            remind_at = (now_utc + _td(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
+            if minutes < 120:
+                when_str = f"через {minutes} мин."
+            else:
+                hrs = minutes // 60
+                when_str = f"через {hrs} ч."
+        await db.add_task_reminder(task_id, my_db_id, remind_at)
         await callback.answer(f"✅ Напомню {when_str}!", show_alert=True)
         await _show_task_after_edit(callback, state, task_id, tg_id)
     except Exception as e:
@@ -3366,12 +3369,15 @@ async def tsk_rmd_custom_msg(message: Message, state: FSMContext):
     if not remind_at:
         m = _re.match(r'^(\d{1,2}):(\d{2})$', raw)
         if m:
-            h, mi = int(m.group(1)), int(m.group(2))
-            candidate = now_utc.replace(hour=h, minute=mi, second=0, microsecond=0)
-            if candidate <= now_utc:
-                candidate += _td(days=1)
-            remind_at = candidate.strftime("%Y-%m-%d %H:%M:%S")
-            when_str = f"в {h:02d}:{mi:02d} UTC"
+            try:
+                h, mi = int(m.group(1)), int(m.group(2))
+                candidate = now_utc.replace(hour=h, minute=mi, second=0, microsecond=0)
+                if candidate <= now_utc:
+                    candidate += _td(days=1)
+                remind_at = candidate.strftime("%Y-%m-%d %H:%M:%S")
+                when_str = f"в {h:02d}:{mi:02d} UTC"
+            except ValueError:
+                pass  # невалидное время (напр. 25:00) → remind_at остаётся None
     # Формат: "дд.мм ЧЧ:ММ"
     if not remind_at:
         m = _re.match(r'^(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})$', raw)
