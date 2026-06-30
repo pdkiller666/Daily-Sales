@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.315.0"
+CURRENT_VERSION = "1.316.0"
 
 ENTRIES = [
+    {
+        "version": "1.316.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Fix error that prevents users from viewing their tasks",
+        ],
+    },
     {
         "version": "1.315.0",
         "date": "30 июня 2026",

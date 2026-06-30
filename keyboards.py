@@ -190,7 +190,6 @@ def analytics_hub_menu(is_admin: bool = False):
     rankings_cb = "rankings_menu" if is_admin else "user_rankings_menu"
     builder = InlineKeyboardBuilder()
     builder.add(
-        InlineKeyboardButton(text="📊 Дашборд", callback_data="dashboard"),
         InlineKeyboardButton(text="📈 Отчёты по продажам", callback_data="reports"),
         InlineKeyboardButton(text="📋 Мои планы", callback_data="my_plans"),
         InlineKeyboardButton(text="🏆 Мои конкурсы", callback_data="my_contests"),
