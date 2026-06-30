@@ -25,7 +25,7 @@ from pagination_utils import page_nav_row
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 from utils import he
-from states import TaskCreateStates, AiTaskCreateStates, TaskEditStates, TaskCommentStates, TaskRateStates
+from states import TaskCreateStates, AiTaskCreateStates, TaskEditStates, TaskCommentStates, TaskRateStates, TaskReminderStates
 from notif_utils import add_read_btn as _add_read_btn_tasks
 
 tasks_router = Router()
@@ -153,7 +153,8 @@ def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0, tg_id: int = 0,
 
 def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
                           my_shop: str | None = None,
-                          comment_count: int = 0) -> InlineKeyboardMarkup:
+                          comment_count: int = 0,
+                          has_subtasks: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     status = task.get('status', 'new')
     assigned_to = task.get('assigned_to')
@@ -207,6 +208,19 @@ def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
                 text=_cl_txt,
                 callback_data=f"tsk_cl_{task['id']}_{_cl['id']}"
             ))
+
+    # ── Подзадачи: кнопка управления в вебе ─────────────────────────────────
+    if has_subtasks:
+        try:
+            from keyboards import _get_web_interface_url as _gwiu_st
+            _wurl_st = _gwiu_st()
+            if _wurl_st:
+                kb.row(InlineKeyboardButton(
+                    text="📎 Управлять подзадачами →",
+                    url=f"{_wurl_st.rstrip('/')}/tasks/{task['id']}"
+                ))
+        except Exception:
+            pass
 
     # ── Напоминание ───────────────────────────────────────────────────────────
     if status not in ('done', 'cancelled') and can_act:
@@ -702,7 +716,8 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
         except Exception:
             comment_count = 0
         kb = _task_detail_keyboard(task, my_db_id, admin, my_shop=my_shop,
-                                    comment_count=comment_count)
+                                    comment_count=comment_count,
+                                    has_subtasks=bool(subtasks))
         await callback.answer()
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception as e:
@@ -2150,7 +2165,8 @@ async def _show_task_after_edit(target, state: FSMContext, task_id: int,
         except Exception:
             _cc = 0
         kb   = _task_detail_keyboard(task, my_db_id2, admin2, my_shop=my_shop2,
-                                     comment_count=_cc)
+                                     comment_count=_cc,
+                                     has_subtasks=bool(_subs))
         if is_msg:
             await target.answer(text, parse_mode="HTML", reply_markup=kb)
         else:
@@ -3211,6 +3227,7 @@ async def tsk_remind_cb(callback: CallbackQuery, state: FSMContext):
             InlineKeyboardButton(text="⏰ Через 4 часа", callback_data=f"tsk_rmd_{task_id}_240"),
             InlineKeyboardButton(text="🌅 Завтра утром", callback_data=f"tsk_rmd_{task_id}_1440"),
         )
+        kb.row(InlineKeyboardButton(text="✏️ Своё время", callback_data=f"tsk_rmdc_{task_id}"))
         kb.row(back_button(f"tsk_view_{task_id}", "⬅️ К задаче"))
         await callback.answer()
         await callback.message.edit_text(
@@ -3246,8 +3263,16 @@ async def tsk_rmd_set_cb(callback: CallbackQuery, state: FSMContext):
     try:
         user = await db.get_user(tg_id)
         my_db_id = user[0] if user else 0
+        my_shop = user[8] if user and len(user) > 8 else None
         if not my_db_id:
             await callback.answer("Пользователь не найден")
+            return
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        if not _can_view_task(task, my_db_id, is_any_admin(tg_id), my_shop):
+            await callback.answer("Нет доступа")
             return
         from datetime import timezone as _tz, timedelta as _td
         remind_at = (
@@ -3266,6 +3291,125 @@ async def tsk_rmd_set_cb(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         logger.error("tsk_rmd_set_cb: %s", e)
         await callback.answer("Ошибка сохранения напоминания")
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_rmdc_"))
+async def tsk_rmdc_cb(callback: CallbackQuery, state: FSMContext):
+    """Запросить своё время напоминания (FSM)."""
+    task_id = int(callback.data.split("_")[-1])
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        user = await db.get_user(tg_id)
+        my_db_id = user[0] if user else 0
+        my_shop = user[8] if user and len(user) > 8 else None
+        if not _can_view_task(task, my_db_id, is_any_admin(tg_id), my_shop):
+            await callback.answer("Нет доступа")
+            return
+        _cur = await state.get_data() or {}
+        await state.set_data({**_cur, 'reminder_task_id': task_id})
+        await state.set_state(TaskReminderStates.waiting_custom_time)
+        kb = InlineKeyboardBuilder()
+        kb.row(back_button(f"tsk_remind_{task_id}", "⬅️ Отмена"))
+        await callback.answer()
+        await callback.message.edit_text(
+            "🔔 <b>Своё время напоминания</b>\n\n"
+            "Введите время одним из форматов:\n"
+            "• <code>через 30м</code> — через 30 минут\n"
+            "• <code>через 3ч</code> — через 3 часа\n"
+            "• <code>15:30</code> — сегодня в 15:30 UTC\n"
+            "• <code>05.07 09:00</code> — 5 июля в 09:00 UTC",
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error("tsk_rmdc_cb: %s", e)
+        await callback.answer("Ошибка")
+
+
+@tasks_router.message(TaskReminderStates.waiting_custom_time)
+async def tsk_rmd_custom_msg(message: Message, state: FSMContext):
+    """Принять пользовательский ввод времени напоминания и сохранить."""
+    import re as _re
+    from datetime import timezone as _tz, timedelta as _td
+    tg_id = message.from_user.id
+    data = await state.get_data()
+    task_id = data.get('reminder_task_id')
+    if not task_id:
+        await clear_state_keep_org(state)
+        return
+    raw = (message.text or '').strip().lower()
+    now_utc = datetime.now(tz=_tz.utc)
+    remind_at = None
+    when_str = ""
+    # Формат: "через Nм" или "через N мин"
+    m = _re.match(r'^через\s+(\d+)\s*м(?:ин)?$', raw)
+    if m:
+        mins = int(m.group(1))
+        remind_at = (now_utc + _td(minutes=mins)).strftime("%Y-%m-%d %H:%M:%S")
+        when_str = f"через {mins} мин."
+    # Формат: "через Nч" или "через N ч"
+    if not remind_at:
+        m = _re.match(r'^через\s+(\d+)\s*ч(?:ас(?:а|ов)?)?$', raw)
+        if m:
+            hrs = int(m.group(1))
+            remind_at = (now_utc + _td(hours=hrs)).strftime("%Y-%m-%d %H:%M:%S")
+            when_str = f"через {hrs} ч."
+    # Формат: "ЧЧ:ММ" — сегодня в это время UTC
+    if not remind_at:
+        m = _re.match(r'^(\d{1,2}):(\d{2})$', raw)
+        if m:
+            h, mi = int(m.group(1)), int(m.group(2))
+            candidate = now_utc.replace(hour=h, minute=mi, second=0, microsecond=0)
+            if candidate <= now_utc:
+                candidate += _td(days=1)
+            remind_at = candidate.strftime("%Y-%m-%d %H:%M:%S")
+            when_str = f"в {h:02d}:{mi:02d} UTC"
+    # Формат: "дд.мм ЧЧ:ММ"
+    if not remind_at:
+        m = _re.match(r'^(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})$', raw)
+        if m:
+            try:
+                day, mon, h, mi = (int(x) for x in m.groups())
+                year = now_utc.year
+                from datetime import datetime as _ddt
+                candidate = _ddt(year, mon, day, h, mi, tzinfo=_tz.utc)
+                if candidate <= now_utc:
+                    candidate = candidate.replace(year=year + 1)
+                remind_at = candidate.strftime("%Y-%m-%d %H:%M:%S")
+                when_str = f"{day:02d}.{mon:02d} {h:02d}:{mi:02d} UTC"
+            except Exception:
+                pass
+    if not remind_at:
+        await message.answer(
+            "⚠️ Не удалось распознать время. Примеры:\n"
+            "<code>через 30м</code> · <code>через 2ч</code> · "
+            "<code>15:30</code> · <code>05.07 09:00</code>",
+            parse_mode="HTML",
+        )
+        return
+    db = await get_db(tg_id, state)
+    if db is None:
+        await clear_state_keep_org(state)
+        return
+    try:
+        user = await db.get_user(tg_id)
+        my_db_id = user[0] if user else 0
+        await db.add_task_reminder(task_id, my_db_id, remind_at)
+        await clear_state_keep_org(state)
+        await message.answer(f"✅ Напомню {when_str}!", parse_mode="HTML")
+        await _show_task_after_edit(message, state, task_id, tg_id, is_msg=True)
+    except Exception as e:
+        logger.error("tsk_rmd_custom_msg: %s", e)
+        await message.answer("⚠️ Ошибка сохранения напоминания.")
+        await clear_state_keep_org(state)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

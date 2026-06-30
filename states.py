@@ -258,6 +258,9 @@ class TaskEditStates(StatesGroup):
 class TaskCommentStates(StatesGroup):
     waiting_text = State()   # пользователь вводит текст комментария
 
+class TaskReminderStates(StatesGroup):
+    waiting_custom_time = State()  # пользователь вводит своё время напоминания
+
 class TaskRateStates(StatesGroup):
     waiting_comment = State()  # опциональный текст-отзыв после выбора звёзд
 
