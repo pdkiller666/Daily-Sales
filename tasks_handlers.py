@@ -2208,9 +2208,6 @@ async def tsk_ed_desc_cb(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_ed_dc_"))
 async def tsk_ed_desc_clear_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
-    if not is_any_admin(callback.from_user.id):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
     await clear_state_keep_org(state)
     tg_id = callback.from_user.id
     db = await get_db(tg_id, state)
@@ -2223,6 +2220,9 @@ async def tsk_ed_desc_clear_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Задача не найдена")
             return
         my_db_id = await _te_get_my_db_id(db, tg_id)
+        if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+            await callback.answer("Нет доступа", show_alert=True)
+            return
         await db.update_task(
             task_id, task['title'], '',
             task.get('topic_id'), task.get('assigned_to'), task.get('shop_id'),
@@ -2322,9 +2322,6 @@ async def tsk_ep_cb(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Неверный приоритет")
         return
     tg_id = callback.from_user.id
-    if not is_any_admin(tg_id):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
     db = await get_db(tg_id, state)
     if db is None:
         await callback.answer("Нет активной org")
@@ -2335,6 +2332,9 @@ async def tsk_ep_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Задача не найдена")
             return
         my_db_id = await _te_get_my_db_id(db, tg_id)
+        if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+            await callback.answer("Нет доступа", show_alert=True)
+            return
         old_prio = task.get('priority', 'normal')
         await db.update_task(
             task_id, task['title'], task.get('description', ''),
@@ -2391,9 +2391,6 @@ async def tsk_ed_dl_cb(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_ed_lc_"))
 async def tsk_ed_dl_clear_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
-    if not is_any_admin(callback.from_user.id):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
     await clear_state_keep_org(state)
     tg_id = callback.from_user.id
     db = await get_db(tg_id, state)
@@ -2406,6 +2403,9 @@ async def tsk_ed_dl_clear_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Задача не найдена")
             return
         my_db_id = await _te_get_my_db_id(db, tg_id)
+        if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+            await callback.answer("Нет доступа", show_alert=True)
+            return
         await db.update_task(
             task_id, task['title'], task.get('description', ''),
             task.get('topic_id'), task.get('assigned_to'), task.get('shop_id'),
@@ -2417,6 +2417,7 @@ async def tsk_ed_dl_clear_cb(callback: CallbackQuery, state: FSMContext):
             await db.add_task_history(task_id, my_db_id, 'edit_deadline', task.get('deadline') or '', '')
         except Exception:
             pass
+        await _te_notify_assignee(db, task, callback.bot, tg_id, "Дедлайн", "убран")
         await callback.answer("✅ Дедлайн убран")
         await _show_task_after_edit(callback, state, task_id, tg_id)
     except Exception as e:
@@ -2618,9 +2619,6 @@ async def tsk_eu2_cb(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Ошибка сессии: перейдите к задаче заново", show_alert=True)
         return
     tg_id = callback.from_user.id
-    if not is_any_admin(tg_id):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
     db = await get_db(tg_id, state)
     if db is None:
         await callback.answer("Нет активной org")
@@ -2631,6 +2629,9 @@ async def tsk_eu2_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Задача не найдена")
             return
         my_db_id = await _te_get_my_db_id(db, tg_id)
+        if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+            await callback.answer("Нет доступа", show_alert=True)
+            return
         conn = _get_sync_db(db).get_connection()
         row = conn.execute(
             "SELECT first_name, last_name, username, telegram_id FROM users WHERE id = ?", (uid,)
@@ -2683,9 +2684,6 @@ async def tsk_ews_cb(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Ошибка сессии: перейдите к задаче заново", show_alert=True)
         return
     tg_id = callback.from_user.id
-    if not is_any_admin(tg_id):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
     db = await get_db(tg_id, state)
     if db is None:
         await callback.answer("Нет активной org")
@@ -2696,6 +2694,9 @@ async def tsk_ews_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Задача не найдена")
             return
         my_db_id = await _te_get_my_db_id(db, tg_id)
+        if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+            await callback.answer("Нет доступа", show_alert=True)
+            return
         await db.update_task(
             task_id, task['title'], task.get('description', ''),
             task.get('topic_id'), None, None,
