@@ -112,9 +112,9 @@ class SQLiteStorage(BaseStorage):
 
     def _sync_set_data(self, key: StorageKey, data: Dict[str, Any]) -> None:
         bot_id, chat_id, user_id, destiny = self._make_key(key)
-        data_str = json.dumps(data, ensure_ascii=False)
         conn = self._get_conn()
         try:
+            data_str = json.dumps(data, ensure_ascii=False, default=str)
             conn.execute("""
                 INSERT INTO fsm_data (bot_id, chat_id, user_id, destiny, data, updated_at)
                 VALUES (?, ?, ?, ?, ?, datetime('now'))
@@ -123,7 +123,7 @@ class SQLiteStorage(BaseStorage):
             """, (bot_id, chat_id, user_id, destiny, data_str))
             conn.commit()
         except Exception as e:
-            logger.error(f"SQLiteStorage.set_data error: {e}")
+            logger.error(f"SQLiteStorage.set_data error: {e}", exc_info=True)
 
     # ── get_data ───────────────────────────────────────────────────────────────
 

@@ -301,7 +301,7 @@ async def _show_tasks_list(target, state: FSMContext, page: int = 0,
     try:
         user = await db.get_user(tg_id)
         my_db_id = user[0] if user else 0
-        my_shop = user[3] if user and len(user) > 3 else None
+        my_shop = user[8] if user and len(user) > 8 else None
         admin = is_any_admin(tg_id)
 
         if status_filter is None:
@@ -334,15 +334,25 @@ async def _show_tasks_list(target, state: FSMContext, page: int = 0,
             await fsm_edit(state, target, text, kb)
         else:
             await target.answer()
-            await target.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+            try:
+                await target.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+            except Exception as _edit_err:
+                _emsg = str(_edit_err).lower()
+                if "message is not modified" in _emsg:
+                    pass  # контент не изменился — ничего не делаем
+                else:
+                    raise
     except Exception as e:
-        logger.error("_show_tasks_list: %s", e)
+        logger.error("_show_tasks_list: %s", e, exc_info=True)
         error_text = "⚠️ Ошибка загрузки задач."
         if isinstance(target, Msg):
             await target.answer(error_text)
         else:
-            await target.answer()
-            await target.message.edit_text(error_text)
+            try:
+                await target.answer()
+                await target.message.edit_text(error_text)
+            except Exception:
+                pass
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

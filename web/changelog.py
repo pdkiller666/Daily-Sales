@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.331.0"
+CURRENT_VERSION = "1.332.0"
 
 ENTRIES = [
+    {
+        "version": "1.332.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Fix errors in task reminders and improve admin backup restore functionality",
+        ],
+    },
     {
         "version": "1.331.0",
         "date": "30 июня 2026",
