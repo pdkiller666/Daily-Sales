@@ -164,11 +164,12 @@ def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
                 text=f"➡️ {next_label}",
                 callback_data=f"tsk_setstatus_{task['id']}_{next_status}"
             ))
-        if is_admin:
+        if is_admin or (my_db_id and task.get('created_by') == my_db_id):
             kb.row(InlineKeyboardButton(
                 text="✏️ Редактировать",
                 callback_data=f"tsk_edit_{task['id']}"
             ))
+        if is_admin:
             kb.row(InlineKeyboardButton(
                 text="🚫 Отменить задачу",
                 callback_data=f"tsk_setstatus_{task['id']}_cancelled"
@@ -1860,8 +1861,94 @@ async def tsk_ai_cancel(callback: CallbackQuery, state: FSMContext):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# РЕДАКТИРОВАНИЕ ЗАДАЧИ (только admin) — FSM-wizard по одному полю
+# РЕДАКТИРОВАНИЕ ЗАДАЧИ (admin или создатель) — FSM-wizard по одному полю
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _can_edit_task(task: dict, my_db_id: int | None, is_admin: bool) -> bool:
+    """Может ли пользователь редактировать задачу (admin или создатель)."""
+    if is_admin:
+        return True
+    return bool(my_db_id and task.get('created_by') == my_db_id)
+
+
+def _build_task_view_text(task: dict) -> str:
+    """Собрать HTML-текст детального вида задачи (переиспользуется после сохранения)."""
+    from datetime import datetime as _dt2, date as _date2
+    title    = task.get('title', '—')
+    desc     = task.get('description', '')
+    status   = STATUS_LABELS.get(task.get('status', ''), task.get('status', ''))
+    priority = PRIORITY_LABELS.get(task.get('priority', ''), task.get('priority', ''))
+    deadline = task.get('deadline', '')
+    dl_str   = ""
+    if deadline:
+        try:
+            has_time = len(deadline) >= 13 and ("T" in deadline or " " in deadline[10:])
+            if has_time:
+                dl_dt2 = _dt2.fromisoformat(deadline[:16].replace("T", " "))
+                overdue = dl_dt2 < _dt2.now() and task.get('status') not in ('done', 'cancelled')
+                dl_str = f"\n📅 Срок: {dl_dt2.strftime('%d.%m.%Y %H:%M')}"
+            else:
+                d2 = _date2.fromisoformat(deadline[:10])
+                overdue = d2 < _date2.today() and task.get('status') not in ('done', 'cancelled')
+                dl_str = f"\n📅 Срок: {d2.strftime('%d.%m.%Y')}"
+            if overdue:
+                dl_str += " ⚠️ Просрочена"
+        except Exception:
+            dl_str = f"\n📅 Срок: {deadline}"
+    assigned_name = task.get('assigned_name', '')
+    creator_name  = task.get('creator_name', '')
+    topic_name    = task.get('topic_name', '')
+    assigned_shop = task.get('assigned_shop', '')
+    assign_all    = task.get('assign_all', False)
+    recurrence    = task.get('recurrence') or ''
+    checklist     = task.get('checklist', [])
+    text = f"📋 <b>{he(title)}</b>\n{status} · {priority}\n"
+    if topic_name:
+        text += f"🏷 {he(topic_name)}\n"
+    if assign_all:
+        text += "👥 Исполнитель: Вся команда\n"
+    elif assigned_shop:
+        text += f"🏪 Магазин: {he(assigned_shop)}\n"
+    elif assigned_name:
+        text += f"👤 Исполнитель: {he(assigned_name)}\n"
+    if creator_name:
+        text += f"✍️ Автор: {he(creator_name)}\n"
+    if recurrence and recurrence not in ('none', ''):
+        text += f"🔁 {RECURRENCE_LABELS.get(recurrence, recurrence)}\n"
+    text += dl_str
+    if desc:
+        text += f"\n\n{he(desc)}"
+    if checklist:
+        lines2 = []
+        for item in checklist:
+            mark2 = "✅" if item.get('is_done') else "☐"
+            lines2.append(f"  {mark2} {he(item.get('text', ''))}")
+        text += "\n\nЧеклист:\n" + "\n".join(lines2)
+    return text
+
+
+async def _show_task_after_edit(target, state: FSMContext, task_id: int,
+                                tg_id: int, is_msg: bool = False):
+    """Показать обновлённый детальный вид задачи после редактирования."""
+    try:
+        db = await get_db(tg_id, state)
+        if db is None:
+            return
+        user = await db.get_user(tg_id)
+        my_db_id2 = user[0] if user else 0
+        my_shop2  = user[8] if user and len(user) > 8 else None
+        admin2    = is_any_admin(tg_id)
+        task = await db.get_task(task_id)
+        if not task:
+            return
+        text = _build_task_view_text(task)
+        kb   = _task_detail_keyboard(task, my_db_id2, admin2, my_shop=my_shop2)
+        if is_msg:
+            await target.answer(text, parse_mode="HTML", reply_markup=kb)
+        else:
+            await target.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception as _sae:
+        logger.error("_show_task_after_edit: %s", _sae)
 
 def _task_edit_keyboard(task_id: int) -> InlineKeyboardMarkup:
     """Меню выбора поля для редактирования задачи."""
@@ -1990,9 +2077,6 @@ def _te_done_kb(task_id: int) -> InlineKeyboardMarkup:
 async def tsk_edit_entry_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
     tg_id = callback.from_user.id
-    if not is_any_admin(tg_id):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
     db = await get_db(tg_id, state)
     if db is None:
         await callback.answer("Нет активной org")
@@ -2000,6 +2084,10 @@ async def tsk_edit_entry_cb(callback: CallbackQuery, state: FSMContext):
     task = await db.get_task(task_id)
     if not task:
         await callback.answer("Задача не найдена")
+        return
+    my_db_id = await _te_get_my_db_id(db, tg_id)
+    if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     await callback.answer()
     await callback.message.edit_text(
@@ -2016,7 +2104,17 @@ async def tsk_edit_entry_cb(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_ed_t_"))
 async def tsk_ed_title_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
-    if not is_any_admin(callback.from_user.id):
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    task = await db.get_task(task_id)
+    if not task:
+        await callback.answer("Задача не найдена")
+        return
+    my_db_id = await _te_get_my_db_id(db, tg_id)
+    if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
         await callback.answer("Нет доступа", show_alert=True)
         return
     await state.update_data(tsk_edit_task_id=task_id)
@@ -2068,11 +2166,7 @@ async def tsk_ed_title_msg(message: Message, state: FSMContext):
         except Exception:
             pass
         await clear_state_keep_org(state)
-        await message.answer(
-            f"✅ Название обновлено.\n\n<b>{he(new_title)}</b>",
-            parse_mode="HTML",
-            reply_markup=_te_done_kb(task_id)
-        )
+        await _show_task_after_edit(message, state, task_id, tg_id, is_msg=True)
     except Exception as e:
         logger.error("tsk_ed_title_msg: %s", e)
         await message.answer("⚠️ Ошибка сохранения.")
@@ -2084,7 +2178,17 @@ async def tsk_ed_title_msg(message: Message, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_ed_d_"))
 async def tsk_ed_desc_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
-    if not is_any_admin(callback.from_user.id):
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    task = await db.get_task(task_id)
+    if not task:
+        await callback.answer("Задача не найдена")
+        return
+    my_db_id = await _te_get_my_db_id(db, tg_id)
+    if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
         await callback.answer("Нет доступа", show_alert=True)
         return
     await state.update_data(tsk_edit_task_id=task_id)
@@ -2131,7 +2235,7 @@ async def tsk_ed_desc_clear_cb(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
         await callback.answer("✅ Описание очищено")
-        await callback.message.edit_text("✅ Описание очищено.", reply_markup=_te_done_kb(task_id))
+        await _show_task_after_edit(callback, state, task_id, tg_id)
     except Exception as e:
         logger.error("tsk_ed_desc_clear_cb: %s", e)
         await callback.answer("Ошибка")
@@ -2169,7 +2273,7 @@ async def tsk_ed_desc_msg(message: Message, state: FSMContext):
         except Exception:
             pass
         await clear_state_keep_org(state)
-        await message.answer("✅ Описание обновлено.", reply_markup=_te_done_kb(task_id))
+        await _show_task_after_edit(message, state, task_id, tg_id, is_msg=True)
     except Exception as e:
         logger.error("tsk_ed_desc_msg: %s", e)
         await message.answer("⚠️ Ошибка сохранения.")
@@ -2181,7 +2285,17 @@ async def tsk_ed_desc_msg(message: Message, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_ed_p_"))
 async def tsk_ed_prio_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
-    if not is_any_admin(callback.from_user.id):
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    task = await db.get_task(task_id)
+    if not task:
+        await callback.answer("Задача не найдена")
+        return
+    my_db_id = await _te_get_my_db_id(db, tg_id)
+    if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
         await callback.answer("Нет доступа", show_alert=True)
         return
     await callback.answer()
@@ -2236,13 +2350,7 @@ async def tsk_ep_cb(callback: CallbackQuery, state: FSMContext):
         prio_label = PRIORITY_LABELS.get(new_prio, new_prio)
         await _te_notify_assignee(db, task, callback.bot, tg_id, "Приоритет", prio_label)
         await callback.answer(f"✅ {prio_label}")
-        await callback.message.edit_text(
-            f"✅ <b>Приоритет изменён</b>\n\n"
-            f"<b>{he(task['title'])}</b>\n"
-            f"Приоритет: {prio_label}",
-            parse_mode="HTML",
-            reply_markup=_te_done_kb(task_id)
-        )
+        await _show_task_after_edit(callback, state, task_id, tg_id)
     except Exception as e:
         logger.error("tsk_ep_cb: %s", e)
         await callback.answer("Ошибка")
@@ -2253,7 +2361,17 @@ async def tsk_ep_cb(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_ed_l_"))
 async def tsk_ed_dl_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
-    if not is_any_admin(callback.from_user.id):
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    task = await db.get_task(task_id)
+    if not task:
+        await callback.answer("Задача не найдена")
+        return
+    my_db_id = await _te_get_my_db_id(db, tg_id)
+    if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
         await callback.answer("Нет доступа", show_alert=True)
         return
     await state.update_data(tsk_edit_task_id=task_id)
@@ -2300,7 +2418,7 @@ async def tsk_ed_dl_clear_cb(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
         await callback.answer("✅ Дедлайн убран")
-        await callback.message.edit_text("✅ Дедлайн убран.", reply_markup=_te_done_kb(task_id))
+        await _show_task_after_edit(callback, state, task_id, tg_id)
     except Exception as e:
         logger.error("tsk_ed_dl_clear_cb: %s", e)
         await callback.answer("Ошибка")
@@ -2347,11 +2465,7 @@ async def tsk_ed_dl_msg(message: Message, state: FSMContext, bot: Bot):
             pass
         await _te_notify_assignee(db, task, bot, tg_id, "Новый дедлайн", dl_str)
         await clear_state_keep_org(state)
-        await message.answer(
-            f"✅ Дедлайн обновлён: <b>{he(dl_str)}</b>",
-            parse_mode="HTML",
-            reply_markup=_te_done_kb(task_id)
-        )
+        await _show_task_after_edit(message, state, task_id, tg_id, is_msg=True)
     except Exception as e:
         logger.error("tsk_ed_dl_msg: %s", e)
         await message.answer("⚠️ Ошибка сохранения.")
@@ -2363,10 +2477,6 @@ async def tsk_ed_dl_msg(message: Message, state: FSMContext, bot: Bot):
 @tasks_router.callback_query(F.data.startswith("tsk_ed_w_"))
 async def tsk_ed_who_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
-    if not is_any_admin(callback.from_user.id):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
-    await state.update_data(tsk_edit_task_id=task_id)
     tg_id = callback.from_user.id
     db = await get_db(tg_id, state)
     if db is None:
@@ -2376,6 +2486,11 @@ async def tsk_ed_who_cb(callback: CallbackQuery, state: FSMContext):
     if not task:
         await callback.answer("Задача не найдена")
         return
+    my_db_id = await _te_get_my_db_id(db, tg_id)
+    if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await state.update_data(tsk_edit_task_id=task_id)
     await callback.answer()
     await callback.message.edit_text(
         "👤 <b>Изменить исполнителя:</b>",
@@ -2414,11 +2529,7 @@ async def tsk_ew_all_cb(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
         await callback.answer("✅ Назначено всей команде")
-        await callback.message.edit_text(
-            "✅ Исполнитель: <b>👥 Вся команда</b>",
-            parse_mode="HTML",
-            reply_markup=_te_done_kb(task_id)
-        )
+        await _show_task_after_edit(callback, state, task_id, tg_id)
     except Exception as e:
         logger.error("tsk_ew_all_cb: %s", e)
         await callback.answer("Ошибка")
@@ -2454,11 +2565,7 @@ async def tsk_ew_none_cb(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
         await callback.answer("✅ Назначение снято")
-        await callback.message.edit_text(
-            "✅ Исполнитель: <b>📋 Без назначения</b>",
-            parse_mode="HTML",
-            reply_markup=_te_done_kb(task_id)
-        )
+        await _show_task_after_edit(callback, state, task_id, tg_id)
     except Exception as e:
         logger.error("tsk_ew_none_cb: %s", e)
         await callback.answer("Ошибка")
@@ -2557,11 +2664,7 @@ async def tsk_eu2_cb(callback: CallbackQuery, state: FSMContext):
             except Exception:
                 pass
         await callback.answer(f"✅ {assignee_name}")
-        await callback.message.edit_text(
-            f"✅ Исполнитель: <b>{he(assignee_name)}</b>",
-            parse_mode="HTML",
-            reply_markup=_te_done_kb(task_id)
-        )
+        await _show_task_after_edit(callback, state, task_id, tg_id)
     except Exception as e:
         logger.error("tsk_eu2_cb: %s", e)
         await callback.answer("Ошибка")
@@ -2605,11 +2708,7 @@ async def tsk_ews_cb(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
         await callback.answer(f"✅ Магазин: {shop_name}")
-        await callback.message.edit_text(
-            f"✅ Исполнитель: <b>🏪 {he(shop_name)}</b>",
-            parse_mode="HTML",
-            reply_markup=_te_done_kb(task_id)
-        )
+        await _show_task_after_edit(callback, state, task_id, tg_id)
     except Exception as e:
         logger.error("tsk_ews_cb: %s", e)
         await callback.answer("Ошибка")

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.321.0"
+CURRENT_VERSION = "1.322.0"
 
 ENTRIES = [
+    {
+        "version": "1.322.0",
+        "date": "30 июня 2026",
+        "items": [
+            "редактирование задачи из бота (FSM-wizard)",
+        ],
+    },
     {
         "version": "1.321.0",
         "date": "30 июня 2026",
