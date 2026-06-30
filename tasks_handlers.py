@@ -182,16 +182,12 @@ async def _show_tasks_list(target, state: FSMContext, page: int = 0):
         return
 
     try:
-        conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)
-        ).fetchone()
-        conn.close()
-        my_db_id = my_row[0] if my_row else 0
-        my_shop = my_row[1] if my_row and len(my_row) > 1 else None
+        user = await db.get_user(tg_id)
+        my_db_id = user[0] if user else 0
+        my_shop = user[3] if user and len(user) > 3 else None
         admin = is_any_admin(tg_id)
 
-        tasks = db.get_tasks(is_admin=admin, my_user_id=my_db_id, my_shop=my_shop)
+        tasks = await db.get_tasks(is_admin=admin, my_user_id=my_db_id, my_shop=my_shop)
         active = [t for t in tasks if t.get('status') not in ('done', 'cancelled')]
 
         if not active:

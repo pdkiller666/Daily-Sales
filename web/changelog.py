@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.314.0"
+CURRENT_VERSION = "1.315.0"
 
 ENTRIES = [
+    {
+        "version": "1.315.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Fix dashboard button not opening by correctly passing callback data",
+        ],
+    },
     {
         "version": "1.314.0",
         "date": "30 июня 2026",
