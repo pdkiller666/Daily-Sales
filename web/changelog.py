@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.316.0"
+CURRENT_VERSION = "1.317.0"
 
 ENTRIES = [
+    {
+        "version": "1.317.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Remove dashboard button and fix task viewing errors",
+        ],
+    },
     {
         "version": "1.316.0",
         "date": "30 июня 2026",

@@ -31,6 +31,19 @@ from notif_utils import add_read_btn as _add_read_btn_tasks
 tasks_router = Router()
 logger = logging.getLogger(__name__)
 
+
+def _get_sync_db(db):
+    """Получить синхронный Database из AsyncDatabase для прямых SQL-запросов.
+
+    AsyncDatabase оборачивает все callable в to_thread — при вызове
+    db.get_connection() без await возвращается coroutine. Этот хелпер
+    достаёт исходный синхронный Database для inline-SQL внутри async-функций.
+    """
+    try:
+        return object.__getattribute__(db, '_db')
+    except AttributeError:
+        return db
+
 STATUS_LABELS = {
     'new':         '🆕 Новая',
     'in_progress': '🔄 В работе',
@@ -284,7 +297,7 @@ async def _show_pool_list(target, state: FSMContext, page: int = 0, already_answ
         pass
 
     try:
-        tasks = db.get_unassigned_tasks()
+        tasks = await db.get_unassigned_tasks()
         if not tasks:
             text = "📬 <b>Пул задач</b>\n\nСвободных задач нет."
         else:
@@ -331,7 +344,7 @@ async def task_pool_view_cb(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        task = db.get_task(task_id)
+        task = await db.get_task(task_id)
         if not task:
             await callback.answer("Задача не найдена или уже взята")
             return
@@ -416,21 +429,19 @@ async def task_take_cb(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id, first_name, last_name, username FROM users WHERE telegram_id = ?", (tg_id,)
-        ).fetchone()
-        conn.close()
-        if not my_row:
+        user = await db.get_user(tg_id)
+        if not user:
             await callback.answer("Пользователь не найден")
             return
-        my_db_id = my_row[0]
-        _display = f"{my_row[1] or ''} {my_row[2] or ''}".strip() or my_row[3] or str(my_db_id)
+        my_db_id = user[0]
+        _display = (f"{user[2] or ''} {user[3] or ''}".strip()
+                    or (user[12] if len(user) > 12 else None)
+                    or str(my_db_id))
 
-        ok = db.self_assign_task(task_id, my_db_id)
+        ok = await db.self_assign_task(task_id, my_db_id)
         if ok:
             try:
-                db.add_task_history(task_id, my_db_id, 'assigned', None, f"Взял в работу: {_display}")
+                await db.add_task_history(task_id, my_db_id, 'assigned', None, f"Взял в работу: {_display}")
             except Exception as _he:
                 logger.error("task_take_cb add_task_history: %s", _he)
             await callback.answer("✅ Задача взята в работу!", show_alert=True)
@@ -455,16 +466,12 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)
-        ).fetchone()
-        conn.close()
-        my_db_id = my_row[0] if my_row else 0
-        my_shop = my_row[1] if my_row and len(my_row) > 1 else None
+        user = await db.get_user(tg_id)
+        my_db_id = user[0] if user else 0
+        my_shop = user[8] if user and len(user) > 8 else None
         admin = is_any_admin(tg_id)
 
-        task = db.get_task(task_id)
+        task = await db.get_task(task_id)
         if not task:
             await callback.answer("Задача не найдена")
             return
@@ -529,7 +536,7 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
 
         if admin and (assign_all or assigned_shop):
             try:
-                completions = db.get_task_user_completions(task_id)
+                completions = await db.get_task_user_completions(task_id)
                 if completions:
                     text += f"\n\n👥 Выполнили ({len(completions)}):\n"
                     for c in completions[:8]:
@@ -577,16 +584,12 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)
-        ).fetchone()
-        conn.close()
-        my_db_id = my_row[0] if my_row else 0
-        my_shop = my_row[1] if my_row and len(my_row) > 1 else None
+        user = await db.get_user(tg_id)
+        my_db_id = user[0] if user else 0
+        my_shop = user[8] if user and len(user) > 8 else None
         admin = is_any_admin(tg_id)
 
-        task = db.get_task(task_id)
+        task = await db.get_task(task_id)
         if not task:
             await callback.answer("Задача не найдена")
             return
@@ -609,10 +612,10 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
                 await callback.answer("Недопустимый переход статуса")
                 return
 
-        db.update_task_status(task_id, new_status)
+        await db.update_task_status(task_id, new_status)
 
         try:
-            db.add_task_history(task_id, my_db_id, 'status', task['status'], new_status)
+            await db.add_task_history(task_id, my_db_id, 'status', task['status'], new_status)
         except Exception:
             pass
 
@@ -627,7 +630,7 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
 
         if new_status in ('done', 'review') and (assign_all or assigned_shop):
             try:
-                db.record_task_user_completion(task_id, my_db_id, new_status)
+                await db.record_task_user_completion(task_id, my_db_id, new_status)
             except Exception:
                 pass
 
@@ -636,14 +639,14 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
                 _new_assigned_to = _spawn_recurring_task(db, task)
                 if _new_assigned_to:
                     try:
-                        _conn_r = db.get_connection()
+                        _conn_r = _get_sync_db(db).get_connection()
                         _r_row = _conn_r.execute(
                             "SELECT telegram_id FROM users WHERE id = ?", (_new_assigned_to,)
                         ).fetchone()
                         _conn_r.close()
                         _r_tg = _r_row[0] if _r_row else None
                         if _r_tg:
-                            db.add_notification_to_history(
+                            await db.add_notification_to_history(
                                 _new_assigned_to, 'task_assigned',
                                 f"🔁 Создана следующая задача: {task['title']}")
                             await callback.bot.send_message(
@@ -669,7 +672,7 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
         creator_id = task.get('created_by')
         if creator_id and creator_id != my_db_id:
             try:
-                db.add_notification_to_history(
+                await db.add_notification_to_history(
                     creator_id, "task_status",
                     f"📋 Задача «{task['title']}»: {status_label}"
                 )
@@ -790,12 +793,10 @@ async def task_attachment_handler(message: Message, state: FSMContext, bot: Bot)
                 f.write(file_data)
 
         tg_id = message.from_user.id
-        conn = db.get_connection()
-        my_row = conn.execute("SELECT id FROM users WHERE telegram_id = ?", (tg_id,)).fetchone()
-        conn.close()
-        my_db_id = my_row[0] if my_row else 0
+        user = await db.get_user(tg_id)
+        my_db_id = user[0] if user else 0
 
-        db.add_task_attachments(task_id, my_db_id, [{
+        await db.add_task_attachments(task_id, my_db_id, [{
             "file_path": dest,
             "file_name": file_name,
             "file_type": file_type,
@@ -837,13 +838,11 @@ async def task_mycomp_cb(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
-        my_row = conn.execute("SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)).fetchone()
-        conn.close()
-        my_db_id = my_row[0] if my_row else 0
-        my_shop = (my_row[1] or '') if my_row else ''
+        user = await db.get_user(tg_id)
+        my_db_id = user[0] if user else 0
+        my_shop = (user[8] or '') if user and len(user) > 8 else ''
 
-        task = db.get_task(task_id)
+        task = await db.get_task(task_id)
         if not task:
             await callback.answer("Задача не найдена")
             return
@@ -855,14 +854,14 @@ async def task_mycomp_cb(callback: CallbackQuery, state: FSMContext):
                 await callback.answer("Эта задача назначена другому магазину", show_alert=True)
                 return
 
-        db.record_task_user_completion(task_id, my_db_id, 'done')
+        await db.record_task_user_completion(task_id, my_db_id, 'done')
 
         # Авто-переход в «На проверку» когда все участники выполнили
         try:
             _assign_all = task.get('assign_all', False)
             _assigned_shop = task.get('assigned_shop', '')
             if (_assign_all or _assigned_shop) and task.get('status') not in ('done', 'cancelled', 'review'):
-                _conn_s = db.get_connection()
+                _conn_s = _get_sync_db(db).get_connection()
                 try:
                     _staff_rows = _conn_s.execute(
                         "SELECT id, shop_name FROM users"
@@ -874,10 +873,10 @@ async def task_mycomp_cb(callback: CallbackQuery, state: FSMContext):
                     else {r[0] for r in _staff_rows if (r[1] or '') == _assigned_shop}
                 )
                 if member_ids:
-                    _comps = db.get_task_user_completions(task_id)
+                    _comps = await db.get_task_user_completions(task_id)
                     if member_ids.issubset({c['user_id'] for c in _comps}):
                         _mc_old = task.get('status', '')
-                        db.update_task_status(task_id, 'review')
+                        await db.update_task_status(task_id, 'review')
                         if _mc_old != 'review':
                             try:
                                 from task_automation import run_rules as _run_rules
@@ -894,7 +893,7 @@ async def task_mycomp_cb(callback: CallbackQuery, state: FSMContext):
         if creator_id and creator_id != my_db_id:
             try:
                 user_name = callback.from_user.first_name or "Сотрудник"
-                db.add_notification_to_history(
+                await db.add_notification_to_history(
                     creator_id, "task_status",
                     f"✅ «{task['title']}» — {user_name} отметил выполнено"
                 )
@@ -936,13 +935,13 @@ async def task_reopen_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Нет доступа")
             return
 
-        task = db.get_task(task_id)
+        task = await db.get_task(task_id)
         if not task:
             await callback.answer("Задача не найдена")
             return
 
         try:
-            _conn_r = db.get_connection()
+            _conn_r = _get_sync_db(db).get_connection()
             _my_row = _conn_r.execute(
                 "SELECT id FROM users WHERE telegram_id = ?", (tg_id,)
             ).fetchone()
@@ -952,10 +951,10 @@ async def task_reopen_cb(callback: CallbackQuery, state: FSMContext):
             my_db_id = None
 
         _ro_old = task.get('status', '')
-        db.update_task_status(task_id, 'in_progress')
+        await db.update_task_status(task_id, 'in_progress')
 
         try:
-            db.add_task_history(task_id, my_db_id, 'status', task['status'], 'in_progress')
+            await db.add_task_history(task_id, my_db_id, 'status', task['status'], 'in_progress')
         except Exception:
             pass
 
@@ -973,7 +972,7 @@ async def task_reopen_cb(callback: CallbackQuery, state: FSMContext):
         _assigned_to = task.get('assigned_to')
         if _assigned_to:
             try:
-                _conn2 = db.get_connection()
+                _conn2 = _get_sync_db(db).get_connection()
                 _ar = _conn2.execute(
                     "SELECT telegram_id FROM users WHERE id = ?", (_assigned_to,)
                 ).fetchone()
@@ -981,7 +980,7 @@ async def task_reopen_cb(callback: CallbackQuery, state: FSMContext):
                 _assignee_tg = _ar[0] if _ar else None
                 if _assignee_tg:
                     try:
-                        db.add_notification_to_history(
+                        await db.add_notification_to_history(
                             _assigned_to, 'task_assigned',
                             f"↩️ Задача возвращена в работу: {task['title']}")
                     except Exception:
@@ -1047,7 +1046,7 @@ def _tc_who_kb(db) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="👥 Всей команде", callback_data="tsk_c_who_all"))
     try:
-        conn = db.get_connection()
+        conn = _get_sync_db(db).get_connection()
         shops = conn.execute(
             "SELECT DISTINCT shop_name FROM users "
             "WHERE shop_name IS NOT NULL AND shop_name != '' ORDER BY shop_name"
@@ -1069,7 +1068,7 @@ def _tc_who_kb(db) -> InlineKeyboardMarkup:
 def _tc_users_kb(db, page: int = 0) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     try:
-        rows = db.get_all_users()
+        rows = _get_sync_db(db).get_all_users()
         PAGE = 8
         start = page * PAGE
         chunk = rows[start:start + PAGE]
@@ -1353,7 +1352,7 @@ async def tsk_c_shop_selected(callback: CallbackQuery, state: FSMContext):
     shop = shop_raw
     if db:
         try:
-            conn = db.get_connection()
+            conn = _get_sync_db(db).get_connection()
             shops = [r[0] for r in conn.execute(
                 "SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''"
             ).fetchall()]
@@ -1383,7 +1382,7 @@ async def tsk_c_user_selected(callback: CallbackQuery, state: FSMContext):
     uname = f"User#{uid}"
     if db:
         try:
-            conn = db.get_connection()
+            conn = _get_sync_db(db).get_connection()
             row = conn.execute(
                 "SELECT first_name, last_name, username FROM users WHERE id = ?", (uid,)
             ).fetchone()
@@ -1533,15 +1532,13 @@ async def tsk_c_ok(callback: CallbackQuery, state: FSMContext):
         assigned_to = data.get('tsk_c_assign_uid')
 
     try:
-        conn = db.get_connection()
-        row = conn.execute("SELECT id FROM users WHERE telegram_id = ?", (tg_id,)).fetchone()
-        conn.close()
-        created_by = row[0] if row else 0
+        user = await db.get_user(tg_id)
+        created_by = user[0] if user else 0
     except Exception:
         created_by = 0
 
     try:
-        task_id = db.create_task(
+        task_id = await db.create_task(
             title=title,
             description=desc,
             created_by=created_by,
@@ -1564,21 +1561,22 @@ async def tsk_c_ok(callback: CallbackQuery, state: FSMContext):
             f"{PRIORITY_LABELS.get(priority, priority)}\n"
             + (f"📅 Срок: {deadline_raw}" if deadline_raw else "")
         )
+        _sdb_notif = _get_sync_db(db)
         if assign_all:
-            conn_all = db.get_connection()
+            conn_all = _sdb_notif.get_connection()
             members = [(r[0], r[1]) for r in conn_all.execute(
                 "SELECT id, telegram_id FROM users WHERE telegram_id IS NOT NULL"
             ).fetchall()]
             conn_all.close()
         elif assigned_shop:
-            conn3 = db.get_connection()
+            conn3 = _sdb_notif.get_connection()
             members = [(r[0], r[1]) for r in conn3.execute(
                 "SELECT id, telegram_id FROM users "
                 "WHERE shop_name = ? AND telegram_id IS NOT NULL", (assigned_shop,)
             ).fetchall()]
             conn3.close()
         elif assigned_to:
-            conn4 = db.get_connection()
+            conn4 = _sdb_notif.get_connection()
             row4 = conn4.execute(
                 "SELECT id, telegram_id FROM users WHERE id = ?", (assigned_to,)
             ).fetchone()
@@ -1597,7 +1595,7 @@ async def tsk_c_ok(callback: CallbackQuery, state: FSMContext):
                 except Exception:
                     pass
                 try:
-                    db.add_notification_to_history(
+                    await db.add_notification_to_history(
                         _uid, 'task_assigned', f"📋 Новая задача: {title}"
                     )
                 except Exception:
@@ -1608,7 +1606,7 @@ async def tsk_c_ok(callback: CallbackQuery, state: FSMContext):
     # Automation rules: task created / assigned
     try:
         from task_automation import run_rules as _run_rules
-        _new_task = db.get_task(task_id) if task_id else None
+        _new_task = await db.get_task(task_id) if task_id else None
         if _new_task:
             _run_rules(db, 'task_created', dict(_new_task), created_by)
             if _new_task.get('assigned_to') or _new_task.get('assigned_shop') or _new_task.get('assign_all'):
@@ -1783,17 +1781,10 @@ async def tsk_ai_ok(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Нет активной org.", show_alert=True)
             await clear_state_keep_org(state)
             return
-        conn = db.get_connection()
-        try:
-            my_row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id=?",
-                (callback.from_user.id,)
-            ).fetchone()
-        finally:
-            conn.close()
-        my_db_id = my_row[0] if my_row else 0
+        user = await db.get_user(callback.from_user.id)
+        my_db_id = user[0] if user else 0
 
-        task_id = db.create_task(
+        task_id = await db.create_task(
             title=title,
             description=description,
             created_by=my_db_id,
@@ -1802,7 +1793,7 @@ async def tsk_ai_ok(callback: CallbackQuery, state: FSMContext):
         # Automation rules: task created
         try:
             from task_automation import run_rules as _run_rules
-            _new_task = db.get_task(task_id) if task_id else None
+            _new_task = await db.get_task(task_id) if task_id else None
             if _new_task:
                 _run_rules(db, 'task_created', dict(_new_task), my_db_id)
         except Exception as _are:
