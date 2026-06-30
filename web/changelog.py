@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.312.0"
+CURRENT_VERSION = "1.313.0"
 
 ENTRIES = [
+    {
+        "version": "1.313.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Add a tasks module button to the main bot menu",
+        ],
+    },
     {
         "version": "1.312.0",
         "date": "30 июня 2026",

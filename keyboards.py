@@ -186,12 +186,15 @@ def team_hub_menu():
 
 
 def analytics_hub_menu(is_admin: bool = False):
-    """Меню аналитики: отчёты + рейтинги"""
+    """Меню аналитики: дашборд + отчёты + планы + конкурсы + рейтинги"""
     rankings_cb = "rankings_menu" if is_admin else "user_rankings_menu"
     builder = InlineKeyboardBuilder()
     builder.add(
-        InlineKeyboardButton(text="📊 Отчёты по продажам", callback_data="reports"),
-        InlineKeyboardButton(text="🏆 Рейтинги", callback_data=rankings_cb),
+        InlineKeyboardButton(text="📊 Дашборд", callback_data="dashboard"),
+        InlineKeyboardButton(text="📈 Отчёты по продажам", callback_data="reports"),
+        InlineKeyboardButton(text="📋 Мои планы", callback_data="my_plans"),
+        InlineKeyboardButton(text="🏆 Мои конкурсы", callback_data="my_contests"),
+        InlineKeyboardButton(text="🥇 Рейтинги", callback_data=rankings_cb),
         back_button("main_menu"),
     )
     builder.adjust(1)

@@ -145,6 +145,61 @@ async def contests_menu(callback: CallbackQuery, state: FSMContext):
     )
 
 
+# ── Просмотр конкурсов для обычного пользователя ─────────────────────────────
+
+@contests_router.callback_query(F.data == "my_contests")
+async def my_contests_cb(callback: CallbackQuery, state: FSMContext):
+    """Активные конкурсы и призовые текущего пользователя (без проверки роли)."""
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    if current_db is None:
+        await callback.message.edit_text("⚠️ Нет активной организации.", parse_mode="HTML")
+        return
+    try:
+        from datetime import date as _dt_c
+        _now_c = _dt_c.today()
+        _ms = _now_c.replace(day=1).isoformat()
+        _me = _now_c.isoformat()
+
+        active = await current_db.get_contests(status='active')
+        _total, _details = await current_db.get_user_contest_rewards_detail(
+            callback.from_user.id, _ms, _me)
+
+        _metric_lbl = {'turnover': 'Оборот', 'quantity': 'Количество'}
+        if not active:
+            text = "🏆 <b>Конкурсы</b>\n\nАктивных конкурсов нет."
+        else:
+            lines = []
+            for c in active:
+                try:
+                    _ds = _dt_c.fromisoformat(c[8][:10]).strftime('%d.%m') if c[8] else '?'
+                    _de = _dt_c.fromisoformat(c[9][:10]).strftime('%d.%m') if c[9] else '?'
+                except Exception:
+                    _ds, _de = '?', '?'
+                lines.append(
+                    f"• <b>{he(c[1] or '—')}</b> ({_ds}–{_de})"
+                    f"\n  📈 {_metric_lbl.get(c[4], c[4] or '?')}"
+                )
+            reward_part = ""
+            if _total > 0:
+                reward_part = f"\n\n💵 <b>Призовые за месяц:</b> {format_price(_total)}₽"
+                for d in _details:
+                    reward_part += f"\n  • {he(d['title'])}: +{format_price(d['reward'])}₽"
+            text = (
+                f"🏆 <b>Активные конкурсы</b> ({len(active)})\n\n"
+                + "\n\n".join(lines)
+                + reward_part
+            )
+        kb = InlineKeyboardBuilder()
+        kb.button(text="🔄 Обновить", callback_data="my_contests")
+        kb.button(text="⬅️ Назад", callback_data="analytics_hub")
+        kb.adjust(1)
+        await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception as e:
+        logger.error("my_contests_cb: %s", e)
+        await callback.message.edit_text("⚠️ Ошибка загрузки конкурсов.")
+
+
 # ── Визард создания конкурса ───────────────────────────────────────────────────
 
 @contests_router.callback_query(F.data == "contest_create")
