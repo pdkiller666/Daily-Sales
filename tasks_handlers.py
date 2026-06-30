@@ -622,11 +622,12 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
         checklist = task.get('checklist', [])
         cl_str = ""
         if checklist:
+            cl_done = sum(1 for i in checklist if i.get('is_done'))
             lines = []
             for item in checklist:
                 mark = "✅" if item.get('is_done') else "☐"
                 lines.append(f"  {mark} {he(item.get('text', ''))}")
-            cl_str = "\n\nЧеклист:\n" + "\n".join(lines)
+            cl_str = f"\n\nЧеклист ({cl_done}/{len(checklist)}):\n" + "\n".join(lines)
 
         text = f"📋 <b>{he(title)}</b>\n{status} · {priority}\n"
         if topic_name:
@@ -1165,7 +1166,15 @@ async def tsk_cl_cb(callback: CallbackQuery, state: FSMContext):
     user = await db.get_user(tg_id)
     my_db_id = user[0] if user else 0
     my_shop = user[8] if user and len(user) > 8 else None
-    if not _can_view_task(task, my_db_id, is_any_admin(tg_id), my_shop):
+    _is_admin_cl = is_any_admin(tg_id)
+    _can_act_cl = (
+        _is_admin_cl
+        or task.get('assigned_to') == my_db_id
+        or bool(task.get('assign_all'))
+        or bool(task.get('assigned_shop') and my_shop
+                and task.get('assigned_shop') == my_shop)
+    )
+    if not _can_act_cl:
         await callback.answer("Нет доступа", show_alert=True)
         return
     try:
@@ -2049,11 +2058,13 @@ def _build_task_view_text(task: dict) -> str:
     if desc:
         text += f"\n\n{he(desc)}"
     if checklist:
+        cl_done2 = sum(1 for i in checklist if i.get('is_done'))
+        cl_total2 = len(checklist)
         lines2 = []
         for item in checklist:
             mark2 = "✅" if item.get('is_done') else "☐"
             lines2.append(f"  {mark2} {he(item.get('text', ''))}")
-        text += "\n\nЧеклист:\n" + "\n".join(lines2)
+        text += f"\n\nЧеклист ({cl_done2}/{cl_total2}):\n" + "\n".join(lines2)
     return text
 
 
