@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.334.0"
+CURRENT_VERSION = "1.335.0"
 
 ENTRIES = [
+    {
+        "version": "1.335.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Update application version and deployment information",
+            "Move Kanban card back to original column without reload",
+        ],
+    },
     {
         "version": "1.334.0",
         "date": "30 июня 2026",

@@ -121,16 +121,17 @@
             <!-- Quick move buttons (visible on hover) -->
             {% if is_admin or t.get('assigned_to') == my_db_id or t.get('assign_all') %}
             <div class="quick-move mt-2 flex flex-wrap gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-              {% if col.key == 'cancelled' %}
-                {% set all_cols = [('in_progress','↩️')] %}
-              {% elif is_admin %}
+              {% if is_admin %}
                 {% set all_cols = [('new','🆕'),('in_progress','🔄'),('review','🔍'),('done','✅'),('cancelled','🚫')] %}
               {% else %}
                 {% set all_cols = [('new','🆕'),('in_progress','🔄'),('review','🔍'),('done','✅')] %}
               {% endif %}
               {% for st_key, st_icon in all_cols %}
-              {% if st_key != col.key %}
+              {# Render a button for every column so client-side moves can offer a move-back option.
+                 The current column's button is hidden; a cancelled card may only return to in_progress. #}
+              {% set _hide = (st_key == col.key) or (col.key == 'cancelled' and st_key != 'in_progress') %}
               <button data-action="moveCard" data-arg="{{ t.id }}" data-arg2="{{ st_key }}"
+                      {% if _hide %}style="display:none"{% endif %}
                       title="{{ status_labels.get(st_key, st_key) }}"
                       class="px-2 py-0.5 text-[11px] rounded-lg border transition-colors
                         {% if st_key == 'done' %}border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-400
@@ -140,7 +141,6 @@
                         {% else %}border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300{% endif %}">
                 {{ st_icon }}
               </button>
-              {% endif %}
               {% endfor %}
             </div>
             {% endif %}
@@ -347,14 +347,19 @@ function relocateCard(taskId, newStatus) {
   card.dataset.status = newStatus;
   targetDrop.prepend(card);
 
-  // Update quick-move buttons visibility
+  // Update quick-move buttons visibility. Render a button for every column
+  // except the card's new one, so the column it just came from is offered again.
+  // A cancelled card may only return to in_progress.
+  const intoCancelled = (newStatus === 'cancelled');
   card.querySelectorAll('button[data-action="moveCard"]').forEach(btn => {
     const btnStatus = btn.getAttribute('data-arg2');
-    if (btnStatus === newStatus) {
-      btn.style.display = 'none';
+    let show;
+    if (intoCancelled) {
+      show = (btnStatus === 'in_progress');
     } else {
-      btn.style.display = '';
+      show = (btnStatus !== newStatus);
     }
+    btn.style.display = show ? '' : 'none';
   });
 
   // Update old column count
