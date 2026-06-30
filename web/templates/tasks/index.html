@@ -252,12 +252,14 @@
 <div class="flex gap-2 mb-5 overflow-x-auto lg:flex-wrap lg:overflow-visible">
   <!-- Status filter -->
   {% set statuses = [('', 'Все'), ('new', '🆕 Новые'), ('in_progress', '🔄 В работе'), ('review', '🔍 На проверке'), ('done', '✅ Выполнены'), ('cancelled', '🚫 Отменены')] %}
+  {% set _st_on = 'bg-indigo-600 text-white border-indigo-600' %}
+  {% set _st_off = 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400' %}
   {% for sv, sl in statuses %}
   {% set _st_url = "/tasks?status=" ~ sv ~ ("&topic_id=" ~ topic_filter if topic_filter else "") ~ ("&assigned_filter=" ~ assigned_filter if assigned_filter else "") ~ ("&q=" ~ (q | urlencode) if q else "") %}
   <a href="{{ _st_url }}"
      hx-get="{{ _st_url }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
-     class="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors
-            {{ 'bg-indigo-600 text-white border-indigo-600' if status_filter == sv else 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400' }}">
+     data-ctl="status" data-val="{{ sv }}" data-on="{{ _st_on }}" data-off="{{ _st_off }}"
+     class="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors {{ _st_on if status_filter == sv else _st_off }}">
     {{ sl }}
   </a>
   {% endfor %}
@@ -267,12 +269,14 @@
 <div class="flex gap-1.5 mb-4 items-center overflow-x-auto lg:flex-wrap lg:overflow-visible">
   <span class="shrink-0 text-[10px] font-semibold text-slate-400 uppercase tracking-wide mr-1">Сортировка:</span>
   {% set sort_opts = [('', 'Авто'), ('deadline', '📅 Дедлайн'), ('priority', '🔥 Приоритет'), ('created', '🕐 Дата'), ('title', 'A-я Название')] %}
+  {% set _so_on = 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-800 dark:border-slate-200' %}
+  {% set _so_off = 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-400 hover:text-slate-700 dark:hover:text-slate-200' %}
   {% for sv, sl in sort_opts %}
   {% set _so_url = "/tasks?" ~ ("status=" ~ status_filter ~ "&" if status_filter else "") ~ ("topic_id=" ~ topic_filter ~ "&" if topic_filter else "") ~ ("assigned_filter=" ~ assigned_filter ~ "&" if assigned_filter else "") ~ ("q=" ~ (q | urlencode) ~ "&" if q else "") ~ ("group=" ~ group ~ "&" if group else "") ~ ("sort=" ~ sv ~ "&" if sv else "") ~ "page=1" %}
   <a href="{{ _so_url }}"
      hx-get="{{ _so_url }}" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
-     class="shrink-0 px-2.5 py-1 text-xs rounded-lg border transition-colors
-            {{ 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-800 dark:border-slate-200' if sort == sv else 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
+     data-ctl="sort" data-val="{{ sv }}" data-on="{{ _so_on }}" data-off="{{ _so_off }}"
+     class="shrink-0 px-2.5 py-1 text-xs rounded-lg border transition-colors {{ _so_on if sort == sv else _so_off }}">
     {{ sl }}
   </a>
   {% endfor %}
@@ -464,9 +468,25 @@
 {% block extra_js %}
 <script nonce="{{ csp_nonce(request) }}">
 // ── HTMX live filters: re-init Alpine on the swapped list region ──────────────
+function _syncTaskCtl(url) {
+  try {
+    var p = new URL(url || window.location.href, window.location.origin).searchParams;
+    document.querySelectorAll('a[data-ctl]').forEach(function (el) {
+      var active = (p.get(el.dataset.ctl) || '') === (el.dataset.val || '');
+      var on = (el.dataset.on || '').split(/\s+/).filter(Boolean);
+      var off = (el.dataset.off || '').split(/\s+/).filter(Boolean);
+      on.concat(off).forEach(function (c) { el.classList.remove(c); });
+      (active ? on : off).forEach(function (c) { el.classList.add(c); });
+    });
+  } catch (_) {}
+}
 document.body.addEventListener('htmx:afterSwap', function (e) {
-  if (e.target && e.target.id === 'task-list-region' && window.Alpine && Alpine.initTree) {
-    try { Alpine.initTree(e.target); } catch (_) {}
+  if (e.target && e.target.id === 'task-list-region') {
+    if (window.Alpine && Alpine.initTree) {
+      try { Alpine.initTree(e.target); } catch (_) {}
+    }
+    var _u = (e.detail && e.detail.xhr && e.detail.xhr.responseURL) || null;
+    _syncTaskCtl(_u);
   }
 });
 
