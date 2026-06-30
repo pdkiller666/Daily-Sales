@@ -47,6 +47,9 @@ JWT супер-админа (telegram_id 921098636 → полный доступ
 Запуск: python3 test_web_smoke.py
 Коды выхода: 0 — все проверки прошли (или браузер недоступен → SKIP);
              1 — хотя бы одна проверка упала.
+SKIP-защита: если выставлен WEB_SMOKE_REQUIRE_BROWSER=1 (деплой/CI ставит его в
+             deploy.sh), отсутствие Chromium/playwright даёт жёсткий провал
+             (exit 1), а не тихий SKIP — регрессия логина не уедет незамеченной.
 
 Подключено к деплою: deploy.sh запускает этот файл перед синхронизацией.
 """
@@ -1318,15 +1321,38 @@ def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret
     return results
 
 
+def _require_browser() -> bool:
+    """В деплой/CI-контексте браузер ОБЯЗАН быть — SKIP запрещён.
+
+    deploy.sh выставляет WEB_SMOKE_REQUIRE_BROWSER=1, поэтому отсутствие
+    Chromium/playwright там приводит к жёсткому провалу (exit 1), а не к тихому
+    SKIP. Локальные/dev-запуски без этого флага по-прежнему могут пропустить
+    браузерные проверки штатно.
+    """
+    return os.environ.get("WEB_SMOKE_REQUIRE_BROWSER", "").strip().lower() \
+        in ("1", "true", "yes", "on")
+
+
 def main() -> int:
+    require_browser = _require_browser()
     chromium = _find_chromium()
     if not chromium:
+        if require_browser:
+            print("❌ Системный Chromium не найден, но WEB_SMOKE_REQUIRE_BROWSER "
+                  "включён — тихий SKIP запрещён в деплой/CI. "
+                  "Установите Chromium (installSystemDependencies('chromium')).")
+            return 1
         print("⚠️  SKIP: системный Chromium не найден "
               "(installSystemDependencies('chromium')). Браузерные тесты пропущены.")
         return 0
     try:
         from playwright.sync_api import sync_playwright  # noqa: F401
     except Exception:
+        if require_browser:
+            print("❌ playwright не установлен, но WEB_SMOKE_REQUIRE_BROWSER "
+                  "включён — тихий SKIP запрещён в деплой/CI. "
+                  "Установите playwright (pip install playwright).")
+            return 1
         print("⚠️  SKIP: playwright не установлен (pip install playwright). "
               "Браузерные тесты пропущены.")
         return 0

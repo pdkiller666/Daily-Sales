@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.338.0"
+CURRENT_VERSION = "1.339.0"
 
 ENTRIES = [
+    {
+        "version": "1.339.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Update task sorting and filtering to show active button states",
+            "Prevent login smoke check from silently passing when browser missing",
+        ],
+    },
     {
         "version": "1.338.0",
         "date": "30 июня 2026",
