@@ -282,6 +282,91 @@ def _recipients_for_target(db, target: str, task: dict) -> list:
 
 
 # ─── action execution ────────────────────────────────────────────────────────
+def _next_recurrence_date(base, recurrence: str):
+    """Следующая дата для повторяющейся задачи (без сторонних зависимостей)."""
+    import calendar
+    if recurrence == 'daily':
+        return base + timedelta(days=1)
+    if recurrence == 'weekly':
+        return base + timedelta(weeks=1)
+    if recurrence == 'monthly':
+        month = base.month + 1
+        year = base.year + (month - 1) // 12
+        month = ((month - 1) % 12) + 1
+        max_day = calendar.monthrange(year, month)[1]
+        return base.replace(year=year, month=month, day=min(base.day, max_day))
+    return None
+
+
+def spawn_recurring_if_done(db, task: dict, old_status: str, new_status: str):
+    """Создать следующую повторяющуюся задачу при переходе задачи в ``done``.
+
+    Единая точка для ВСЕХ путей закрытия (веб-маршрут статуса, канбан, массовое
+    действие, бот, SLA-автоматизация). Идемпотентна: спавн происходит ровно один
+    раз на задачу-источник (атомарный ``claim_recurrence_spawn``) и только на
+    реальном переходе ``old != done && new == done``.
+
+    Возвращает ``assigned_to`` созданной задачи (для уведомления) или ``None``.
+    """
+    from datetime import date
+    if new_status != 'done' or old_status == 'done':
+        return None
+    recurrence = task.get('recurrence') or ''
+    if not recurrence or recurrence in ('none', ''):
+        return None
+
+    task_id = task.get('id')
+    # Идемпотентность: застолбить спавн ровно один раз на задачу-источник.
+    if task_id is not None:
+        try:
+            if not db.claim_recurrence_spawn(task_id):
+                return None
+        except Exception as e:
+            logger.warning("spawn_recurring_if_done claim: %s", e)
+            return None
+
+    old_deadline = task.get('deadline') or ''
+    try:
+        base = date.fromisoformat(old_deadline[:10]) if old_deadline else date.today()
+    except Exception:
+        base = date.today()
+
+    new_date = _next_recurrence_date(base, recurrence)
+    if new_date is None:
+        return None
+
+    if old_deadline and len(old_deadline) >= 13 and ("T" in old_deadline or " " in old_deadline[10:]):
+        new_deadline = new_date.isoformat() + old_deadline[10:16]
+    else:
+        new_deadline = new_date.isoformat()
+
+    checklist_items = None
+    old_checklist = task.get('checklist') or []
+    if old_checklist:
+        checklist_items = [i.get('text', '') for i in old_checklist if i.get('text', '').strip()]
+
+    assigned_to = task.get('assigned_to')
+    try:
+        db.create_task(
+            title=task['title'],
+            description=task.get('description', ''),
+            topic_id=task.get('topic_id'),
+            created_by=task.get('created_by', 0),
+            assigned_to=assigned_to,
+            assigned_shop=task.get('assigned_shop'),
+            assign_all=1 if task.get('assign_all') else 0,
+            priority=task.get('priority', 'normal'),
+            deadline=new_deadline,
+            recurrence=recurrence,
+            checklist=checklist_items,
+        )
+    except Exception as e:
+        logger.error("spawn_recurring_if_done create_task: %s", e)
+        return None
+    logger.info("spawn_recurring_if_done: '%s' → %s", task.get('title'), new_deadline)
+    return assigned_to
+
+
 def _apply_action(db, action: dict, task: dict, rule_name: str) -> str | None:
     """Execute one action. Returns a short summary for history, or None."""
     atype = action.get("type")
@@ -301,13 +386,17 @@ def _apply_action(db, action: dict, task: dict, rule_name: str) -> str | None:
     if atype == "set_status":
         val = action.get("value")
         if val in _STATUSES and val != task.get("status"):
-            db.update_task_status(task_id, val)
             old = task.get("status")
+            db.update_task_status(task_id, val)
             task["status"] = val
             try:
                 db.add_task_history(task_id, None, "status", old, val)
             except Exception:
                 pass
+            try:
+                spawn_recurring_if_done(db, task, old or "", val)
+            except Exception as _re:
+                logger.warning("set_status spawn recurring: %s", _re)
             return f"статус → {val}"
     if atype == "set_priority":
         val = action.get("value")

@@ -1210,6 +1210,64 @@ try:
 except Exception as _e:
     _fn_fail("automation hook coverage", _e)
 
+# ── Повторяющиеся задачи: единый идемпотентный spawn ─────────────────────────
+# Защита от регрессии: следующая повторяющаяся задача создаётся ровно ОДИН раз
+# на задачу-источник (через claim_recurrence_spawn), независимо от пути закрытия
+# (канбан/массово/маршрут статуса/бот/SLA), и только при переходе old!=done→done.
+try:
+    import tempfile as _tf_rc, os as _os_rc, time as _tm_rc
+    from datetime import date as _date_rc
+    import task_automation as _ta_rc
+
+    _tmp_rc = _os_rc.path.join(_tf_rc.gettempdir(), f'tasks_rc_{_tm_rc.time()}.db')
+    _db_rc = Database(_tmp_rc)
+    _db_rc.create_tables()
+
+    def _count_tasks_rc(db):
+        _c = db.get_connection()
+        try:
+            return _c.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+        finally:
+            _c.close()
+
+    _dl_rc = _date_rc.today().isoformat()
+    _src_id_rc = _db_rc.create_task("Повтор ежедневно", created_by=0,
+                                    deadline=_dl_rc, recurrence="daily")
+    assert _src_id_rc, "create_task вернул 0"
+    _task_rc = _db_rc.get_task(_src_id_rc)
+    _before_rc = _count_tasks_rc(_db_rc)
+
+    # (1) реальный переход in_progress→done спавнит ровно один повтор
+    _ta_rc.spawn_recurring_if_done(_db_rc, dict(_task_rc), "in_progress", "done")
+    _after1_rc = _count_tasks_rc(_db_rc)
+    assert _after1_rc == _before_rc + 1, \
+        f"первый spawn должен создать 1 задачу ({_before_rc}→{_after1_rc})"
+
+    # (2) повторный вызов на той же задаче-источнике — без дубля (идемпотентность)
+    _ta_rc.spawn_recurring_if_done(_db_rc, dict(_task_rc), "in_progress", "done")
+    assert _count_tasks_rc(_db_rc) == _after1_rc, \
+        "повторный spawn на том же источнике не должен создавать дубль"
+
+    # (3) не-переход в done (old==done) — ничего не создаёт
+    _src2_rc = _db_rc.create_task("Повтор еженедельно", created_by=0,
+                                  deadline=_dl_rc, recurrence="weekly")
+    _t2_rc = _db_rc.get_task(_src2_rc)
+    _b3_rc = _count_tasks_rc(_db_rc)
+    _ta_rc.spawn_recurring_if_done(_db_rc, dict(_t2_rc), "done", "done")
+    assert _count_tasks_rc(_db_rc) == _b3_rc, "old==done не должен спавнить повтор"
+
+    # (4) задача без recurrence — ничего не создаёт
+    _src3_rc = _db_rc.create_task("Разовая", created_by=0, deadline=_dl_rc)
+    _t3_rc = _db_rc.get_task(_src3_rc)
+    _b4_rc = _count_tasks_rc(_db_rc)
+    _ta_rc.spawn_recurring_if_done(_db_rc, dict(_t3_rc), "in_progress", "done")
+    assert _count_tasks_rc(_db_rc) == _b4_rc, "задача без recurrence не должна спавнить"
+
+    _os_rc.unlink(_tmp_rc)
+    _fn_ok("Повторяющиеся задачи: единый идемпотентный spawn (один повтор на источник)")
+except Exception as _e:
+    _fn_fail("recurring spawn idempotency", _e)
+
 # ── Phase 3 (#61): визуализация — calendar/workload/dependencies агрегации ────
 try:
     import tempfile as _tf_p3, os as _os_p3, time as _tm_p3

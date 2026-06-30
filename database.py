@@ -1409,6 +1409,7 @@ class Database:
         for _col, _def in [('assigned_shop',    'TEXT DEFAULT NULL'),
                             ('assign_all',      'INTEGER DEFAULT 0'),
                             ('recurrence',      'TEXT DEFAULT NULL'),
+                            ('recurrence_spawned', 'INTEGER DEFAULT 0'),
                             ('rating',          'INTEGER DEFAULT NULL'),
                             ('rating_comment',  'TEXT DEFAULT NULL')]:
             try:
@@ -15645,6 +15646,28 @@ class Database:
         except Exception as e:
             logger.error("get_task_reminders_for_user: %s", e)
             return []
+
+    def claim_recurrence_spawn(self, task_id: int) -> bool:
+        """Атомарно «застолбить» спавн следующей повторяющейся задачи.
+
+        Возвращает True ровно один раз для данной задачи-источника. Защищает
+        от двойного создания повтора при закрытии задачи через несколько путей
+        (канбан/массово/маршрут статуса/бот/SLA-автоматизация) или при retry.
+        """
+        try:
+            conn = self.get_connection()
+            try:
+                cur = conn.execute(
+                    "UPDATE tasks SET recurrence_spawned = 1 "
+                    "WHERE id = ? AND COALESCE(recurrence_spawned, 0) = 0",
+                    (task_id,))
+                conn.commit()
+                return cur.rowcount == 1
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("claim_recurrence_spawn: %s", e)
+            return False
 
     def update_task(self, task_id: int, title: str, description: str,
                     topic_id: int | None, assigned_to: int | None,

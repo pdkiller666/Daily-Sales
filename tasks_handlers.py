@@ -702,68 +702,15 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Ошибка изменения статуса")
 
 
-def _next_recurrence_date(base, recurrence: str):
-    """Вернуть следующую дату для повторяющейся задачи без сторонних зависимостей."""
-    from datetime import timedelta
-    import calendar
-    if recurrence == 'daily':
-        return base + timedelta(days=1)
-    if recurrence == 'weekly':
-        return base + timedelta(weeks=1)
-    if recurrence == 'monthly':
-        month = base.month + 1
-        year = base.year + (month - 1) // 12
-        month = ((month - 1) % 12) + 1
-        max_day = calendar.monthrange(year, month)[1]
-        return base.replace(year=year, month=month, day=min(base.day, max_day))
-    return None
-
-
 def _spawn_recurring_task(db, task: dict):
-    """Создать следующую задачу для повторяющейся задачи."""
-    from datetime import date
-    recurrence = task.get('recurrence') or ''
-    if not recurrence or recurrence in ('none', ''):
-        return
+    """Создать следующую задачу для повторяющейся задачи (бот-обёртка).
 
-    old_deadline = task.get('deadline') or ''
-    try:
-        base = date.fromisoformat(old_deadline[:10]) if old_deadline else date.today()
-    except Exception:
-        base = date.today()
-
-    new_date = _next_recurrence_date(base, recurrence)
-    if new_date is None:
-        return
-
-    # Сохраняем время дедлайна если было задано
-    if old_deadline and len(old_deadline) >= 13 and ("T" in old_deadline or " " in old_deadline[10:]):
-        new_deadline = new_date.isoformat() + old_deadline[10:16]
-    else:
-        new_deadline = new_date.isoformat()
-
-    # Копируем пункты чеклиста из исходной задачи
-    checklist_items = None
-    old_checklist = task.get('checklist') or []
-    if old_checklist:
-        checklist_items = [item.get('text', '') for item in old_checklist if item.get('text', '').strip()]
-
-    _assigned_to = task.get('assigned_to')
-    db.create_task(
-        title=task['title'],
-        description=task.get('description', ''),
-        topic_id=task.get('topic_id'),
-        created_by=task.get('created_by', 0),
-        assigned_to=_assigned_to,
-        assigned_shop=task.get('assigned_shop'),
-        assign_all=1 if task.get('assign_all') else 0,
-        priority=task.get('priority', 'normal'),
-        deadline=new_deadline,
-        recurrence=recurrence,
-        checklist=checklist_items,
-    )
-    logger.info("_spawn_recurring_task: '%s' → %s", task['title'], new_deadline)
-    return _assigned_to
+    Делегирует в единый идемпотентный хелпер ``task_automation.spawn_recurring_if_done``,
+    общий для веба, бота и SLA-автоматизации. ``task['status']`` здесь — старый
+    статус (читается до ``update_task_status``), переход — в ``done``.
+    """
+    from task_automation import spawn_recurring_if_done
+    return spawn_recurring_if_done(db, task, task.get('status', ''), 'done')
 
 
 # ── Фото-отчёт: пропустить ────────────────────────────────────────────────────

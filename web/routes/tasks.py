@@ -163,6 +163,41 @@ def _get_user_tg_id(db, user_db_id: int) -> int | None:
         return None
 
 
+def _notify_recurring_spawn(db, assigned_to, title: str) -> None:
+    """Уведомить исполнителя о создании следующей повторяющейся задачи.
+
+    Используется всеми веб-путями закрытия (маршрут статуса, канбан, массовое
+    действие), чтобы поведение было одинаковым независимо от способа закрытия.
+    """
+    if not assigned_to:
+        return
+    try:
+        tg_id = _get_user_tg_id(db, assigned_to)
+        if not tg_id:
+            return
+        try:
+            db.add_notification_to_history(
+                assigned_to, 'task_assigned',
+                f"🔁 Создана следующая задача: {title}")
+        except Exception:
+            pass
+        _send_tg_task_notify(
+            tg_id,
+            f"🔁 <b>Создана следующая задача</b>\n\n<b>{_html.escape(title)}</b>")
+        try:
+            from web.push_utils import send_web_push as _swp
+            import threading as _th
+            _th.Thread(
+                target=_swp,
+                args=(int(tg_id), "🔁 Создана следующая задача", title, "/tasks"),
+                daemon=True,
+            ).start()
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning("_notify_recurring_spawn: %s", e)
+
+
 def _get_staff_list(db) -> list:
     """Список сотрудников org для выбора исполнителя."""
     try:
@@ -1721,6 +1756,14 @@ def tasks_kanban_move(request: Request,
             _run_rules(db, 'status_changed', _ev_task, my_db_id)
         except Exception as _are:
             logger.warning("tasks_kanban_move automation: %s", _are)
+        # Spawn next recurring task when dragged to 'done' (unified + idempotent)
+        try:
+            from task_automation import spawn_recurring_if_done
+            _na = spawn_recurring_if_done(db, task, old_status_kb, status)
+            if _na:
+                _notify_recurring_spawn(db, _na, task['title'])
+        except Exception as _re:
+            logger.warning("tasks_kanban_move spawn recurring: %s", _re)
         return JSONResponse({"ok": True, "new_status": status,
                              "label": STATUS_LABELS[status]})
     except Exception as e:
@@ -2219,6 +2262,14 @@ def tasks_bulk(request: Request, action: str = Form(""),
                             _run_rules(db, 'status_changed', _ev_task, my_db_id)
                         except Exception as _are:
                             logger.warning("tasks_bulk automation: %s", _are)
+                        # Spawn recurring task on bulk close to 'done' (idempotent)
+                        try:
+                            from task_automation import spawn_recurring_if_done
+                            _na = spawn_recurring_if_done(db, dict(_btask), _b_old, new_status)
+                            if _na:
+                                _notify_recurring_spawn(db, _na, dict(_btask).get('title', ''))
+                        except Exception as _re:
+                            logger.warning("tasks_bulk spawn recurring: %s", _re)
                     ok += 1
                 except Exception:
                     pass
@@ -3241,73 +3292,14 @@ def task_change_status(
             except Exception:
                 pass
 
-        # Spawn next recurring task when done
-        if status == 'done':
-            try:
-                import calendar as _cal
-                from datetime import date as _date, timedelta as _td
-                _recurrence = task.get('recurrence') or ''
-                if _recurrence and _recurrence not in ('none', ''):
-                    _old_dl = task.get('deadline') or ''
-                    try:
-                        _base = _date.fromisoformat(_old_dl[:10]) if _old_dl else _date.today()
-                    except Exception:
-                        _base = _date.today()
-                    if _recurrence == 'daily':
-                        _new_date = _base + _td(days=1)
-                    elif _recurrence == 'weekly':
-                        _new_date = _base + _td(weeks=1)
-                    elif _recurrence == 'monthly':
-                        _m = _base.month + 1
-                        _y = _base.year + (_m - 1) // 12
-                        _m = ((_m - 1) % 12) + 1
-                        _md = _cal.monthrange(_y, _m)[1]
-                        _new_date = _base.replace(year=_y, month=_m, day=min(_base.day, _md))
-                    else:
-                        _new_date = None
-                    if _new_date:
-                        if _old_dl and len(_old_dl) >= 13 and ("T" in _old_dl or " " in _old_dl[10:]):
-                            _new_dl = _new_date.isoformat() + _old_dl[10:16]
-                        else:
-                            _new_dl = _new_date.isoformat()
-                        _cl_items = [i.get('text', '') for i in (task.get('checklist') or []) if i.get('text', '').strip()]
-                        _new_assigned_to = task.get('assigned_to')
-                        db.create_task(
-                            title=task['title'], description=task.get('description', ''),
-                            topic_id=task.get('topic_id'), created_by=task.get('created_by', 0),
-                            assigned_to=_new_assigned_to, assigned_shop=task.get('assigned_shop'),
-                            assign_all=1 if task.get('assign_all') else 0,
-                            priority=task.get('priority', 'normal'), deadline=_new_dl,
-                            recurrence=_recurrence,
-                            checklist=_cl_items or None,
-                        )
-                        if _new_assigned_to:
-                            try:
-                                _r_tg = _get_user_tg_id(db, _new_assigned_to)
-                                if _r_tg:
-                                    db.add_notification_to_history(
-                                        _new_assigned_to, 'task_assigned',
-                                        f"🔁 Создана следующая задача: {task['title']}")
-                                    _send_tg_task_notify(
-                                        _r_tg,
-                                        f"🔁 <b>Создана следующая задача</b>\n\n"
-                                        f"<b>{_html.escape(task['title'])}</b>"
-                                    )
-                                    try:
-                                        from web.push_utils import send_web_push as _swp
-                                        import threading as _th
-                                        _th.Thread(
-                                            target=_swp,
-                                            args=(int(_r_tg), "🔁 Создана следующая задача",
-                                                  task['title'], "/tasks"),
-                                            daemon=True
-                                        ).start()
-                                    except Exception:
-                                        pass
-                            except Exception:
-                                pass
-            except Exception as _re:
-                logger.warning("task_change_status spawn recurring: %s", _re)
+        # Spawn next recurring task when entering 'done' (unified + idempotent)
+        try:
+            from task_automation import spawn_recurring_if_done
+            _new_assigned_to = spawn_recurring_if_done(db, task, old_status, status)
+            if _new_assigned_to:
+                _notify_recurring_spawn(db, _new_assigned_to, task['title'])
+        except Exception as _re:
+            logger.warning("task_change_status spawn recurring: %s", _re)
 
         creator_id = task.get("created_by")
         if creator_id and creator_id != my_db_id:
