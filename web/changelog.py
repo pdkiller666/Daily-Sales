@@ -1,6 +1,16 @@
-CURRENT_VERSION = "1.332.0"
+CURRENT_VERSION = "1.333.0"
 
 ENTRIES = [
+    {
+        "version": "1.333.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Fix issues with task filtering, data saving, and message updates",
+            "Improve the mobile view of the task module by analyzing UI",
+            "Мобильный UX страницы /tasks (только шаблоны)",
+            "Make remaining task screens (Kanban, Calendar, Gantt, Templates, Analytics) mobile-friendly",
+        ],
+    },
     {
         "version": "1.332.0",
         "date": "30 июня 2026",

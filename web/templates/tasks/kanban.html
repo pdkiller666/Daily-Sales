@@ -28,7 +28,7 @@
       'done':        'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800',
       'cancelled':   'bg-slate-200 dark:bg-slate-800 border-slate-400 dark:border-slate-600',
     } %}
-    <div class="w-72 flex-shrink-0 flex flex-col"
+    <div class="w-[80vw] max-w-xs sm:w-72 flex-shrink-0 flex flex-col"
          {% if not grouped %}id="col-{{ col.key }}" data-drop-status="{{ col.key }}"{% endif %}
          data-status="{{ col.key }}">
 
@@ -120,7 +120,7 @@
 
             <!-- Quick move buttons (visible on hover) -->
             {% if is_admin or t.get('assigned_to') == my_db_id or t.get('assign_all') %}
-            <div class="quick-move mt-2 flex flex-wrap gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div class="quick-move mt-2 flex flex-wrap gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
               {% if col.key == 'cancelled' %}
                 {% set all_cols = [('in_progress','↩️')] %}
               {% elif is_admin %}
@@ -193,10 +193,10 @@
 {% endif %}
 
 <!-- Filters bar -->
-<div class="flex flex-wrap gap-2 mb-5">
+<div class="flex gap-2 mb-5 overflow-x-auto lg:flex-wrap lg:overflow-visible pb-1">
   {% if topics %}
   <select id="topicFilter" data-change="applyFilters"
-          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          class="shrink-0 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
     <option value="0" {% if not topic_filter %}selected{% endif %}>Все темы</option>
     {% for t in topics %}
     <option value="{{ t.id }}" {% if topic_filter == t.id %}selected{% endif %}>{{ t.name }}</option>
@@ -206,7 +206,7 @@
 
   {% if is_admin and shops_list %}
   <select id="shopFilter" data-change="applyFilters"
-          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          class="shrink-0 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
     <option value="" {% if not shop_filter %}selected{% endif %}>Все магазины</option>
     {% for sh in shops_list %}
     <option value="{{ sh.name | e }}" {% if shop_filter == sh.name %}selected{% endif %}>🏪 {{ sh.name }}</option>
@@ -216,7 +216,7 @@
 
   {% if is_admin and staff_list %}
   <select id="staffFilter" data-change="applyFilters"
-          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          class="shrink-0 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
     <option value="0" {% if not assigned_filter %}selected{% endif %}>Все сотрудники</option>
     {% for s in staff_list %}
     <option value="{{ s.id }}" {% if assigned_filter == s.id %}selected{% endif %}>{{ s.name }}</option>
@@ -225,14 +225,14 @@
   {% endif %}
 
   <select id="groupBy" data-change="applyFilters"
-          class="px-3 py-1.5 text-xs rounded-lg border border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          class="shrink-0 px-3 py-1.5 text-xs rounded-lg border border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
     <option value="none" {% if group_by == 'none' %}selected{% endif %}>Без группировки</option>
     <option value="assignee" {% if group_by == 'assignee' %}selected{% endif %}>↔ По сотруднику</option>
     <option value="priority" {% if group_by == 'priority' %}selected{% endif %}>↔ По приоритету</option>
   </select>
 
   {% if topic_filter or shop_filter or assigned_filter or group_by != 'none' %}
-  <a href="/tasks/kanban" class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-red-600 hover:border-red-300 transition-colors">
+  <a href="/tasks/kanban" class="shrink-0 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-red-600 hover:border-red-300 transition-colors">
     ✕ Сбросить
   </a>
   {% endif %}
