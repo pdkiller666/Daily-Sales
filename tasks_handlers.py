@@ -2153,6 +2153,10 @@ async def tsk_ed_title_msg(message: Message, state: FSMContext):
             await clear_state_keep_org(state)
             return
         my_db_id = await _te_get_my_db_id(db, tg_id)
+        if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+            await message.answer("⚠️ Нет доступа к редактированию.")
+            await clear_state_keep_org(state)
+            return
         old_title = task['title']
         await db.update_task(
             task_id, new_title, task.get('description', ''),
@@ -2261,6 +2265,10 @@ async def tsk_ed_desc_msg(message: Message, state: FSMContext):
             await clear_state_keep_org(state)
             return
         my_db_id = await _te_get_my_db_id(db, tg_id)
+        if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+            await message.answer("⚠️ Нет доступа к редактированию.")
+            await clear_state_keep_org(state)
+            return
         await db.update_task(
             task_id, task['title'], new_desc,
             task.get('topic_id'), task.get('assigned_to'), task.get('shop_id'),
@@ -2452,6 +2460,10 @@ async def tsk_ed_dl_msg(message: Message, state: FSMContext, bot: Bot):
             await clear_state_keep_org(state)
             return
         my_db_id = await _te_get_my_db_id(db, tg_id)
+        if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+            await message.answer("⚠️ Нет доступа к редактированию.")
+            await clear_state_keep_org(state)
+            return
         old_dl = task.get('deadline') or ''
         await db.update_task(
             task_id, task['title'], task.get('description', ''),
@@ -2518,6 +2530,9 @@ async def tsk_ew_all_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Задача не найдена")
             return
         my_db_id = await _te_get_my_db_id(db, tg_id)
+        if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+            await callback.answer("Нет доступа", show_alert=True)
+            return
         await db.update_task(
             task_id, task['title'], task.get('description', ''),
             task.get('topic_id'), None, None,
@@ -2554,6 +2569,9 @@ async def tsk_ew_none_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Задача не найдена")
             return
         my_db_id = await _te_get_my_db_id(db, tg_id)
+        if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
+            await callback.answer("Нет доступа", show_alert=True)
+            return
         await db.update_task(
             task_id, task['title'], task.get('description', ''),
             task.get('topic_id'), None, None,
@@ -2674,10 +2692,7 @@ async def tsk_eu2_cb(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_ews_"))
 async def tsk_ews_cb(callback: CallbackQuery, state: FSMContext):
     """Назначить задачу магазину (edit)."""
-    shop_name = resolve_cb_name("tsk_ews_", callback.data)
-    if not shop_name:
-        await callback.answer("Ошибка: имя магазина не найдено", show_alert=True)
-        return
+    raw_suffix = callback.data[len("tsk_ews_"):]
     data = await state.get_data()
     task_id = data.get('tsk_edit_task_id')
     if not task_id:
@@ -2696,6 +2711,20 @@ async def tsk_ews_cb(callback: CallbackQuery, state: FSMContext):
         my_db_id = await _te_get_my_db_id(db, tg_id)
         if not _can_edit_task(task, my_db_id, is_any_admin(tg_id)):
             await callback.answer("Нет доступа", show_alert=True)
+            return
+        try:
+            conn2 = _get_sync_db(db).get_connection()
+            shops_raw = conn2.execute(
+                "SELECT DISTINCT shop_name FROM users "
+                "WHERE shop_name IS NOT NULL AND shop_name != '' ORDER BY shop_name"
+            ).fetchall()
+            conn2.close()
+            shop_candidates = [sh for (sh,) in shops_raw]
+        except Exception:
+            shop_candidates = []
+        shop_name = resolve_cb_name(raw_suffix, shop_candidates) if shop_candidates else raw_suffix
+        if not shop_name:
+            await callback.answer("Ошибка: магазин не найден", show_alert=True)
             return
         await db.update_task(
             task_id, task['title'], task.get('description', ''),
