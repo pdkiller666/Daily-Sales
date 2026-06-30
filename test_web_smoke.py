@@ -212,6 +212,9 @@ def _seed_data():
     )
 
     # ── Email-кредентиал с включённым TOTP (2FA) ──────────────────────────────
+    # Email-only пользователь: telegram_id=None, поэтому ОБЯЗАТЕЛЕН synthetic_tg_id
+    # (mirrors web/routes/email_auth.py register flow). Без него email_login падает
+    # на guard'е `if not tg_id` ДО ветки 2FA → форма /auth/2fa никогда не появится.
     import pyotp
     totp_secret = pyotp.random_base32()
     pwd_hash_2fa = hash_password(_SMOKE_2FA_PASSWORD)
@@ -219,6 +222,10 @@ def _seed_data():
         email=_SMOKE_2FA_EMAIL,
         password_hash=pwd_hash_2fa,
         telegram_id=None,
+    )
+    synthetic_tg_2fa = -(10_000_000 + cred_id_2fa)
+    shop_db.set_web_synthetic_tg_id(
+        cred_id_2fa, synthetic_tg_2fa, org_db, "Smoke 2FA",
     )
     shop_db.set_web_totp(cred_id_2fa, totp_secret, 1, None)
 

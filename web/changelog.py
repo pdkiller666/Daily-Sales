@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.337.0"
+CURRENT_VERSION = "1.338.0"
 
 ENTRIES = [
+    {
+        "version": "1.338.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Update task sorting and filtering to show active button states",
+            "Fix failing 2FA TOTP smoke check (test seeding bug)",
+        ],
+    },
     {
         "version": "1.337.0",
         "date": "30 июня 2026",
