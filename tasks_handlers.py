@@ -25,7 +25,7 @@ from pagination_utils import page_nav_row
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 from utils import he
-from states import TaskCreateStates, AiTaskCreateStates, TaskEditStates
+from states import TaskCreateStates, AiTaskCreateStates, TaskEditStates, TaskCommentStates
 from notif_utils import add_read_btn as _add_read_btn_tasks
 
 tasks_router = Router()
@@ -137,7 +137,8 @@ def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0, tg_id: int = 0) 
 
 
 def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
-                          my_shop: str | None = None) -> InlineKeyboardMarkup:
+                          my_shop: str | None = None,
+                          comment_count: int = 0) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     status = task.get('status', 'new')
     assigned_to = task.get('assigned_to')
@@ -181,6 +182,10 @@ def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
                 callback_data=f"tsk_reopen_{task['id']}"
             ))
 
+    kb.row(InlineKeyboardButton(
+        text=f"💬 Комментарии ({comment_count})",
+        callback_data=f"tsk_cmts_{task['id']}_0"
+    ))
     kb.row(back_button("tsk_list_0", "⬅️ К списку"))
     kb.row(home_button())
     return kb.as_markup()
@@ -584,7 +589,12 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
             except Exception:
                 pass
 
-        kb = _task_detail_keyboard(task, my_db_id, admin, my_shop=my_shop)
+        try:
+            comment_count = await db.get_task_comment_count(task_id)
+        except Exception:
+            comment_count = 0
+        kb = _task_detail_keyboard(task, my_db_id, admin, my_shop=my_shop,
+                                    comment_count=comment_count)
         await callback.answer()
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception as e:
@@ -2742,3 +2752,200 @@ async def tsk_ews_cb(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         logger.error("tsk_ews_cb: %s", e)
         await callback.answer("Ошибка")
+
+
+# ── Комментарии к задаче ──────────────────────────────────────────────────────
+
+_CMTS_PAGE = 10
+
+
+async def _show_task_comments(target, state: FSMContext, task_id: int,
+                               tg_id: int, page: int = 0):
+    """Показать список комментариев задачи с пагинацией."""
+    from aiogram.types import Message as _Msg
+    db = await get_db(tg_id, state)
+    if db is None:
+        try:
+            await target.answer("Нет активной org")
+        except Exception:
+            pass
+        return
+    try:
+        comments = await db.get_task_comments(task_id)
+        task = await db.get_task(task_id)
+        task_title = task['title'] if task else f"#{task_id}"
+
+        total = len(comments)
+        start = page * _CMTS_PAGE
+        page_items = comments[start:start + _CMTS_PAGE]
+
+        if total == 0:
+            body = "<i>Комментариев пока нет.</i>"
+        else:
+            parts = []
+            for c in page_items:
+                parts.append(
+                    f"<b>{he(c['author_name'])}</b> · {c['created_at_fmt']}\n"
+                    f"{he(c['text'])}"
+                )
+            body = "\n\n".join(parts)
+
+        header = f"💬 <b>Комментарии ({total})</b>\n<b>{he(task_title)}</b>\n\n"
+        text = header + body
+
+        kb = InlineKeyboardBuilder()
+        kb.row(InlineKeyboardButton(
+            text="✍️ Написать комментарий",
+            callback_data=f"tsk_cmt_add_{task_id}"
+        ))
+
+        total_pages = max(1, (total + _CMTS_PAGE - 1) // _CMTS_PAGE)
+        if total_pages > 1:
+            nav = []
+            if page > 0:
+                nav.append(InlineKeyboardButton(
+                    text="◀️", callback_data=f"tsk_cmts_{task_id}_{page - 1}"
+                ))
+            nav.append(InlineKeyboardButton(
+                text=f"{page + 1}/{total_pages}", callback_data="tsk_cmts_noop"
+            ))
+            if page < total_pages - 1:
+                nav.append(InlineKeyboardButton(
+                    text="▶️", callback_data=f"tsk_cmts_{task_id}_{page + 1}"
+                ))
+            kb.row(*nav)
+
+        kb.row(back_button(f"tsk_view_{task_id}", "⬅️ К задаче"))
+        kb.row(home_button())
+        markup = kb.as_markup()
+
+        if isinstance(target, _Msg):
+            await target.answer(text, parse_mode="HTML", reply_markup=markup)
+        else:
+            await target.answer()
+            await target.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+    except Exception as e:
+        logger.error("_show_task_comments: %s", e)
+        try:
+            await target.answer("Ошибка загрузки комментариев")
+        except Exception:
+            pass
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_cmts_"))
+async def tsk_cmts_cb(callback: CallbackQuery, state: FSMContext):
+    """Показать список комментариев (с пагинацией)."""
+    if callback.data == "tsk_cmts_noop":
+        await callback.answer()
+        return
+    parts = callback.data.split("_")
+    try:
+        task_id = int(parts[2])
+        page = int(parts[3]) if len(parts) > 3 else 0
+    except (ValueError, IndexError):
+        await callback.answer("Ошибка формата")
+        return
+    tg_id = callback.from_user.id
+    await _show_task_comments(callback, state, task_id, tg_id, page)
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_cmt_add_"))
+async def tsk_cmt_add_cb(callback: CallbackQuery, state: FSMContext):
+    """Войти в FSM для написания комментария."""
+    try:
+        task_id = int(callback.data.split("_")[-1])
+    except ValueError:
+        await callback.answer("Ошибка формата")
+        return
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    task = await db.get_task(task_id)
+    if not task:
+        await callback.answer("Задача не найдена")
+        return
+    await state.update_data(tsk_comment_task_id=task_id)
+    await state.set_state(TaskCommentStates.waiting_text)
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(
+        text="❌ Отменить",
+        callback_data=f"tsk_cmts_{task_id}_0"
+    ))
+    await callback.answer()
+    await callback.message.edit_text(
+        f"✍️ <b>Новый комментарий</b>\n\n"
+        f"<b>{he(task['title'])}</b>\n\n"
+        "Введите текст комментария:",
+        parse_mode="HTML",
+        reply_markup=kb.as_markup()
+    )
+
+
+@tasks_router.message(TaskCommentStates.waiting_text)
+async def tsk_cmt_text_msg(message: Message, state: FSMContext, bot: Bot):
+    """Сохранить комментарий и уведомить участников задачи."""
+    data = await state.get_data()
+    task_id = data.get('tsk_comment_task_id')
+    if not task_id:
+        await clear_state_keep_org(state)
+        return
+    text = (message.text or "").strip()[:2000]
+    if not text:
+        await message.answer("⚠️ Комментарий не может быть пустым.")
+        return
+    tg_id = message.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await clear_state_keep_org(state)
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await message.answer("Задача не найдена.")
+            await clear_state_keep_org(state)
+            return
+        my_db_id = await _te_get_my_db_id(db, tg_id)
+        await db.add_task_comment(task_id, my_db_id or 0, text)
+        # ── Уведомления участникам ────────────────────────────────────────────
+        try:
+            conn = _get_sync_db(db).get_connection()
+            notify_ids = set()
+            created_by = task.get('created_by')
+            assigned_to = task.get('assigned_to')
+            for uid in (created_by, assigned_to):
+                if uid:
+                    row = conn.execute(
+                        "SELECT telegram_id FROM users WHERE id = ?", (uid,)
+                    ).fetchone()
+                    if row and row[0] and row[0] != tg_id:
+                        notify_ids.add(row[0])
+            conn.close()
+            notif_text = (
+                f"💬 <b>Новый комментарий</b>\n\n"
+                f"<b>{he(task['title'])}</b>\n\n"
+                f"{he(text)}"
+            )
+            for ntg in notify_ids:
+                try:
+                    await bot.send_message(
+                        ntg, notif_text,
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                            InlineKeyboardButton(
+                                text="📋 К задаче",
+                                callback_data=f"tsk_view_{task_id}"
+                            )
+                        ]])
+                    )
+                except Exception:
+                    pass
+        except Exception as ne:
+            logger.error("tsk_cmt_text_msg notify: %s", ne)
+        await clear_state_keep_org(state)
+        await _show_task_comments(message, state, task_id, tg_id, page=0)
+    except Exception as e:
+        logger.error("tsk_cmt_text_msg: %s", e)
+        await message.answer("⚠️ Ошибка сохранения.")
+        await clear_state_keep_org(state)

@@ -15972,6 +15972,19 @@ class Database:
             logger.error("get_task_comments: %s", e)
             return []
 
+    def get_task_comment_count(self, task_id: int) -> int:
+        """Количество комментариев к задаче (быстрый COUNT)."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT COUNT(*) FROM task_comments WHERE task_id = ?", (task_id,)
+            ).fetchone()
+            conn.close()
+            return row[0] if row else 0
+        except Exception as e:
+            logger.error("get_task_comment_count: %s", e)
+            return 0
+
     def add_task_attachments(self, task_id: int, user_id: int, files: list) -> int:
         """Добавить вложения к задаче. Возвращает количество сохранённых файлов."""
         if not files:
