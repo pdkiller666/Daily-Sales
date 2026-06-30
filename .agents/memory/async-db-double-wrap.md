@@ -29,6 +29,13 @@ billing `check_*_limit`, raw-sqlite readers taking `db.db_file`), NOT
 AsyncDatabase methods. `main.py` jobs use `shop_bot_db` (a plain `Database`),
 so `to_thread` there is correct.
 
-**History:** found and removed across commission/products/sales/inventory
-handlers (31 sites total) in June 2026 after the "Таргетированные правила"
-button broke.
+**`db.get_connection()` in async context:** `__getattr__` wraps EVERY callable,
+including `get_connection`. Calling `db.get_connection()` in an async handler
+returns a coroutine, not a connection. Fix: use `_get_sync_db(db).get_connection()`
+where direct SQL is needed (sync helper defined in tasks_handlers.py after `logger`).
+
+**tasks_handlers.py audit (2026-06-30):** All 20+ unawait'd calls fixed:
+create_task, get_task, update_task_status, add_task_history, record_task_user_completion,
+self_assign_task, get_task_user_completions, add_task_attachments, add_notification_to_history,
+get_unassigned_tasks. The `_get_sync_db(db)` helper extracts the underlying sync
+`Database` from an `AsyncDatabase` for sync connection access in async functions.

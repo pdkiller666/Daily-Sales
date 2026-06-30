@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.317.0"
+CURRENT_VERSION = "1.318.0"
 
 ENTRIES = [
+    {
+        "version": "1.318.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Update task handling to properly await asynchronous database operations",
+        ],
+    },
     {
         "version": "1.317.0",
         "date": "30 июня 2026",
