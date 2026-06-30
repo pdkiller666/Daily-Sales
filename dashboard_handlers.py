@@ -1121,7 +1121,7 @@ async def _render_dashboard(callback: CallbackQuery, state: FSMContext,
         except Exception:
             pass
 
-    await safe_edit_message(callback.message, text, parse_mode="HTML",
+    await safe_edit_message(callback, text, parse_mode="HTML",
                             reply_markup=_dashboard_period_kb(period, plans_page, total_plan_pages,
                                                               web_btn=_web_btn))
 

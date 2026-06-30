@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.313.0"
+CURRENT_VERSION = "1.314.0"
 
 ENTRIES = [
+    {
+        "version": "1.314.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Add new sections to the user profile and analytics menus",
+        ],
+    },
     {
         "version": "1.313.0",
         "date": "30 июня 2026",
