@@ -90,7 +90,8 @@ def _fmt_task_line(t: dict) -> str:
     return f"{status} {title}{dl}"
 
 
-def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0, tg_id: int = 0) -> InlineKeyboardMarkup:
+def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0, tg_id: int = 0,
+                    status_filter: str = 'active') -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     page_size = 5
     start = page * page_size
@@ -106,6 +107,20 @@ def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0, tg_id: int = 0) 
     nav_row = page_nav_row("tsk_page_", page, page > 0, end < len(tasks), _total_pages)
     if nav_row:
         kb.row(*nav_row)
+    # ── Фильтр по статусу ─────────────────────────────────────────────────────
+    _filter_tabs = [
+        ('active', '📋 Активные'),
+        ('done',   '✅ Завершённые'),
+        ('all',    '📂 Все'),
+    ]
+    _tab_row = []
+    for _fk, _fl in _filter_tabs:
+        _pfx = '› ' if _fk == status_filter else ''
+        _tab_row.append(InlineKeyboardButton(
+            text=f"{_pfx}{_fl}",
+            callback_data=f"tsk_filter_{_fk}"
+        ))
+    kb.row(*_tab_row)
     if is_admin:
         try:
             from billing_utils import has_module as _hm, has_extension as _he
@@ -182,6 +197,29 @@ def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
                 callback_data=f"tsk_reopen_{task['id']}"
             ))
 
+    # ── Чеклист (toggle-кнопки) ───────────────────────────────────────────────
+    checklist = task.get('checklist', [])
+    if checklist and (can_act or is_admin) and status not in ('done', 'cancelled'):
+        for _cl in checklist[:10]:
+            _cl_mark = "✅" if _cl.get('is_done') else "☐"
+            _cl_txt = f"{_cl_mark} {_cl.get('text', '')[:40]}"
+            kb.row(InlineKeyboardButton(
+                text=_cl_txt,
+                callback_data=f"tsk_cl_{task['id']}_{_cl['id']}"
+            ))
+
+    # ── Ссылка на задачу в вебе ───────────────────────────────────────────────
+    try:
+        from keyboards import _get_web_interface_url as _gwiu_td
+        _wurl = _gwiu_td()
+        if _wurl:
+            kb.row(InlineKeyboardButton(
+                text="🔗 В вебе",
+                url=f"{_wurl.rstrip('/')}/tasks/{task['id']}"
+            ))
+    except Exception:
+        pass
+
     kb.row(InlineKeyboardButton(
         text=f"💬 Комментарии ({comment_count})",
         callback_data=f"tsk_cmts_{task['id']}_0"
@@ -191,7 +229,8 @@ def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
     return kb.as_markup()
 
 
-async def _show_tasks_list(target, state: FSMContext, page: int = 0):
+async def _show_tasks_list(target, state: FSMContext, page: int = 0,
+                           status_filter: str | None = None):
     """Показать список задач. target — Message или CallbackQuery."""
     from aiogram.types import Message as Msg
     tg_id = target.from_user.id
@@ -235,16 +274,31 @@ async def _show_tasks_list(target, state: FSMContext, page: int = 0):
         my_shop = user[3] if user and len(user) > 3 else None
         admin = is_any_admin(tg_id)
 
+        if status_filter is None:
+            _fdata = await state.get_data()
+            status_filter = _fdata.get('tsk_status_filter', 'active')
+
         tasks = await db.get_tasks(is_admin=admin, my_user_id=my_db_id, my_shop=my_shop)
-        active = [t for t in tasks if t.get('status') not in ('done', 'cancelled')]
-
-        if not active:
-            text = "📋 <b>Задачи</b>\n\nАктивных задач нет."
+        if status_filter == 'done':
+            filtered = [t for t in tasks if t.get('status') in ('done', 'cancelled')]
+        elif status_filter == 'all':
+            filtered = tasks
         else:
-            text = f"📋 <b>Мои задачи</b>\n<i>Всего активных: {len(active)}</i>"
+            filtered = [t for t in tasks if t.get('status') not in ('done', 'cancelled')]
+            status_filter = 'active'
 
-        kb = _tasks_keyboard(active, admin, page, tg_id=tg_id)
-        await state.update_data(tsk_list=active, tsk_page=page, tsk_my_db_id=my_db_id)
+        _filter_label = {'active': 'активных', 'done': 'завершённых', 'all': 'всего'}
+        if not filtered:
+            _empty = 'Активных задач нет.' if status_filter == 'active' else 'Задач нет.'
+            text = f"📋 <b>Задачи</b>\n\n{_empty}"
+        else:
+            _title = 'Мои задачи' if status_filter == 'active' else 'Задачи'
+            text = (f"📋 <b>{_title}</b>\n"
+                    f"<i>Всего {_filter_label.get(status_filter, '')}: {len(filtered)}</i>")
+
+        kb = _tasks_keyboard(filtered, admin, page, tg_id=tg_id, status_filter=status_filter)
+        await state.update_data(tsk_list=filtered, tsk_page=page, tsk_my_db_id=my_db_id,
+                                tsk_status_filter=status_filter)
 
         if isinstance(target, Msg):
             await fsm_edit(state, target, text, kb)
@@ -275,6 +329,19 @@ async def tasks_page_cb(callback: CallbackQuery, state: FSMContext):
     page = int(callback.data.split("_")[-1])
     await callback.answer()
     await _show_tasks_list(callback, state, page=page)
+
+
+# ── Фильтр по статусу ─────────────────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data.startswith("tsk_filter_"))
+async def tsk_filter_cb(callback: CallbackQuery, state: FSMContext):
+    """Переключить фильтр списка задач (active / done / all)."""
+    sf = callback.data.split("_")[-1]
+    if sf not in ('active', 'done', 'all'):
+        await callback.answer()
+        return
+    await state.update_data(tsk_status_filter=sf)
+    await _show_tasks_list(callback, state, page=0, status_filter=sf)
 
 
 # ── Пул задач ────────────────────────────────────────────────────────────────
@@ -1072,6 +1139,43 @@ async def tasks_list_cb(callback: CallbackQuery, state: FSMContext):
     page = int(callback.data.split("_")[-1])
     await callback.answer()
     await _show_tasks_list(callback, state, page=page)
+
+
+# ── Toggle пункта чеклиста ────────────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data.startswith("tsk_cl_"))
+async def tsk_cl_cb(callback: CallbackQuery, state: FSMContext):
+    """Переключить пункт чеклиста и обновить экран задачи."""
+    parts = callback.data.split("_")
+    try:
+        task_id = int(parts[2])
+        item_id = int(parts[3])
+    except (ValueError, IndexError):
+        await callback.answer("Ошибка формата")
+        return
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    task = await db.get_task(task_id)
+    if not task:
+        await callback.answer("Задача не найдена")
+        return
+    user = await db.get_user(tg_id)
+    my_db_id = user[0] if user else 0
+    my_shop = user[8] if user and len(user) > 8 else None
+    if not _can_view_task(task, my_db_id, is_any_admin(tg_id), my_shop):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    try:
+        await db.toggle_task_checklist_item(item_id, my_db_id)
+    except Exception as _tce:
+        logger.error("tsk_cl_cb toggle: %s", _tce)
+        await callback.answer("Ошибка обновления")
+        return
+    await callback.answer()
+    await _show_task_after_edit(callback, state, task_id, tg_id)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1968,7 +2072,12 @@ async def _show_task_after_edit(target, state: FSMContext, task_id: int,
         if not task:
             return
         text = _build_task_view_text(task)
-        kb   = _task_detail_keyboard(task, my_db_id2, admin2, my_shop=my_shop2)
+        try:
+            _cc = await db.get_task_comment_count(task_id)
+        except Exception:
+            _cc = 0
+        kb   = _task_detail_keyboard(task, my_db_id2, admin2, my_shop=my_shop2,
+                                     comment_count=_cc)
         if is_msg:
             await target.answer(text, parse_mode="HTML", reply_markup=kb)
         else:
