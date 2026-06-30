@@ -348,9 +348,8 @@ function relocateCard(taskId, newStatus) {
   targetDrop.prepend(card);
 
   // Update quick-move buttons visibility
-  card.querySelectorAll('button[onclick]').forEach(btn => {
-    const onclickAttr = btn.getAttribute('onclick');
-    const btnStatus = onclickAttr.match(/'(\w+)'/)?.[1];
+  card.querySelectorAll('button[data-action="moveCard"]').forEach(btn => {
+    const btnStatus = btn.getAttribute('data-arg2');
     if (btnStatus === newStatus) {
       btn.style.display = 'none';
     } else {

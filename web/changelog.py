@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.333.0"
+CURRENT_VERSION = "1.334.0"
 
 ENTRIES = [
+    {
+        "version": "1.334.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Update application and its static assets with new versioning",
+            "Fix stale quick-move button toggle after moving a Kanban card",
+        ],
+    },
     {
         "version": "1.333.0",
         "date": "30 июня 2026",
