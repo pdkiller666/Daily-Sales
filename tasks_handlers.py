@@ -124,12 +124,13 @@ def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0, tg_id: int = 0) 
     if _pool_ok:
         kb.row(InlineKeyboardButton(text="📬 Пул задач", callback_data="task_pool"))
     try:
-        from bot_holder import get_username as _get_uname
-        _un = _get_uname() or ""
-        _web_url = f"https://t.me/{_un}" if _un else None
+        from keyboards import _get_web_interface_url
+        _web_url = _get_web_interface_url()
+        if _web_url:
+            _web_url = _web_url.rstrip("/") + "/tasks"
     except Exception:
         _web_url = None
-    if is_admin and _web_url:
+    if _web_url:
         kb.row(InlineKeyboardButton(text="🌐 Открыть в веб", url=_web_url))
     kb.row(home_button())
     return kb.as_markup()
@@ -184,6 +185,30 @@ async def _show_tasks_list(target, state: FSMContext, page: int = 0):
     """Показать список задач. target — Message или CallbackQuery."""
     from aiogram.types import Message as Msg
     tg_id = target.from_user.id
+
+    # ── Gate: модуль tasks_pro ─────────────────────────────────────────────
+    try:
+        from billing_utils import has_module as _hm_gate
+        if not _hm_gate(tg_id, 'tasks_pro'):
+            _no_access = (
+                "📋 <b>Задачи</b>\n\n"
+                "Модуль задач не подключён.\n"
+                "Обратитесь к владельцу организации для активации."
+            )
+            from aiogram.utils.keyboard import InlineKeyboardBuilder as _IKB
+            _kb = _IKB()
+            _kb.row(home_button())
+            if isinstance(target, Msg):
+                await target.answer(_no_access, parse_mode="HTML",
+                                    reply_markup=_kb.as_markup())
+            else:
+                await target.answer()
+                await target.message.edit_text(_no_access, parse_mode="HTML",
+                                               reply_markup=_kb.as_markup())
+            return
+    except Exception:
+        pass  # при ошибке биллинга — пропускаем (fail-open)
+
     db = await get_db(tg_id, state)
     if db is None:
         text = "⚠️ Нет активной организации."

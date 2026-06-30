@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.318.0"
+CURRENT_VERSION = "1.319.0"
 
 ENTRIES = [
+    {
+        "version": "1.319.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Improve task creation form layout for smaller screens",
+            "Update task module screenshots for better documentation",
+        ],
+    },
     {
         "version": "1.318.0",
         "date": "30 июня 2026",
