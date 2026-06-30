@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.325.0"
+CURRENT_VERSION = "1.326.0"
 
 ENTRIES = [
+    {
+        "version": "1.326.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Комментарии к задаче в боте",
+        ],
+    },
     {
         "version": "1.325.0",
         "date": "30 июня 2026",

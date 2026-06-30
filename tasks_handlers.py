@@ -1881,6 +1881,22 @@ def _can_edit_task(task: dict, my_db_id: int | None, is_admin: bool) -> bool:
     return bool(my_db_id and task.get('created_by') == my_db_id)
 
 
+def _can_view_task(task: dict, my_db_id: int | None, is_admin: bool,
+                   my_shop: str | None = None) -> bool:
+    """Может ли пользователь видеть задачу и её комментарии."""
+    if is_admin:
+        return True
+    if not my_db_id:
+        return False
+    return (
+        task.get('created_by') == my_db_id
+        or task.get('assigned_to') == my_db_id
+        or bool(task.get('assign_all'))
+        or bool(task.get('assigned_shop') and my_shop
+                and task.get('assigned_shop') == my_shop)
+    )
+
+
 def _build_task_view_text(task: dict) -> str:
     """Собрать HTML-текст детального вида задачи (переиспользуется после сохранения)."""
     from datetime import datetime as _dt2, date as _date2
@@ -2775,6 +2791,8 @@ async def _show_task_comments(target, state: FSMContext, task_id: int,
         task = await db.get_task(task_id)
         task_title = task['title'] if task else f"#{task_id}"
 
+        # Newest first
+        comments = list(reversed(comments))
         total = len(comments)
         start = page * _CMTS_PAGE
         page_items = comments[start:start + _CMTS_PAGE]
@@ -2834,10 +2852,11 @@ async def _show_task_comments(target, state: FSMContext, task_id: int,
 
 @tasks_router.callback_query(F.data.startswith("tsk_cmts_"))
 async def tsk_cmts_cb(callback: CallbackQuery, state: FSMContext):
-    """Показать список комментариев (с пагинацией)."""
+    """Показать список комментариев (с пагинацией). Сбрасывает FSM-state."""
     if callback.data == "tsk_cmts_noop":
         await callback.answer()
         return
+    await clear_state_keep_org(state)
     parts = callback.data.split("_")
     try:
         task_id = int(parts[2])
@@ -2846,6 +2865,20 @@ async def tsk_cmts_cb(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Ошибка формата")
         return
     tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    task = await db.get_task(task_id)
+    if not task:
+        await callback.answer("Задача не найдена")
+        return
+    user = await db.get_user(tg_id)
+    my_db_id = user[0] if user else 0
+    my_shop = user[8] if user and len(user) > 8 else None
+    if not _can_view_task(task, my_db_id, is_any_admin(tg_id), my_shop):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
     await _show_task_comments(callback, state, task_id, tg_id, page)
 
 
@@ -2865,6 +2898,12 @@ async def tsk_cmt_add_cb(callback: CallbackQuery, state: FSMContext):
     task = await db.get_task(task_id)
     if not task:
         await callback.answer("Задача не найдена")
+        return
+    user = await db.get_user(tg_id)
+    my_db_id = user[0] if user else 0
+    my_shop = user[8] if user and len(user) > 8 else None
+    if not _can_view_task(task, my_db_id, is_any_admin(tg_id), my_shop):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     await state.update_data(tsk_comment_task_id=task_id)
     await state.set_state(TaskCommentStates.waiting_text)
@@ -2906,7 +2945,13 @@ async def tsk_cmt_text_msg(message: Message, state: FSMContext, bot: Bot):
             await message.answer("Задача не найдена.")
             await clear_state_keep_org(state)
             return
-        my_db_id = await _te_get_my_db_id(db, tg_id)
+        user = await db.get_user(tg_id)
+        my_db_id = user[0] if user else 0
+        my_shop = user[8] if user and len(user) > 8 else None
+        if not _can_view_task(task, my_db_id, is_any_admin(tg_id), my_shop):
+            await message.answer("⚠️ Нет доступа к задаче.")
+            await clear_state_keep_org(state)
+            return
         await db.add_task_comment(task_id, my_db_id or 0, text)
         # ── Уведомления участникам ────────────────────────────────────────────
         try:
