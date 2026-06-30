@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.328.0"
+CURRENT_VERSION = "1.329.0"
 
 ENTRIES = [
+    {
+        "version": "1.329.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Чеклист-toggle, фильтр по статусу, прямая ссылка (+ code review fixes)",
+        ],
+    },
     {
         "version": "1.328.0",
         "date": "30 июня 2026",

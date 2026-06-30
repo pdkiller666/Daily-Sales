@@ -25,7 +25,7 @@ from pagination_utils import page_nav_row
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 from utils import he
-from states import TaskCreateStates, AiTaskCreateStates, TaskEditStates, TaskCommentStates
+from states import TaskCreateStates, AiTaskCreateStates, TaskEditStates, TaskCommentStates, TaskRateStates
 from notif_utils import add_read_btn as _add_read_btn_tasks
 
 tasks_router = Router()
@@ -207,6 +207,22 @@ def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
                 text=_cl_txt,
                 callback_data=f"tsk_cl_{task['id']}_{_cl['id']}"
             ))
+
+    # ── Напоминание ───────────────────────────────────────────────────────────
+    if status not in ('done', 'cancelled') and can_act:
+        kb.row(InlineKeyboardButton(
+            text="🔔 Напомнить",
+            callback_data=f"tsk_remind_{task['id']}"
+        ))
+
+    # ── Оценка (только admin, только после завершения) ────────────────────────
+    if status == 'done' and is_admin:
+        existing_rating = task.get('rating')
+        if existing_rating:
+            _lbl = f"{'⭐' * existing_rating} Изменить оценку"
+        else:
+            _lbl = "⭐ Оценить задачу"
+        kb.row(InlineKeyboardButton(text=_lbl, callback_data=f"tsk_ratepick_{task['id']}"))
 
     # ── Ссылка на задачу в вебе ───────────────────────────────────────────────
     try:
@@ -656,6 +672,30 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
                         text += f"  ✅ {he(c['name'])}\n"
             except Exception:
                 pass
+
+        # ── Подзадачи ──────────────────────────────────────────────────────────
+        try:
+            subtasks = await db.get_subtasks(task_id)
+            if subtasks:
+                _st_done = sum(1 for s in subtasks if s.get('status') == 'done')
+                _st_total = len(subtasks)
+                text += f"\n\n📎 <b>Подзадачи ({_st_total})</b>: {_st_done} выполнено\n"
+                _ST_ICON = {'new': '🆕', 'in_progress': '▶️', 'done': '✅', 'cancelled': '🚫'}
+                for _s in subtasks[:5]:
+                    _ico = _ST_ICON.get(_s.get('status', 'new'), '•')
+                    text += f"  {_ico} {he(_s.get('title', '—'))}\n"
+                if _st_total > 5:
+                    text += f"  <i>+ ещё {_st_total - 5}</i>\n"
+        except Exception as _ste:
+            logger.error("task_view_cb subtasks: %s", _ste)
+
+        # ── Оценка ─────────────────────────────────────────────────────────────
+        _rating = task.get('rating')
+        if _rating:
+            _rc = task.get('rating_comment', '') or ''
+            text += f"\n\n⭐ <b>Оценка: {'⭐' * _rating} ({_rating}/5)</b>"
+            if _rc:
+                text += f"\n<i>{he(_rc)}</i>"
 
         try:
             comment_count = await db.get_task_comment_count(task_id)
@@ -2010,7 +2050,7 @@ def _can_view_task(task: dict, my_db_id: int | None, is_admin: bool,
     )
 
 
-def _build_task_view_text(task: dict) -> str:
+def _build_task_view_text(task: dict, subtasks: list | None = None) -> str:
     """Собрать HTML-текст детального вида задачи (переиспользуется после сохранения)."""
     from datetime import datetime as _dt2, date as _date2
     title    = task.get('title', '—')
@@ -2065,6 +2105,24 @@ def _build_task_view_text(task: dict) -> str:
             mark2 = "✅" if item.get('is_done') else "☐"
             lines2.append(f"  {mark2} {he(item.get('text', ''))}")
         text += f"\n\nЧеклист ({cl_done2}/{cl_total2}):\n" + "\n".join(lines2)
+    # ── Подзадачи ──────────────────────────────────────────────────────────────
+    if subtasks:
+        _st_done = sum(1 for s in subtasks if s.get('status') == 'done')
+        _st_total = len(subtasks)
+        text += f"\n\n📎 <b>Подзадачи ({_st_total})</b>: {_st_done} выполнено\n"
+        _ST_ICON = {'new': '🆕', 'in_progress': '▶️', 'done': '✅', 'cancelled': '🚫'}
+        for _s in subtasks[:5]:
+            _ico = _ST_ICON.get(_s.get('status', 'new'), '•')
+            text += f"  {_ico} {he(_s.get('title', '—'))}\n"
+        if _st_total > 5:
+            text += f"  <i>+ ещё {_st_total - 5}</i>\n"
+    # ── Оценка ─────────────────────────────────────────────────────────────────
+    _rating = task.get('rating')
+    if _rating:
+        _rc = task.get('rating_comment', '') or ''
+        text += f"\n\n⭐ <b>Оценка: {'⭐' * _rating} ({_rating}/5)</b>"
+        if _rc:
+            text += f"\n<i>{he(_rc)}</i>"
     return text
 
 
@@ -2082,7 +2140,11 @@ async def _show_task_after_edit(target, state: FSMContext, task_id: int,
         task = await db.get_task(task_id)
         if not task:
             return
-        text = _build_task_view_text(task)
+        try:
+            _subs = await db.get_subtasks(task_id)
+        except Exception:
+            _subs = None
+        text = _build_task_view_text(task, subtasks=_subs)
         try:
             _cc = await db.get_task_comment_count(task_id)
         except Exception:
@@ -3113,4 +3175,254 @@ async def tsk_cmt_text_msg(message: Message, state: FSMContext, bot: Bot):
     except Exception as e:
         logger.error("tsk_cmt_text_msg: %s", e)
         await message.answer("⚠️ Ошибка сохранения.")
+        await clear_state_keep_org(state)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# НАПОМИНАНИЯ
+# ══════════════════════════════════════════════════════════════════════════════
+
+@tasks_router.callback_query(F.data.startswith("tsk_remind_"))
+async def tsk_remind_cb(callback: CallbackQuery, state: FSMContext):
+    """Показать меню выбора времени напоминания."""
+    task_id = int(callback.data.split("_")[-1])
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        user = await db.get_user(tg_id)
+        my_db_id = user[0] if user else 0
+        my_shop = user[8] if user and len(user) > 8 else None
+        if not _can_view_task(task, my_db_id, is_any_admin(tg_id), my_shop):
+            await callback.answer("Нет доступа")
+            return
+        kb = InlineKeyboardBuilder()
+        kb.row(
+            InlineKeyboardButton(text="⏰ Через 1 час",  callback_data=f"tsk_rmd_{task_id}_60"),
+            InlineKeyboardButton(text="⏰ Через 2 часа", callback_data=f"tsk_rmd_{task_id}_120"),
+        )
+        kb.row(
+            InlineKeyboardButton(text="⏰ Через 4 часа", callback_data=f"tsk_rmd_{task_id}_240"),
+            InlineKeyboardButton(text="🌅 Завтра утром", callback_data=f"tsk_rmd_{task_id}_1440"),
+        )
+        kb.row(back_button(f"tsk_view_{task_id}", "⬅️ К задаче"))
+        await callback.answer()
+        await callback.message.edit_text(
+            f"🔔 <b>Напоминание о задаче</b>\n\n"
+            f"<b>{he(task.get('title', '—'))}</b>\n\n"
+            f"Когда напомнить?",
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error("tsk_remind_cb: %s", e)
+        await callback.answer("Ошибка")
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_rmd_"))
+async def tsk_rmd_set_cb(callback: CallbackQuery, state: FSMContext):
+    """Сохранить напоминание в БД (APScheduler job check_task_reminders подберёт его)."""
+    parts = callback.data.split("_")
+    if len(parts) < 4:
+        await callback.answer("Неверный формат")
+        return
+    try:
+        task_id = int(parts[2])
+        minutes = int(parts[3])
+    except (ValueError, IndexError):
+        await callback.answer("Неверный формат")
+        return
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        user = await db.get_user(tg_id)
+        my_db_id = user[0] if user else 0
+        if not my_db_id:
+            await callback.answer("Пользователь не найден")
+            return
+        from datetime import timezone as _tz, timedelta as _td
+        remind_at = (
+            datetime.now(tz=_tz.utc) + _td(minutes=minutes)
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        await db.add_task_reminder(task_id, my_db_id, remind_at)
+        if minutes < 120:
+            when_str = f"через {minutes} мин."
+        elif minutes < 1441:
+            hrs = minutes // 60
+            when_str = f"через {hrs} ч."
+        else:
+            when_str = "завтра утром"
+        await callback.answer(f"✅ Напомню {when_str}!", show_alert=True)
+        await _show_task_after_edit(callback, state, task_id, tg_id)
+    except Exception as e:
+        logger.error("tsk_rmd_set_cb: %s", e)
+        await callback.answer("Ошибка сохранения напоминания")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ОЦЕНКА ЗАДАЧИ (только admin, только status=done)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _rate_pick_kb(task_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура выбора звёзд."""
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(text="1 ⭐",  callback_data=f"tsk_rate_{task_id}_1"),
+        InlineKeyboardButton(text="2 ⭐",  callback_data=f"tsk_rate_{task_id}_2"),
+        InlineKeyboardButton(text="3 ⭐",  callback_data=f"tsk_rate_{task_id}_3"),
+        InlineKeyboardButton(text="4 ⭐",  callback_data=f"tsk_rate_{task_id}_4"),
+        InlineKeyboardButton(text="5 ⭐",  callback_data=f"tsk_rate_{task_id}_5"),
+    )
+    kb.row(back_button(f"tsk_view_{task_id}", "⬅️ Отмена"))
+    return kb.as_markup()
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_ratepick_"))
+async def tsk_ratepick_cb(callback: CallbackQuery, state: FSMContext):
+    """Показать выбор звёзд для оценки задачи."""
+    task_id = int(callback.data.split("_")[-1])
+    tg_id = callback.from_user.id
+    if not is_any_admin(tg_id):
+        await callback.answer("Только для администраторов")
+        return
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        if task.get('status') != 'done':
+            await callback.answer("Оценка доступна только для выполненных задач")
+            return
+        existing = task.get('rating')
+        extra = f"\n\nТекущая оценка: {'⭐' * existing} ({existing}/5)" if existing else ""
+        await callback.answer()
+        await callback.message.edit_text(
+            f"⭐ <b>Оценка задачи</b>\n\n"
+            f"<b>{he(task.get('title', '—'))}</b>{extra}\n\n"
+            f"Выберите оценку:",
+            reply_markup=_rate_pick_kb(task_id),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error("tsk_ratepick_cb: %s", e)
+        await callback.answer("Ошибка")
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_rate_"))
+async def tsk_rate_cb(callback: CallbackQuery, state: FSMContext):
+    """Сохранить оценку и предложить добавить комментарий (FSM)."""
+    parts = callback.data.split("_")
+    if len(parts) < 4:
+        await callback.answer("Неверный формат")
+        return
+    try:
+        task_id = int(parts[2])
+        stars = int(parts[3])
+    except (ValueError, IndexError):
+        await callback.answer("Неверный формат")
+        return
+    if not (1 <= stars <= 5):
+        await callback.answer("Неверная оценка")
+        return
+    tg_id = callback.from_user.id
+    if not is_any_admin(tg_id):
+        await callback.answer("Только для администраторов")
+        return
+    db = await get_db(tg_id, state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+    try:
+        task = await db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+        if task.get('status') != 'done':
+            await callback.answer("Оценка доступна только для выполненных задач")
+            return
+        # Сохраняем оценку сразу (без комментария); комментарий добавим опционально
+        await db.rate_task(task_id, stars)
+        try:
+            await db.add_task_history(task_id, 0, 'rated', None,
+                                      f"{'⭐' * stars} ({stars}/5)")
+        except Exception:
+            pass
+        # Записываем task_id и stars в FSM для handler-а текстового комментария
+        await state.set_data({**((await state.get_data()) or {}),
+                               'rate_task_id': task_id, 'rate_stars': stars})
+        await state.set_state(TaskRateStates.waiting_comment)
+        kb = InlineKeyboardBuilder()
+        kb.row(InlineKeyboardButton(
+            text="⏭ Пропустить",
+            callback_data=f"tsk_rskip_{task_id}"
+        ))
+        await callback.answer()
+        await callback.message.edit_text(
+            f"{'⭐' * stars} <b>Оценка сохранена!</b>\n\n"
+            f"Хотите добавить текстовый отзыв? Введите его сообщением "
+            f"или нажмите «Пропустить».",
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error("tsk_rate_cb: %s", e)
+        await callback.answer("Ошибка сохранения оценки")
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_rskip_"))
+async def tsk_rskip_cb(callback: CallbackQuery, state: FSMContext):
+    """Пропустить ввод комментария к оценке — перейти к задаче."""
+    task_id = int(callback.data.split("_")[-1])
+    tg_id = callback.from_user.id
+    await clear_state_keep_org(state)
+    await callback.answer()
+    await _show_task_after_edit(callback, state, task_id, tg_id)
+
+
+@tasks_router.message(TaskRateStates.waiting_comment)
+async def tsk_rate_comment_msg(message: Message, state: FSMContext):
+    """Принять текстовый комментарий к оценке и сохранить его."""
+    tg_id = message.from_user.id
+    if not is_any_admin(tg_id):
+        await clear_state_keep_org(state)
+        return
+    data = await state.get_data()
+    task_id = data.get('rate_task_id')
+    stars = data.get('rate_stars', 0)
+    if not task_id:
+        await clear_state_keep_org(state)
+        return
+    comment_text = (message.text or '').strip()
+    if not comment_text:
+        await message.answer("⚠️ Комментарий не может быть пустым. Введите текст или нажмите «Пропустить».")
+        return
+    db = await get_db(tg_id, state)
+    if db is None:
+        await clear_state_keep_org(state)
+        return
+    try:
+        await db.rate_task(task_id, stars, comment_text)
+        try:
+            await db.add_task_history(task_id, 0, 'rated', None,
+                                      f"{'⭐' * stars} ({stars}/5): {comment_text[:80]}")
+        except Exception:
+            pass
+        await clear_state_keep_org(state)
+        await _show_task_after_edit(message, state, task_id, tg_id, is_msg=True)
+    except Exception as e:
+        logger.error("tsk_rate_comment_msg: %s", e)
+        await message.answer("⚠️ Ошибка сохранения отзыва.")
         await clear_state_keep_org(state)
