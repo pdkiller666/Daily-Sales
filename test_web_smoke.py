@@ -72,6 +72,8 @@ _SMOKE_REG_EMAIL = "smoke_new@test.local"
 _SMOKE_REG_PASSWORD = "newpass-smoke-1234"
 _SMOKE_2FA_EMAIL = "smoke_2fa@test.local"
 _SMOKE_2FA_PASSWORD = "smoke-2fa-pass-5678"
+# Обычный сотрудник (не супер-админ) для проверки набора кнопок канбана.
+_SMOKE_STAFF_TG = 555000111
 
 
 def _find_chromium() -> str:
@@ -166,6 +168,26 @@ def _seed_data():
         created_by=0, assign_all=1, priority="normal",
     )
 
+    # ── Канбан: детерминированные задачи для теста счётчиков/WIP/плейсхолдера ──
+    # Все assign_all=1 → видны и админу, и обычному сотруднику (кнопки быстрого
+    # переноса рендерятся). Статусы заданы явно через update_task_status, чтобы
+    # колонки review/done были «чистыми» (другие тесты их не трогают).
+    kb_mover = db.create_task(
+        title="KB Mover", description="перенос вперёд/назад",
+        created_by=0, assign_all=1, priority="normal",
+    )
+    db.update_task_status(int(kb_mover), "new")
+    kb_review = db.create_task(
+        title="KB Review", description="старт в review",
+        created_by=0, assign_all=1, priority="normal",
+    )
+    db.update_task_status(int(kb_review), "review")
+    kb_done = db.create_task(
+        title="KB Done", description="единственная карточка в done",
+        created_by=0, assign_all=1, priority="normal",
+    )
+    db.update_task_status(int(kb_done), "done")
+
     # ── Магазин + пользователь + склад для POS-теста ─────────────────────────
     db.add_shop(_SMOKE_SHOP)
     db.add_user(
@@ -200,7 +222,18 @@ def _seed_data():
     )
     shop_db.set_web_totp(cred_id_2fa, totp_secret, 1, None)
 
-    return org_db, int(product_id), totp_secret
+    # ── Обычный (не-админ) сотрудник для проверки набора кнопок канбана ────────
+    # Канбан гейтится has_module(tg,'tasks_pro') → выдаём модуль напрямую, иначе
+    # обычный пользователь получит редирект на /tasks?msg=pro_required.
+    db.add_user(
+        telegram_id=_SMOKE_STAFF_TG,
+        first_name="NonAdmin",
+        last_name="Staff",
+        shop_name=_SMOKE_SHOP,
+    )
+    shop_db.grant_billing_item(_SMOKE_STAFF_TG, "module", "tasks_pro", 0)
+
+    return org_db, int(product_id), totp_secret, _SMOKE_STAFF_TG
 
 
 def _start_server(org_db: str):
@@ -306,14 +339,187 @@ def check_kanban_quick_move(page, base_url):
     assert card.count() >= 1, "Нет карточек на канбан-доске"
     # Quick-move кнопки скрыты до hover (opacity-0 group-hover) — наводим курсор.
     card.hover()
-    move_btn = card.locator("button[data-action='moveCard']").first
-    assert move_btn.count() >= 1, "Кнопка быстрого переноса не найдена"
+    # Кнопка текущей колонки рендерится со style="display:none" (для move-back
+    # после клиентского переноса), поэтому берём первую ВИДИМУЮ кнопку, иначе
+    # `.first` упрётся в скрытую кнопку текущего статуса.
+    move_btn = card.locator("button[data-action='moveCard']:visible").first
+    assert move_btn.count() >= 1, "Видимая кнопка быстрого переноса не найдена"
     move_btn.click(force=True)
     # Успех подтверждается тостом «Статус изменён …».
     toast = page.locator("#kanban-toast")
     toast.wait_for(state="visible", timeout=8000)
     txt = page.locator("#kanban-toast-inner").inner_text()
     assert "Статус изменён" in txt, f"Перенос карточки не удался, тост: {txt!r}"
+
+
+# ── JS-хелперы для чтения состояния канбан-колонок (выполняются в браузере) ────
+# Они работают с реальным DOM, отрендеренным сервером, и реальными клиентскими
+# функциями relocateCard()/updateColumnCount() из kanban.html. Никаких моков.
+_READ_STATE_JS = """(status) => {
+  const drop = document.getElementById('drop-' + status);
+  const badge = document.getElementById('count-0-' + status);
+  const cards = drop ? Array.from(drop.querySelectorAll('.kanban-card')) : [];
+  return {
+    count: cards.length,
+    ids: cards.map(c => c.dataset.taskId),
+    badgeText: badge ? badge.textContent.trim() : null,
+    red: badge ? badge.classList.contains('bg-red-100') : false,
+    wip: badge ? parseInt(badge.dataset.wip || '0', 10) : 0,
+    placeholder: !!document.getElementById('empty-' + status),
+  };
+}"""
+
+_BTN_STATE_JS = """(taskId) => {
+  const card = document.getElementById('card-' + taskId);
+  if (!card) return null;
+  const btns = Array.from(card.querySelectorAll('button[data-action=\\"moveCard\\"]'));
+  const visible = {};
+  btns.forEach(b => { visible[b.getAttribute('data-arg2')] = (b.style.display !== 'none'); });
+  return { total: btns.length, visible: visible };
+}"""
+
+# Вызывает реальную клиентскую relocateCard() (чистый DOM, без POST), чтобы
+# детерминированно проверять счётчики/WIP/плейсхолдер независимо от состояния БД.
+_MOVE_JS = "([id, st]) => relocateCard(Number(id), st)"
+
+
+def check_kanban_counts_wip(page, base_url):
+    """Счётчики, WIP-подсветка и плейсхолдер «Нет задач» после быстрых переносов.
+
+    Гоняет реальные relocateCard()/updateColumnCount() из kanban.html на живом
+    DOM и проверяет 4 сценария из задачи:
+      1) перенос карточки в колонку → счётчики источника/цели обновились;
+      2) перенос обратно → счётчики вернулись;
+      3) перенос в/из колонки с превышенным WIP → красная подсветка бейджа
+         (класс bg-red-100) появляется и снимается;
+      4) перенос, опустошающий колонку → появляется плейсхолдер «Нет задач».
+    Набор кнопок — админский (5 кнопок, включая «Отменить»).
+    """
+    # WIP=1 для in_progress/review делает превышение достижимым малым числом задач.
+    page.goto(f"{base_url}/tasks/kanban?wip_in_progress=1&wip_review=1",
+              wait_until="networkidle")
+    assert "/tasks/kanban" in page.url, \
+        f"Канбан недоступен (редирект на {page.url}) — модуль/доступ?"
+
+    new0 = page.evaluate(_READ_STATE_JS, "new")
+    assert new0["count"] >= 1, "Нет карточек в колонке «Новые» для переноса"
+    mover = new0["ids"][0]
+
+    rev0 = page.evaluate(_READ_STATE_JS, "review")
+    assert rev0["wip"] == 1, f"WIP review ожидался 1, получено {rev0['wip']}"
+    assert rev0["count"] == 1, \
+        f"Колонка review должна стартовать с 1 карточкой (seed), получено {rev0['count']}"
+    assert rev0["red"] is False, "review не должна быть красной при count ≤ wip"
+    assert rev0["placeholder"] is False, "У непустой review не должно быть плейсхолдера"
+
+    # ── 1+3) Перенос в колонку с превышением WIP ─────────────────────────────
+    page.evaluate(_MOVE_JS, [mover, "review"])
+    rev1 = page.evaluate(_READ_STATE_JS, "review")
+    new1 = page.evaluate(_READ_STATE_JS, "new")
+    assert rev1["count"] == rev0["count"] + 1, \
+        f"review счётчик не вырос: {rev0['count']} → {rev1['count']}"
+    assert new1["count"] == new0["count"] - 1, \
+        f"new счётчик не уменьшился: {new0['count']} → {new1['count']}"
+    assert rev1["red"] is True, "review должна стать красной (WIP превышен) после переноса"
+    assert rev1["badgeText"] == f"{rev1['count']} / 1", \
+        f"Текст бейджа review неверен: {rev1['badgeText']!r}"
+    b1 = page.evaluate(_BTN_STATE_JS, mover)
+    assert b1 and b1["total"] == 5, \
+        f"admin: ожидалось 5 кнопок переноса, получено {b1['total'] if b1 else None}"
+    assert b1["visible"].get("review") is False, \
+        "Кнопка «review» должна быть скрыта в текущей колонке review"
+    for k in ("new", "in_progress", "done", "cancelled"):
+        assert b1["visible"].get(k) is True, f"Кнопка «{k}» должна быть видна"
+
+    # ── 2+3) Перенос обратно = выход из колонки с превышением WIP ─────────────
+    page.evaluate(_MOVE_JS, [mover, "new"])
+    rev2 = page.evaluate(_READ_STATE_JS, "review")
+    new2 = page.evaluate(_READ_STATE_JS, "new")
+    assert rev2["count"] == rev0["count"], \
+        f"review счётчик не вернулся: {rev0['count']} → {rev2['count']}"
+    assert new2["count"] == new0["count"], \
+        f"new счётчик не вернулся: {new0['count']} → {new2['count']}"
+    assert rev2["red"] is False, "Красная подсветка должна сняться при выходе из-под WIP"
+    assert rev2["badgeText"] == f"{rev2['count']} / 1", \
+        f"Текст бейджа review после возврата неверен: {rev2['badgeText']!r}"
+    b2 = page.evaluate(_BTN_STATE_JS, mover)
+    assert b2["visible"].get("new") is False, \
+        "Кнопка «new» должна быть скрыта в текущей колонке new"
+    assert b2["visible"].get("review") is True, "Кнопка «review» снова должна быть видна"
+
+    # ── 4) Перенос, опустошающий колонку → плейсхолдер «Нет задач» ───────────
+    done0 = page.evaluate(_READ_STATE_JS, "done")
+    assert done0["count"] == 1, \
+        f"done должна стартовать с 1 карточкой (seed), получено {done0['count']}"
+    assert done0["placeholder"] is False, "У непустой done не должно быть плейсхолдера"
+    done_id = done0["ids"][0]
+    page.evaluate(_MOVE_JS, [done_id, "in_progress"])
+    done1 = page.evaluate(_READ_STATE_JS, "done")
+    assert done1["count"] == 0, f"done должна опустеть, осталось {done1['count']}"
+    assert done1["placeholder"] is True, "Должен появиться плейсхолдер «Нет задач»"
+    assert done1["badgeText"] == "0", \
+        f"Бейдж done без WIP должен показать «0», получено {done1['badgeText']!r}"
+    ph_text = page.evaluate(
+        "() => { const e = document.getElementById('empty-done');"
+        " return e ? e.textContent.trim() : null; }"
+    )
+    assert ph_text == "Нет задач", f"Текст плейсхолдера неверен: {ph_text!r}"
+
+
+def check_kanban_buttons_nonadmin(browser, base_url, staff_tg, org_db, console_errors):
+    """Набор кнопок быстрого переноса у обычного сотрудника (не-админа): 4 кнопки.
+
+    У не-админа нет кнопки «Отменить» (cancelled). Проверяем, что relocateCard()
+    корректно скрывает кнопку текущей колонки и в 4-кнопочном наборе тоже.
+    """
+    from web.auth import create_session_token
+    token = create_session_token(staff_tg, "NonAdmin", org_db, "user")
+    ctx = browser.new_context()
+    ctx.add_cookies([{
+        "name": "web_session", "value": token,
+        "domain": "127.0.0.1", "path": "/",
+    }])
+    ctx.on("console", lambda m: console_errors.append(m.text)
+           if m.type == "error" else None)
+    page = ctx.new_page()
+    try:
+        page.goto(f"{base_url}/tasks/kanban?wip_in_progress=1&wip_review=1",
+                  wait_until="networkidle")
+        assert "/tasks/kanban" in page.url, \
+            (f"non-admin: канбан недоступен (редирект на {page.url}) — "
+             "модуль tasks_pro не выдан?")
+        # Берём первую карточку с кнопками быстрого переноса (assign_all-задачи).
+        info = page.evaluate(
+            "() => {"
+            " const cards = Array.from(document.querySelectorAll('.kanban-card'));"
+            " for (const c of cards) {"
+            "   const b = c.querySelectorAll('button[data-action=\\\"moveCard\\\"]');"
+            "   if (b.length) return { id: c.dataset.taskId, status: c.dataset.status };"
+            " }"
+            " return null;"
+            "}"
+        )
+        assert info, "non-admin: нет карточек с кнопками переноса (assign_all)"
+
+        before = page.evaluate(_BTN_STATE_JS, info["id"])
+        assert before["total"] == 4, \
+            f"non-admin: ожидалось 4 кнопки (без «Отменить»), получено {before['total']}"
+        assert "cancelled" not in before["visible"], \
+            "non-admin: кнопки «cancelled» не должно быть в наборе"
+
+        dst = "review" if info["status"] != "review" else "in_progress"
+        page.evaluate(_MOVE_JS, [info["id"], dst])
+        after = page.evaluate(_BTN_STATE_JS, info["id"])
+        assert after["total"] == 4, \
+            f"non-admin: после переноса должно остаться 4 кнопки, {after['total']}"
+        assert after["visible"].get(dst) is False, \
+            f"non-admin: кнопка «{dst}» должна быть скрыта в текущей колонке"
+        others = [k for k in after["visible"] if k != dst]
+        assert all(after["visible"][k] for k in others), \
+            "non-admin: остальные кнопки переноса должны быть видны"
+    finally:
+        page.close()
+        ctx.close()
 
 
 def check_push_buttons_present(page, base_url):
@@ -1058,7 +1264,8 @@ def check_schedule_page(page, base_url):
          "на /schedule — возможен CSP-блок или ошибка загрузки Alpine")
 
 
-def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret):
+def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret,
+                staff_tg, org_db):
     """Запустить все проверки, вернуть список (name, ok, error)."""
     checks = [
         ("inline handlers alive (CSP)", lambda: check_inline_handlers_alive(page, base_url)),
@@ -1067,6 +1274,10 @@ def _run_checks(page, base_url, product_id, browser, console_errors, totp_secret
         ("theme toggle — «Ещё» sheet", lambda: check_theme_toggle_more_sheet(page, base_url)),
         ("product row click → card", lambda: check_product_row_click(page, base_url, product_id)),
         ("kanban quick move", lambda: check_kanban_quick_move(page, base_url)),
+        ("kanban counts/WIP/placeholder after moves",
+         lambda: check_kanban_counts_wip(page, base_url)),
+        ("kanban non-admin button set (4 buttons)",
+         lambda: check_kanban_buttons_nonadmin(browser, base_url, staff_tg, org_db, console_errors)),
         ("push buttons present", lambda: check_push_buttons_present(page, base_url)),
         ("PDF label download", lambda: check_pdf_download(page, base_url, product_id)),
         ("login — email/password flow", lambda: check_login_email_flow(browser, base_url, console_errors)),
@@ -1115,7 +1326,7 @@ def main() -> int:
 
     tmp = _setup_env_and_cwd()
     try:
-        org_db, product_id, totp_secret = _seed_data()
+        org_db, product_id, totp_secret, staff_tg = _seed_data()
         server, port = _start_server(org_db)
         base_url = f"http://127.0.0.1:{port}"
         if not _wait_for_server(f"{base_url}/login"):
@@ -1137,7 +1348,8 @@ def main() -> int:
                 "domain": "127.0.0.1", "path": "/",
             }])
             page = _new_page(context, base_url, console_errors)
-            results = _run_checks(page, base_url, product_id, browser, console_errors, totp_secret)
+            results = _run_checks(page, base_url, product_id, browser, console_errors, totp_secret,
+                                  staff_tg, org_db)
             browser.close()
 
         # ── Отчёт ────────────────────────────────────────────────────────────

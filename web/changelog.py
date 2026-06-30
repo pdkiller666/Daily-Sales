@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.336.0"
+CURRENT_VERSION = "1.337.0"
 
 ENTRIES = [
+    {
+        "version": "1.337.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Update task sorting and filtering to show active button states",
+            "Kanban quick-move counts/WIP/placeholder regression test",
+        ],
+    },
     {
         "version": "1.336.0",
         "date": "30 июня 2026",

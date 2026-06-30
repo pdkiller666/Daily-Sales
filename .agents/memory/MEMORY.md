@@ -96,3 +96,4 @@
 - [CSP nonce + JWT revocation](csp-nonce-jwt-revocation.md) — strict nonce-CSP (без unsafe-inline) ВКЛ; все inline on* убраны → делегирование в ds-delegate.js (click/submit/change/input) + per-page listener для drag/dblclick; новый inline on* молча ломает CSP
 - [Chat swipe hint dismissal](chat-swipe-hint.md) — in-place свайп-хинт прятать на СМЕНЕ состояния через display:none + стабильный id, не opacity на touchend
 - [Task automation & SLA engine](task-automation-sla.md) — run_rules идемпотентен (fire_key для time-events, claim_task_escalation атомарен, notify дедуп по tg_id); КАЖДЫЙ create/status путь (web+bot) обязан звать run_rules иначе хук молча мёртв
+- [Kanban quick-move client sync](kanban-quickmove-client.md) — relocateCard/updateColumnCount синкают только badge (не header-ring/WIP-баннер); скрытая кнопка текущей колонки рендерится ПЕРВОЙ → в тестах селектор `:visible`, не `.first`
