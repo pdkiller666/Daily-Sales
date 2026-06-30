@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.311.0"
+CURRENT_VERSION = "1.312.0"
 
 ENTRIES = [
+    {
+        "version": "1.312.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Make recurring tasks generate automatically and reliably",
+        ],
+    },
     {
         "version": "1.311.0",
         "date": "29 июня 2026",

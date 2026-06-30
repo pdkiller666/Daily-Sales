@@ -66,6 +66,7 @@ def main_menu(chat_id: int, user_shop: str = None):
     web_url = _get_web_interface_url()
     buttons.extend([
         [InlineKeyboardButton(text="📊 Аналитика", callback_data="analytics_hub")],
+        [InlineKeyboardButton(text="📌 Задачи", callback_data="tasks_menu")],
         [InlineKeyboardButton(text="👤 Мой профиль", callback_data="user_profile")],
     ])
     if web_url:
