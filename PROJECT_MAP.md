@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-26 (сессия 514: аудит безопасности модуля задач — Tasks #70–#73 + round-2; закрыты 9 уязвимостей в `web/routes/tasks.py`: IDOR самоназначения `self_assign`, cross-shop в `my_complete`, scope guard в `watch`/`unwatch`, exist-check в `bulk_action`/`topics_edit`/`topics_delete`/`log_time`/`delete_time_log`, email-only visibility leak; 27/27 POST-роутов покрыты Auth+CSRF) · 55 модулей · GitHub `f2032ad` · Amvera `9c52f02`
+> Последнее обновление: 2026-06-30 (сессии 638–641: мобильный UX /tasks + Канбан адаптив — Tasks #13–#21; регресс-тесты Канбана WIP/счётчики; фикс smoke 2FA; deploy smoke barrier WEB_SMOKE_REQUIRE_BROWSER=1; 23/23 Playwright-проверки зелёные) · 55 модулей · v1.339.0 · GitHub `9ba72ed` · Amvera `ac027a7`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 

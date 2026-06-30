@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.339.0"
+CURRENT_VERSION = "1.340.0"
 
 ENTRIES = [
+    {
+        "version": "1.340.0",
+        "date": "30 июня 2026",
+        "items": [
+            "Ensure login smoke checks run with a browser present",
+        ],
+    },
     {
         "version": "1.339.0",
         "date": "30 июня 2026",

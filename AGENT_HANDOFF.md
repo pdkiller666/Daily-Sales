@@ -31,6 +31,22 @@ Workflow: "Start application" → python start.py (→ убивает порт 5
 
 **Последний деплой:** GitHub `9ba72ed` · Amvera `ac027a7` (2026-06-30, сессия 641). Оба хэша верифицированы через `git ls-remote`.
 
+---
+
+**Сессии 638–641 (2026-06-30) — Мобильный UX задач + регресс-тесты Канбана + smoke-тесты (Tasks #13–#21):**
+
+- **Task #13 — Мобильный UX `/tasks`**: дропдаун «Виды» скрыт на десктопе (lg:hidden); фильтры коллапсируются по кнопке (`:class` string-ternary + `x-cloak`); quick-add lazy (`:class="qaOpen ? 'flex' : 'hidden lg:flex'"`); кнопки статуса/сортировки — горизонтальный скролл.
+- **Task #14 — Адаптив Канбана/Гант**: горизонтальный скролл колонок/таймлайна; фиксированная ширина колонок; фиксированная колонка имени задачи в Ганте.
+- **Task #16 — Фикс «зависшей» кнопки Канбана**: кнопка текущей колонки корректно скрывается сразу после перемещения карточки (без перезагрузки).
+- **Task #17 — Возврат карточки без перезагрузки**: при отмене drag карточка мгновенно возвращается на место через клиентский `relocateCard()`.
+- **Фикс кнопок сортировки** (сессия 638, вне task-агентов): кнопки сортировки/статуса вне `#task-list-region` не обновлялись после HTMX-свапа — добавлена функция `_syncTaskCtl(url)` в `htmx:afterSwap`, синхронизирует `data-on`/`data-off` по `responseURL`.
+- **Task #18 — Регресс-тесты Канбана**: добавлены 2 новых проверки в `test_web_smoke.py` — `check_kanban_counts_wip` (счётчики + bg-red-100 WIP-badge + «Нет задач» плейсхолдер после каждого перемещения) и `check_kanban_buttons_nonadmin` (4 кнопки, нет «Отменить»); фикс pre-existing бага в `check_kanban_quick_move` (селектор `:visible` вместо `.first` — hidden кнопка текущей колонки шла первой).
+- **Task #20 — Фикс smoke-теста 2FA**: 2FA-учётка в `_seed_data()` не имела `synthetic_tg_id` → server bail-out до 2FA ветки → тест всегда падал. Добавлен `set_web_synthetic_tg_id()` при сидировании — все 23 проверки зелёные.
+- **Task #21 — Smoke не молчит без браузера**: `deploy.sh` запускает тесты с `WEB_SMOKE_REQUIRE_BROWSER=1` → при отсутствии Chromium exit 1 (раньше был тихий SKIP exit 0); dev-запуск без флага сохраняет graceful SKIP; установлен системный Chromium (`installSystemDependencies(['chromium']`).
+- **Итог**: v1.339.0 · GitHub `9ba72ed` · Amvera `ac027a7`; все 23 browser smoke-чека проходят.
+
+---
+
 **Новые секреты (Web Push VAPID):**
 - `VAPID_PUBLIC_KEY` — публичный VAPID-ключ (base64url, генерируется один раз)
 - `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
