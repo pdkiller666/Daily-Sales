@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.354.0"
+CURRENT_VERSION = "1.355.0"
 
 ENTRIES = [
+    {
+        "version": "1.355.0",
+        "date": "1 июля 2026",
+        "items": [
+            "Update task selection panel to prevent overflow on small screens",
+        ],
+    },
     {
         "version": "1.354.0",
         "date": "1 июля 2026",

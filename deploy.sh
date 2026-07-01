@@ -79,12 +79,16 @@ if $SKIP_TESTS; then
   echo "0. Браузерные smoke-тесты: ⚠️  ПРОПУЩЕНО (--skip-tests)"
 else
   echo "0. Браузерные smoke-тесты веб-кабинета..."
+  # Чистим зомби-процессы Chromium от предыдущих прерванных запусков.
+  pkill -f 'chrome[-]linux' 2>/dev/null || true
+  rm -rf /tmp/playwright_chromiumdev_profile-* 2>/dev/null || true
+  sleep 1
   if ! ( cd "$SOURCE_DIR" && python3 -c "import playwright" ) >/dev/null 2>&1; then
     # Самовосстановление после пересборки контейнера: тихо доустановить playwright.
     ( cd "$SOURCE_DIR" && pip install -q playwright ) >/tmp/web_smoke_pipinstall.log 2>&1 \
       || echo "   ⚠️  не удалось установить playwright — деплой остановится (SKIP запрещён)"
   fi
-  if ( cd "$SOURCE_DIR" && WEB_SMOKE_REQUIRE_BROWSER=1 python3 test_web_smoke.py ) > /tmp/web_smoke_tests.log 2>&1; then
+  if ( cd "$SOURCE_DIR" && WEB_SMOKE_REQUIRE_BROWSER=1 timeout 60 python3 test_web_smoke.py ) > /tmp/web_smoke_tests.log 2>&1; then
     # Показываем каждую проверку и итоговую строку с подсчётом.
     grep -E "✓|✅|✗|SKIP|⚠️|Провалено|прошли" /tmp/web_smoke_tests.log | sed 's/^/   /' || true
   else
