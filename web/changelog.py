@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.349.0"
+CURRENT_VERSION = "1.350.0"
 
 ENTRIES = [
+    {
+        "version": "1.350.0",
+        "date": "1 июля 2026",
+        "items": [
+            "Fix filter functionality by replacing inline event handlers with submit buttons",
+        ],
+    },
     {
         "version": "1.349.0",
         "date": "1 июля 2026",

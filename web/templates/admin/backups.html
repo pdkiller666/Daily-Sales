@@ -183,7 +183,7 @@
                         <span class="font-mono text-xs text-slate-600 dark:text-slate-400 break-all">{{ entry.target or '—' }}</span>
                     </td>
                     <td class="px-4 py-2.5 text-right hidden sm:table-cell text-xs text-slate-400">{{ entry.ip or '—' }}</td>
-                    <td class="px-4 py-2.5 text-right text-xs text-slate-500 whitespace-nowrap">{{ entry.created_at[:16] if entry.created_at else '—' }}</td>
+                    <td class="px-4 py-2.5 text-right text-xs text-slate-500 whitespace-nowrap">{{ entry.created_at | fmt_datetime if entry.created_at else '—' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

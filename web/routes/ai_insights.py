@@ -1113,6 +1113,15 @@ def ai_history_page(request: Request):
     if tab not in ("requests", "digests"):
         tab = "requests"
 
+    # Часовой пояс пользователя для корректного отображения времени
+    user_tz = "Europe/Moscow"
+    try:
+        from web.deps import get_web_db as _gwdb
+        _db = _gwdb(tg_id, org_db)
+        user_tz = _db.get_user_timezone(tg_id) or "Europe/Moscow"
+    except Exception:
+        pass
+
     entries = []
     try:
         rows = get_ai_request_log(days=days, feature=feature or None, tg_id=tg_id, limit=100)
@@ -1159,4 +1168,5 @@ def ai_history_page(request: Request):
         "digest_job_labels": _DIGEST_JOB_LABELS,
         "total":             len(entries),
         "digest_total":      len(digest_entries),
+        "user_tz":           user_tz,
     })

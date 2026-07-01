@@ -618,7 +618,7 @@
       {% if task.get('created_at') %}
       <div>
         <p class="text-[11px] text-slate-400 mb-0.5">Создана</p>
-        <p class="text-xs text-slate-500">{{ task.created_at[:16] | replace('T', ' ') }}</p>
+        <p class="text-xs text-slate-500">{{ fmt_user_dt(task.created_at) }}</p>
       </div>
       {% endif %}
 
@@ -753,7 +753,7 @@
                 </button>
                 {% endif %}
               </span>
-              <span class="text-[11px] text-slate-400 shrink-0">{{ h.created_at[:16] | replace('T', ' ') if h.created_at else '' }}</span>
+              <span class="text-[11px] text-slate-400 shrink-0">{{ fmt_user_dt(h.created_at) if h.created_at else '' }}</span>
             </div>
             <div class="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
               <span>{{ h.actor_name }}</span>
@@ -823,7 +823,7 @@
             <span class="text-sm {{ 'text-slate-700 dark:text-slate-200 font-medium' if _done else 'text-slate-400 dark:text-slate-500' }}">{{ member.name }}</span>
             {% if _done and _comp and _comp.completed_at %}
             <p class="text-[11px] text-slate-400 mt-0.5 leading-none">
-              {{ _comp.completed_at[:16].replace('T', ' ') }}
+              {{ fmt_user_dt(_comp.completed_at) }}
             </p>
             {% endif %}
           </div>
@@ -902,7 +902,7 @@
               <span class="text-xs font-medium text-slate-700 dark:text-slate-200">
                 {{ (tl.minutes // 60) }}ч {{ (tl.minutes % 60) }}м
               </span>
-              <span class="text-[11px] text-slate-400 shrink-0">{{ tl.created_at[:10] if tl.created_at else '' }}</span>
+              <span class="text-[11px] text-slate-400 shrink-0">{{ tl.created_at | fmt_date if tl.created_at else '' }}</span>
             </div>
             <div class="flex items-center gap-1 mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
               <span>{{ tl.user_name }}</span>

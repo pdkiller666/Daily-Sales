@@ -94,7 +94,7 @@
       {% for r in req_logs %}
       <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/40 align-top">
         <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-          {{ r.created_at[:16] | replace('T', ' ') }}
+          {{ r.created_at | fmt_datetime }}
         </td>
         <td class="px-4 py-3">
           <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium
@@ -168,7 +168,7 @@
       {% for d in digest_logs %}
       <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/40 align-top">
         <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-          {{ d.created_at[:16] | replace('T', ' ') }}
+          {{ d.created_at | fmt_datetime }}
         </td>
         <td class="px-4 py-3">
           <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium
