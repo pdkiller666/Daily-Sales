@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.353.0"
+CURRENT_VERSION = "1.354.0"
 
 ENTRIES = [
+    {
+        "version": "1.354.0",
+        "date": "1 июля 2026",
+        "items": [
+            "Fix issue where script blocks fail to execute due to improper escaping",
+        ],
+    },
     {
         "version": "1.353.0",
         "date": "1 июля 2026",

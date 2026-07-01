@@ -387,27 +387,31 @@
     <!-- Bulk action bar (Pro) -->
     {% if is_admin and tasks_pro %}
     <div x-show="selected.size > 0" x-cloak
-         class="mb-3 flex items-center gap-3 p-3 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 rounded-xl">
-      <span class="text-sm font-medium text-indigo-700 dark:text-indigo-300" x-text="selected.size + ' выбрано'"></span>
-      <select x-model="bulkAction"
-              class="text-sm rounded-lg border border-indigo-200 dark:border-indigo-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-        <option value="">— Действие —</option>
-        <option value="status_new">🆕 Статус: Новая</option>
-        <option value="status_in_progress">🔄 Статус: В работе</option>
-        <option value="status_review">🔍 Статус: На проверке</option>
-        <option value="status_done">✅ Статус: Выполнена</option>
-        <option value="status_cancelled">🚫 Статус: Отменена</option>
-        <option value="delete">🗑 Удалить выбранные</option>
-      </select>
-      <button @click="applyBulk()"
-              :disabled="!bulkAction"
-              class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
-        Применить
-      </button>
-      <button @click="selected.clear(); selected = new Set()"
-              class="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 ml-auto">
-        Сбросить
-      </button>
+         class="mb-3 p-3 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 rounded-xl">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-medium text-indigo-700 dark:text-indigo-300" x-text="selected.size + ' выбрано'"></span>
+        <button @click="selected.clear(); selected = new Set()"
+                class="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+          Сбросить
+        </button>
+      </div>
+      <div class="flex items-center gap-2">
+        <select x-model="bulkAction"
+                class="flex-1 min-w-0 text-sm rounded-lg border border-indigo-200 dark:border-indigo-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="">— Действие —</option>
+          <option value="status_new">🆕 Статус: Новая</option>
+          <option value="status_in_progress">🔄 Статус: В работе</option>
+          <option value="status_review">🔍 Статус: На проверке</option>
+          <option value="status_done">✅ Статус: Выполнена</option>
+          <option value="status_cancelled">🚫 Статус: Отменена</option>
+          <option value="delete">🗑 Удалить выбранные</option>
+        </select>
+        <button @click="applyBulk()"
+                :disabled="!bulkAction"
+                class="flex-shrink-0 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
+          Применить
+        </button>
+      </div>
     </div>
     <form id="bulk-form" method="POST" action="/tasks/bulk" style="display:none">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
