@@ -80,6 +80,33 @@ def _ensure_tables() -> None:
                 PRIMARY KEY (org_key, usage_date)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_request_log (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                feature       TEXT    NOT NULL,
+                tg_id         INTEGER,
+                org_db        TEXT,
+                input_summary TEXT,
+                response_text TEXT    NOT NULL DEFAULT '',
+                created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ai_req_created ON ai_request_log(created_at DESC)"
+        )
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_digest_log (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_type           TEXT    NOT NULL,
+                org_db             TEXT,
+                generated_text     TEXT    NOT NULL DEFAULT '',
+                data_snapshot_json TEXT,
+                created_at         TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ai_digest_created ON ai_digest_log(created_at DESC)"
+        )
         conn.commit()
         _db_tables_created = True
     finally:
@@ -661,3 +688,173 @@ def check_rate_limit(key: str, max_requests: int, window_seconds: int) -> bool:
             except Exception:
                 pass
             return False
+
+
+# ─── AI History Logging ───────────────────────────────────────────────────────
+
+def log_ai_request(
+    feature: str,
+    tg_id: "int | None",
+    org_db: "str | None",
+    input_summary: "str | None",
+    response_text: str,
+) -> None:
+    """Логирует один веб-запрос к AI (explain-report, prodesc, forecast, plan)."""
+    with _lock:
+        try:
+            conn = _get_conn()
+            conn.execute(
+                """INSERT INTO ai_request_log (feature, tg_id, org_db, input_summary, response_text)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    feature,
+                    tg_id,
+                    org_db,
+                    (input_summary or "")[:500],
+                    (response_text or "")[:3000],
+                ),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as _e:
+            try:
+                import logging as _lg
+                _lg.warning("log_ai_request: %s", _e)
+            except Exception:
+                pass
+
+
+def get_ai_request_log(
+    days: int = 30,
+    feature: "str | None" = None,
+    limit: int = 200,
+) -> list:
+    """Возвращает записи ai_request_log за последние N дней."""
+    import datetime as _dt
+    cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=days)).strftime("%Y-%m-%d")
+    with _lock:
+        try:
+            conn = _get_conn()
+            if feature:
+                rows = conn.execute(
+                    """SELECT id, feature, tg_id, org_db, input_summary, response_text, created_at
+                       FROM ai_request_log
+                       WHERE created_at >= ? AND feature = ?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (cutoff, feature, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT id, feature, tg_id, org_db, input_summary, response_text, created_at
+                       FROM ai_request_log
+                       WHERE created_at >= ?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (cutoff, limit),
+                ).fetchall()
+            conn.close()
+            return [
+                {
+                    "id": r[0],
+                    "feature": r[1],
+                    "tg_id": r[2],
+                    "org_db": r[3],
+                    "input_summary": r[4],
+                    "response_text": r[5],
+                    "created_at": r[6],
+                }
+                for r in rows
+            ]
+        except Exception:
+            return []
+
+
+def log_ai_digest(
+    job_type: str,
+    org_db: "str | None",
+    generated_text: str,
+    data_snapshot_json: "str | None" = None,
+) -> None:
+    """Логирует вывод плановых AI-джобов (smart_alerts, weekly_digest и т.д.)."""
+    with _lock:
+        try:
+            conn = _get_conn()
+            conn.execute(
+                """INSERT INTO ai_digest_log (job_type, org_db, generated_text, data_snapshot_json)
+                   VALUES (?, ?, ?, ?)""",
+                (
+                    job_type,
+                    org_db,
+                    (generated_text or "")[:3000],
+                    data_snapshot_json,
+                ),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as _e:
+            try:
+                import logging as _lg
+                _lg.warning("log_ai_digest: %s", _e)
+            except Exception:
+                pass
+
+
+def get_ai_digest_log(
+    days: int = 30,
+    job_type: "str | None" = None,
+    limit: int = 200,
+) -> list:
+    """Возвращает записи ai_digest_log за последние N дней."""
+    import datetime as _dt
+    cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=days)).strftime("%Y-%m-%d")
+    with _lock:
+        try:
+            conn = _get_conn()
+            if job_type:
+                rows = conn.execute(
+                    """SELECT id, job_type, org_db, generated_text, data_snapshot_json, created_at
+                       FROM ai_digest_log
+                       WHERE created_at >= ? AND job_type = ?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (cutoff, job_type, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT id, job_type, org_db, generated_text, data_snapshot_json, created_at
+                       FROM ai_digest_log
+                       WHERE created_at >= ?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (cutoff, limit),
+                ).fetchall()
+            conn.close()
+            return [
+                {
+                    "id": r[0],
+                    "job_type": r[1],
+                    "org_db": r[2],
+                    "generated_text": r[3],
+                    "data_snapshot_json": r[4],
+                    "created_at": r[5],
+                }
+                for r in rows
+            ]
+        except Exception:
+            return []
+
+
+def prune_ai_history_logs(days: int = 30) -> None:
+    """Удаляет записи ai_request_log и ai_digest_log старше N дней."""
+    import datetime as _dt
+    cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=days)).strftime("%Y-%m-%d")
+    with _lock:
+        try:
+            conn = _get_conn()
+            conn.execute("DELETE FROM ai_request_log WHERE created_at < ?", (cutoff,))
+            conn.execute("DELETE FROM ai_digest_log WHERE created_at < ?", (cutoff,))
+            conn.commit()
+            conn.close()
+        except Exception as _e:
+            try:
+                import logging as _lg
+                _lg.warning("prune_ai_history_logs: %s", _e)
+            except Exception:
+                pass

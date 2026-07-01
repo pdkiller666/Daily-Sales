@@ -222,6 +222,12 @@ async def ai_explain_report(request: Request):
             return JSONResponse({"ok": False, "error": "Не удалось получить ответ от AI. Попробуйте позже."})
 
         _resp_cache_set(_ck, result, _CACHE_TTL_SEC["report"])
+        try:
+            from web.rate_store import log_ai_request as _log_req
+            _smry = f"{period_label} | {shop or '—'} | фокус={focus}"
+            _log_req("report", tg_id, user.get("org_db"), _smry, result)
+        except Exception:
+            pass
         return JSONResponse({"ok": True, "text": result})
 
     except Exception as exc:
@@ -298,6 +304,12 @@ async def ai_product_description(request: Request):
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось сгенерировать описание."})
         _resp_cache_set(_ck, result, _CACHE_TTL_SEC["prodesc"])
+        try:
+            from web.rate_store import log_ai_request as _log_req
+            _smry = f"{name[:50]} [{category[:30]}] стиль={style}"
+            _log_req("prodesc", tg_id, user.get("org_db"), _smry, result)
+        except Exception:
+            pass
         return JSONResponse({"ok": True, "text": result})
     except Exception as exc:
         logger.error("ai_product_description error: %s", exc)
@@ -420,6 +432,12 @@ async def ai_sales_forecast(request: Request):
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось построить прогноз."})
         _resp_cache_set(_ck, result, _CACHE_TTL_SEC["forecast"])
+        try:
+            from web.rate_store import log_ai_request as _log_req
+            _smry = f"горизонт={horizon}д сценарий={scenario}"
+            _log_req("forecast", tg_id, user.get("org_db"), _smry, result)
+        except Exception:
+            pass
         return JSONResponse({"ok": True, "text": result})
     except Exception as exc:
         logger.error("ai_sales_forecast error: %s", exc)
@@ -590,6 +608,13 @@ async def ai_analyze_plan(request: Request, plan_id: int = Form(...)):
             return JSONResponse({"ok": False, "error": "AI не смог построить анализ. Попробуйте позже."})
 
         set_plan_analysis_cache(org_db or "", plan_id, answer)
+        try:
+            from web.rate_store import log_ai_request as _log_req
+            _plan_name = (plan.get("name") or plan.get("target_who") or f"#{plan_id}")[:50]
+            _smry = f"план {_plan_name} ({period_label} {achievement}%)"
+            _log_req("plan", tg_id, org_db, _smry, answer)
+        except Exception:
+            pass
         return JSONResponse({"ok": True, "text": answer})
 
     except Exception as exc:

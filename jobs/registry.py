@@ -333,6 +333,11 @@ def register_inline_jobs(
                 "prune_ai_usage_log: удалено %d строк (usage_log) + %d (org_usage_log) старше %d дней",
                 _deleted, _deleted_org, _retention_days,
             )
+            try:
+                from web.rate_store import prune_ai_history_logs as _prune_hist
+                _prune_hist(30)
+            except Exception as _ph_err:
+                logging.debug("prune_ai_history_logs: %s", _ph_err)
         except Exception as _e:
             logging.error("prune_ai_usage_log_job error: %s", _e)
 
@@ -1145,6 +1150,14 @@ def register_inline_jobs(
                         db.add_ai_alert_log('alert', _plain_alert)
                     except Exception:
                         pass
+                    if ai_text:
+                        try:
+                            from web.rate_store import log_ai_digest as _log_dg
+                            import json as _jdg
+                            _snap = _jdg.dumps({"org": org_name, "y_rev": round(y_rev), "avg_7d": round(avg_7d), "drop_pct": round(drop_pct, 1)}, ensure_ascii=False)
+                            _log_dg("smart_alerts", db_path, ai_text, _snap)
+                        except Exception:
+                            pass
 
                     # Telegram — только администраторам (максимум 3)
                     for tg_id in admin_ids[:3]:
@@ -1289,6 +1302,14 @@ def register_inline_jobs(
                     system = "Ты — менеджер проектов розничного магазина. Пиши чётко, по-русски, без markdown."
                     ai_text = await ask_llm(prompt, system=system, max_tokens=200,
                                            temperature=0.3, feature="task_overdue_predict")
+                    if ai_text:
+                        try:
+                            from web.rate_store import log_ai_digest as _log_dg
+                            import json as _jdg
+                            _snap = _jdg.dumps({"at_risk_count": len(at_risk)}, ensure_ascii=False)
+                            _log_dg("task_overdue_predictor", db_path, ai_text, _snap)
+                        except Exception:
+                            pass
                     if not ai_text:
                         ai_text = f"⚠️ Через 48 часов истекает срок {len(at_risk)} задач."
 
@@ -1402,6 +1423,14 @@ def register_inline_jobs(
                     system = "Ты — менеджер проектов розничного магазина. Пиши чётко, по-русски."
                     ai_text = await ask_llm(prompt, system=system, max_tokens=250,
                                            temperature=0.4, feature="task_digest")
+                    if ai_text:
+                        try:
+                            from web.rate_store import log_ai_digest as _log_dg
+                            import json as _jdg
+                            _snap = _jdg.dumps({"total": total, "new": new_this_week, "done": done_this_week, "overdue": overdue}, ensure_ascii=False)
+                            _log_dg("task_digest", db_path, ai_text, _snap)
+                        except Exception:
+                            pass
                     if not ai_text:
                         ai_text = f"За неделю создано {new_this_week} задач, выполнено {done_this_week}."
 
@@ -1506,6 +1535,14 @@ def register_inline_jobs(
                             category_breakdown=_cat_breakdown or None,
                         )
                         briefing_text = await ask_llm(prompt, max_tokens=300, feature="briefing")
+                        if briefing_text:
+                            try:
+                                from web.rate_store import log_ai_digest as _log_dg
+                                import json as _jdg
+                                _snap = _jdg.dumps({"org": org_name, "y_rev": round(y_rev), "avg_7d": round(avg_7d)}, ensure_ascii=False)
+                                _log_dg("morning_briefing", db_path, briefing_text, _snap)
+                            except Exception:
+                                pass
                     except Exception as _ai_err:
                         logging.warning(f"ai_morning_briefing LLM error: {_ai_err}")
 
@@ -1840,6 +1877,14 @@ def register_inline_jobs(
                         db.add_ai_alert_log('digest', _plain_body)
                     except Exception:
                         pass
+                    if ai_text:
+                        try:
+                            from web.rate_store import log_ai_digest as _log_dg
+                            import json as _jdg
+                            _snap = _jdg.dumps({"org": org_name, "week_rev": round(week_rev), "prev_week_rev": round(prev_week_rev)}, ensure_ascii=False)
+                            _log_dg("weekly_digest", db_path, ai_text, _snap)
+                        except Exception:
+                            pass
 
                     _push_ok = _digest_cfg.get("digest_push_enabled", True)
 
@@ -2060,6 +2105,14 @@ def register_inline_jobs(
                         db.add_ai_alert_log('procurement', _plain)
                     except Exception:
                         pass
+                    if ai_text:
+                        try:
+                            from web.rate_store import log_ai_digest as _log_dg
+                            import json as _jdg
+                            _snap = _jdg.dumps({"org": org_name, "turnover_items": len(turnover_rows), "dead_stock_items": len(dead_stock_rows)}, ensure_ascii=False)
+                            _log_dg("procurement_advisor", db_path, ai_text, _snap)
+                        except Exception:
+                            pass
 
                     # Telegram — владельцам/администраторам
                     for tg_id in admin_ids[:3]:
@@ -2246,6 +2299,13 @@ def register_inline_jobs(
                                 logging.warning(f"ai_seller_coach LLM error seller={user_db_id}: {_ai_err}")
 
                         if ai_text:
+                            try:
+                                from web.rate_store import log_ai_digest as _log_dg
+                                import json as _jdg
+                                _snap = _jdg.dumps({"seller": fn or seller_name, "rank": rank_idx, "rev": round(seller_rev), "team_avg": round(team_avg_rev)}, ensure_ascii=False)
+                                _log_dg("seller_coach", db_path, ai_text, _snap)
+                            except Exception:
+                                pass
                             msg = f"⭐ <b>Твои итоги недели, {fn or seller_name}!</b>\n\n{ai_text}"
                         else:
                             # Fallback без LLM

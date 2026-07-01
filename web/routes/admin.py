@@ -1645,3 +1645,39 @@ async def admin_ai_tool_stats(request: Request):
         import logging as _lg
         _lg.error("admin_ai_tool_stats: %s", exc)
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
+# ─── AI Request / Digest History ──────────────────────────────────────────────
+
+@router.get("/ai-history")
+async def admin_ai_history(request: Request):
+    """История AI-запросов из веб-кабинета и плановых AI-рассылок. Только super-admin."""
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+
+    from web.rate_store import get_ai_request_log, get_ai_digest_log
+
+    params = request.query_params
+    tab      = params.get("tab", "requests")
+    feature  = params.get("feature") or None
+    job_type = params.get("job_type") or None
+    try:
+        days = max(1, min(90, int(params.get("days", 30))))
+    except (ValueError, TypeError):
+        days = 30
+
+    req_logs    = get_ai_request_log(days=days, feature=feature, limit=200)
+    digest_logs = get_ai_digest_log(days=days, job_type=job_type, limit=200)
+
+    tpl = request.app.state.templates
+    return tpl.TemplateResponse("admin/ai_history.html", {
+        "request":     request,
+        "user":        user,
+        "tab":         tab,
+        "req_logs":    req_logs,
+        "digest_logs": digest_logs,
+        "days":        days,
+        "feature":     feature or "",
+        "job_type":    job_type or "",
+    })
