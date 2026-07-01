@@ -270,40 +270,83 @@
   </div>
 </div>
 
+<script src="/static/vendor/sortable.min.js"></script>
 <script nonce="{{ csp_nonce(request) }}">
 const CSRF_TOKEN = {{ csrf_token | tojson }};
 const GROUPED = {{ 'true' if group_by != 'none' else 'false' }};
-let draggingId = null;
-let draggingFrom = null;
 
-document.addEventListener('dragstart', function (e) {
-  var card = e.target.closest('.kanban-card');
-  if (!card) return;
-  draggingId = Number(card.dataset.taskId);
-  draggingFrom = card.dataset.status;
-  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-  card.classList.add('opacity-50');
-});
+// ── SortableJS: drag-and-drop для мыши И тач-экрана ──────────────────────
+if (!GROUPED) {
+  ['new', 'in_progress', 'review', 'done', 'cancelled'].forEach(function(status) {
+    var dropEl = document.getElementById('drop-' + status);
+    if (!dropEl) return;
+    Sortable.create(dropEl, {
+      group:               'kanban',   // cross-column drag
+      animation:           150,
+      ghostClass:          'opacity-30',
+      filter:              'a, button', // клики по ссылкам/кнопкам не тригерят drag
+      preventOnFilter:     false,       // но клик всё равно проходит
+      delay:               150,         // задержка перед drag — чтобы тап ≠ drag
+      delayOnTouchOnly:    true,        // задержка только на тач, мышь сразу
+      touchStartThreshold: 8,           // мин. смещение пальца (px) до начала drag
+      onEnd: function(evt) {
+        var card       = evt.item;
+        var taskId     = Number(card.dataset.taskId);
+        var fromStatus = card.dataset.status;
+        var toColEl    = evt.to.closest('[data-drop-status]');
+        var toStatus   = toColEl ? toColEl.dataset.dropStatus : null;
 
-document.addEventListener('dragend', function (e) {
-  var card = e.target.closest('.kanban-card');
-  if (card) card.classList.remove('opacity-50');
-  draggingId = null; draggingFrom = null;
-});
+        if (!toStatus || fromStatus === toStatus) return;
+        // Отменённые задачи нельзя перетаскивать (только кнопкой «В работе»)
+        if (fromStatus === 'cancelled') {
+          evt.from.insertBefore(card, evt.from.children[evt.oldIndex] || null);
+          return;
+        }
 
-document.addEventListener('dragover', function (e) {
-  if (e.target.closest('[data-drop-status]')) e.preventDefault();
-});
+        var fd = new FormData();
+        fd.append('csrf_token', CSRF_TOKEN);
+        fd.append('task_id',    taskId);
+        fd.append('status',     toStatus);
 
-document.addEventListener('drop', function (e) {
-  var col = e.target.closest('[data-drop-status]');
-  if (!col) return;
-  e.preventDefault();
-  var toStatus = col.dataset.dropStatus;
-  if (!draggingId || draggingFrom === toStatus) return;
-  if (draggingFrom === 'cancelled') return;
-  moveCard(draggingId, toStatus, null);
-});
+        fetch('/tasks/kanban/move', { method: 'POST', body: fd })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              card.dataset.status = toStatus;
+              // Обновляем видимость кнопок быстрого перемещения
+              var intoCancelled = (toStatus === 'cancelled');
+              card.querySelectorAll('button[data-action="moveCard"]').forEach(function(btn) {
+                var btnStatus = btn.getAttribute('data-arg2');
+                var show = intoCancelled ? (btnStatus === 'in_progress') : (btnStatus !== toStatus);
+                btn.style.display = show ? '' : 'none';
+              });
+              updateColumnCount(fromStatus);
+              updateColumnCount(toStatus);
+              // Плейсхолдер «Нет задач» в опустевшей колонке
+              var oldDrop = document.getElementById('drop-' + fromStatus);
+              if (oldDrop && !oldDrop.querySelector('.kanban-card')) {
+                var ph = document.createElement('div');
+                ph.className = 'text-center py-8 text-slate-300 dark:text-slate-600 text-xs border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl';
+                ph.id = 'empty-' + fromStatus;
+                ph.textContent = 'Нет задач';
+                oldDrop.appendChild(ph);
+              }
+              var newPh = document.getElementById('empty-' + toStatus);
+              if (newPh) newPh.remove();
+              showToast('Статус изменён → ' + data.label, 'success');
+            } else {
+              evt.from.insertBefore(card, evt.from.children[evt.oldIndex] || null);
+              showToast('Ошибка: ' + (data.error || 'неизвестно'), 'error');
+            }
+          })
+          .catch(function() {
+            evt.from.insertBefore(card, evt.from.children[evt.oldIndex] || null);
+            showToast('Ошибка сети', 'error');
+          });
+      }
+    });
+  });
+}
 
 function moveCard(taskId, newStatus, el, e) {
   if (e) { e.stopPropagation(); e.preventDefault(); }

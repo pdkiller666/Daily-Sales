@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.355.0"
+CURRENT_VERSION = "1.356.0"
 
 ENTRIES = [
+    {
+        "version": "1.356.0",
+        "date": "1 июля 2026",
+        "items": [
+            "Improve deployment reliability by cleaning up old processes and setting timeouts",
+        ],
+    },
     {
         "version": "1.355.0",
         "date": "1 июля 2026",
