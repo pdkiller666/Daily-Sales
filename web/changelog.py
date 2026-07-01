@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.350.0"
+CURRENT_VERSION = "1.351.0"
 
 ENTRIES = [
+    {
+        "version": "1.351.0",
+        "date": "1 июля 2026",
+        "items": [
+            "Update date and time formatting across the application",
+        ],
+    },
     {
         "version": "1.350.0",
         "date": "1 июля 2026",
