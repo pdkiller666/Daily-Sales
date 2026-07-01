@@ -1032,3 +1032,50 @@ async def generate_network_insights(request: Request):
 
     generated_at = _dt.datetime.utcnow().strftime("%d.%m.%Y %H:%M UTC")
     return JSONResponse({"ok": True, "insights": answer, "generated_at": generated_at})
+
+
+# ─── Личная история AI-запросов ───────────────────────────────────────────────
+
+_HISTORY_FEATURE_LABELS = {
+    "report":   "Объяснить отчёт",
+    "prodesc":  "Описание товара",
+    "forecast": "Прогноз продаж",
+    "plan":     "Анализ плана",
+}
+
+
+@router.get("/ai/history")
+def ai_history_page(request: Request):
+    """Личный журнал AI-запросов текущего пользователя."""
+    from web.auth import get_session_user
+    from web.rate_store import get_ai_request_log
+    from fastapi.responses import RedirectResponse as _RR
+
+    user = get_session_user(request)
+    if not user:
+        return _RR("/login", status_code=303)
+
+    tg_id = int(user["sub"])
+    days = int(request.query_params.get("days", 30))
+    if days not in (7, 14, 30):
+        days = 30
+    feature = request.query_params.get("feature", "")
+
+    try:
+        rows = get_ai_request_log(days=days, feature=feature or None, tg_id=tg_id, limit=100)
+        for r in rows:
+            r["feature_label"] = _HISTORY_FEATURE_LABELS.get(r["feature"], r["feature"])
+    except Exception as exc:
+        logger.error("ai_history_page error: %s", exc)
+        rows = []
+
+    tpl = request.app.state.templates
+    return tpl.TemplateResponse("ai_history_user.html", {
+        "request": request,
+        "user": user,
+        "entries": rows,
+        "days": days,
+        "feature": feature,
+        "feature_labels": _HISTORY_FEATURE_LABELS,
+        "total": len(rows),
+    })

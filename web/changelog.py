@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.342.0"
+CURRENT_VERSION = "1.343.0"
 
 ENTRIES = [
+    {
+        "version": "1.343.0",
+        "date": "1 июля 2026",
+        "items": [
+            "Add user-specific history of AI interactions and responses",
+        ],
+    },
     {
         "version": "1.342.0",
         "date": "1 июля 2026",
