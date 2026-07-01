@@ -10,13 +10,32 @@
       <h1 class="text-xl font-bold text-slate-800 dark:text-slate-100">🧠 Мои AI-запросы</h1>
       <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">История ответов AI в веб-кабинете</p>
     </div>
-    {% if total > 0 %}
-    <span class="text-sm text-slate-500 dark:text-slate-400">{{ total }} запрос{% if total == 1 %}{% elif total in (2,3,4) %}а{% else %}ов{% endif %}</span>
-    {% endif %}
   </div>
+
+  <!-- Вкладки -->
+  <div class="flex gap-1 border-b border-slate-200 dark:border-slate-700">
+    <a href="?tab=requests&days={{ days }}{% if feature %}&feature={{ feature }}{% endif %}"
+       class="px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors
+         {% if tab == 'requests' %}border-indigo-500 text-indigo-600 dark:text-indigo-400{% else %}border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200{% endif %}">
+      🌐 Мои запросы
+      {% if total > 0 %}<span class="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{{ total }}</span>{% endif %}
+    </a>
+    <a href="?tab=digests&days={{ days }}"
+       class="px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors
+         {% if tab == 'digests' %}border-indigo-500 text-indigo-600 dark:text-indigo-400{% else %}border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200{% endif %}">
+      📅 Авто-дайджесты
+      {% if digest_total > 0 %}<span class="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{{ digest_total }}</span>{% endif %}
+    </a>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       ВКЛАДКА 1: МОИ ЗАПРОСЫ
+  ══════════════════════════════════════════════ -->
+  {% if tab == 'requests' %}
 
   <!-- Фильтры -->
   <form method="get" action="/ai/history" class="flex flex-wrap gap-2 items-center">
+    <input type="hidden" name="tab" value="requests">
     <select name="feature" onchange="this.form.submit()"
             class="text-sm border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-400 outline-none">
       <option value="" {% if not feature %}selected{% endif %}>Все функции</option>
@@ -51,15 +70,7 @@
     {% for e in entries %}
     <details class="card group">
       <summary class="flex items-start gap-3 px-4 py-3.5 cursor-pointer list-none select-none hover:bg-slate-50 dark:hover:bg-slate-700/40 rounded-xl transition-colors">
-        <!-- Иконка функции -->
-        <span class="mt-0.5 text-xl shrink-0">
-          {% if e.feature == "report"   %}📊
-          {% elif e.feature == "prodesc" %}🏷️
-          {% elif e.feature == "forecast"%}📈
-          {% elif e.feature == "plan"    %}🎯
-          {% else %}🤖
-          {% endif %}
-        </span>
+        <span class="mt-0.5 text-xl shrink-0">{{ e.icon }}</span>
         <div class="flex-1 min-w-0">
           <div class="flex items-center justify-between gap-2 flex-wrap">
             <span class="font-semibold text-slate-800 dark:text-slate-100 text-sm">{{ e.feature_label }}</span>
@@ -69,7 +80,6 @@
           <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{{ e.input_summary }}</p>
           {% endif %}
         </div>
-        <!-- Chevron -->
         <svg class="w-4 h-4 text-slate-400 shrink-0 mt-1 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
         </svg>
@@ -91,10 +101,98 @@
         {% else %}
         <p class="text-sm text-slate-400 italic">Ответ не сохранён.</p>
         {% endif %}
+        {% if e.ref_url %}
+        <div class="mt-3 flex justify-end">
+          <a href="{{ e.ref_url }}"
+             class="inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium">
+            Перейти →
+          </a>
+        </div>
+        {% endif %}
       </div>
     </details>
     {% endfor %}
   </div>
+  {% endif %}
+
+  <!-- ══════════════════════════════════════════════
+       ВКЛАДКА 2: АВТО-ДАЙДЖЕСТЫ
+  ══════════════════════════════════════════════ -->
+  {% else %}
+
+  <!-- Фильтр периода -->
+  <form method="get" action="/ai/history" class="flex flex-wrap gap-2 items-center">
+    <input type="hidden" name="tab" value="digests">
+    <select name="days" onchange="this.form.submit()"
+            class="text-sm border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-400 outline-none">
+      <option value="7"  {% if days == 7  %}selected{% endif %}>7 дней</option>
+      <option value="14" {% if days == 14 %}selected{% endif %}>14 дней</option>
+      <option value="30" {% if days == 30 %}selected{% endif %}>30 дней</option>
+    </select>
+  </form>
+
+  {% if not digest_entries %}
+  <div class="card p-10 text-center">
+    <div class="text-5xl mb-4">📅</div>
+    <p class="font-semibold text-slate-700 dark:text-slate-200 mb-1">Дайджестов пока нет</p>
+    <p class="text-sm text-slate-400">
+      AI автоматически формирует дайджесты — утренние брифинги, недельные отчёты,<br>
+      алерты о продажах и советы по закупкам. Они появятся здесь по расписанию.
+    </p>
+  </div>
+  {% else %}
+
+  <div class="space-y-3">
+    {% for d in digest_entries %}
+    <details class="card group">
+      <summary class="flex items-start gap-3 px-4 py-3.5 cursor-pointer list-none select-none hover:bg-slate-50 dark:hover:bg-slate-700/40 rounded-xl transition-colors">
+        <span class="mt-0.5 text-xl shrink-0">{{ d.icon }}</span>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <span class="font-semibold text-slate-800 dark:text-slate-100 text-sm">{{ d.job_label }}</span>
+            <span class="text-xs text-slate-400 shrink-0">{{ d.created_at[:16].replace("T"," ") if "T" in d.created_at else d.created_at[:16] }}</span>
+          </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+            {{ (d.generated_text or '')[:100] }}{% if (d.generated_text or '') | length > 100 %}…{% endif %}
+          </p>
+        </div>
+        <svg class="w-4 h-4 text-slate-400 shrink-0 mt-1 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </summary>
+
+      <div class="px-4 pb-4 pt-1 border-t border-slate-100 dark:border-slate-700 space-y-3">
+        <!-- Текст дайджеста -->
+        <div>
+          <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-1">Сообщение AI</p>
+          <div class="text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed bg-amber-50 dark:bg-amber-900/20 rounded-lg px-4 py-3 border border-amber-100 dark:border-amber-800">{{ d.generated_text }}</div>
+        </div>
+
+        <!-- Данные снапшота — только если есть и не пустые -->
+        {% if d.snapshot %}
+        <details class="group/snap">
+          <summary class="text-xs text-slate-400 cursor-pointer hover:text-slate-600 dark:hover:text-slate-200 select-none list-none flex items-center gap-1">
+            <svg class="w-3 h-3 transition-transform group-open/snap:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+            Данные анализа
+          </summary>
+          <div class="mt-2 rounded-lg border border-slate-200 dark:border-slate-600 divide-y divide-slate-100 dark:divide-slate-700 overflow-hidden text-xs">
+            {% for k, v in d.snapshot.items() %}
+            <div class="flex items-baseline gap-2 px-3 py-1.5 bg-white dark:bg-slate-800">
+              <span class="text-slate-400 dark:text-slate-500 shrink-0 w-40 truncate">{{ k }}</span>
+              <span class="text-slate-700 dark:text-slate-200 font-mono break-all">{{ v }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </details>
+        {% endif %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% endif %}
 
   <p class="text-center text-xs text-slate-400 pb-2">История хранится 30 дней</p>

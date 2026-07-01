@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.347.0"
+CURRENT_VERSION = "1.348.0"
 
 ENTRIES = [
+    {
+        "version": "1.348.0",
+        "date": "1 июля 2026",
+        "items": [
+            "Update landing page and remove unnecessary AI technical details",
+        ],
+    },
     {
         "version": "1.347.0",
         "date": "1 июля 2026",

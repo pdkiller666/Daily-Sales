@@ -39,10 +39,13 @@
     <label class="text-xs text-gray-500 dark:text-gray-400">Функция</label>
     <select name="feature" class="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100">
       <option value="">— все —</option>
-      <option value="report"   {% if feature == 'report'   %}selected{% endif %}>📊 Анализ отчёта</option>
-      <option value="prodesc"  {% if feature == 'prodesc'  %}selected{% endif %}>🏷️ Описание товара</option>
-      <option value="forecast" {% if feature == 'forecast' %}selected{% endif %}>📈 Прогноз продаж</option>
-      <option value="plan"     {% if feature == 'plan'     %}selected{% endif %}>🎯 Разбор плана</option>
+      <option value="report"      {% if feature == 'report'      %}selected{% endif %}>📊 Анализ отчёта</option>
+      <option value="prodesc"     {% if feature == 'prodesc'     %}selected{% endif %}>🏷️ Описание товара</option>
+      <option value="forecast"    {% if feature == 'forecast'    %}selected{% endif %}>📈 Прогноз продаж</option>
+      <option value="plan"        {% if feature == 'plan'        %}selected{% endif %}>🎯 Разбор плана</option>
+      <option value="crosssell"   {% if feature == 'crosssell'   %}selected{% endif %}>🔗 Кросс-продажи</option>
+      <option value="priceadvice" {% if feature == 'priceadvice' %}selected{% endif %}>💰 Совет по цене</option>
+      <option value="planhint"    {% if feature == 'planhint'    %}selected{% endif %}>🎯 Цель плана</option>
     </select>
   </div>
   {% else %}
@@ -99,11 +102,17 @@
             {% elif r.feature == 'prodesc' %}bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300
             {% elif r.feature == 'forecast' %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300
             {% elif r.feature == 'plan' %}bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300
+            {% elif r.feature == 'crosssell' %}bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300
+            {% elif r.feature == 'priceadvice' %}bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300
+            {% elif r.feature == 'planhint' %}bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300
             {% else %}bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300{% endif %}">
             {% if r.feature == 'report' %}📊 отчёт
             {% elif r.feature == 'prodesc' %}🏷️ товар
             {% elif r.feature == 'forecast' %}📈 прогноз
             {% elif r.feature == 'plan' %}🎯 план
+            {% elif r.feature == 'crosssell' %}🔗 кросс-сейл
+            {% elif r.feature == 'priceadvice' %}💰 цена
+            {% elif r.feature == 'planhint' %}🎯 цель плана
             {% else %}{{ r.feature }}{% endif %}
           </span>
         </td>

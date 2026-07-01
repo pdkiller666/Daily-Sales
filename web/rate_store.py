@@ -805,30 +805,34 @@ def log_ai_digest(
 def get_ai_digest_log(
     days: int = 30,
     job_type: "str | None" = None,
+    org_db: "str | None" = None,
     limit: int = 200,
 ) -> list:
-    """Возвращает записи ai_digest_log за последние N дней."""
+    """Возвращает записи ai_digest_log за последние N дней.
+
+    Если передан org_db — только записи этой организации.
+    """
     import datetime as _dt
     cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=days)).strftime("%Y-%m-%d")
     with _lock:
         try:
             conn = _get_conn()
+            wheres = ["created_at >= ?"]
+            params: list = [cutoff]
             if job_type:
-                rows = conn.execute(
-                    """SELECT id, job_type, org_db, generated_text, data_snapshot_json, created_at
-                       FROM ai_digest_log
-                       WHERE created_at >= ? AND job_type = ?
-                       ORDER BY created_at DESC LIMIT ?""",
-                    (cutoff, job_type, limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT id, job_type, org_db, generated_text, data_snapshot_json, created_at
-                       FROM ai_digest_log
-                       WHERE created_at >= ?
-                       ORDER BY created_at DESC LIMIT ?""",
-                    (cutoff, limit),
-                ).fetchall()
+                wheres.append("job_type = ?")
+                params.append(job_type)
+            if org_db:
+                wheres.append("org_db = ?")
+                params.append(org_db)
+            params.append(limit)
+            rows = conn.execute(
+                f"""SELECT id, job_type, org_db, generated_text, data_snapshot_json, created_at
+                    FROM ai_digest_log
+                    WHERE {' AND '.join(wheres)}
+                    ORDER BY created_at DESC LIMIT ?""",
+                params,
+            ).fetchall()
             conn.close()
             return [
                 {

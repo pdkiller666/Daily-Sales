@@ -822,6 +822,12 @@ async def ai_cross_sell(request: Request):
             return JSONResponse({"ok": False, "error": "Не удалось выполнить анализ. Попробуйте позже."})
 
         _cross_sell_cache_set(_ck, result)
+        try:
+            from web.rate_store import log_ai_request as _lar
+            _lar("crosssell", tg_id, org_db,
+                 f"Кросс-продажи: {len(pairs)} пар товаров за 60 дней", result)
+        except Exception:
+            pass
         return JSONResponse({"ok": True, "text": result, "pairs": pairs[:10], "cached": False})
 
     except Exception as exc:
@@ -959,6 +965,12 @@ async def ai_price_advice(request: Request):
             return JSONResponse({"ok": False, "error": "Не удалось получить рекомендацию. Попробуйте позже."})
 
         _price_cache_set(_ck, result)
+        try:
+            from web.rate_store import log_ai_request as _lar
+            _lar("priceadvice", tg_id, org_db,
+                 f"#{product_id} · {p_name} · {p_price:.0f} ₽", result)
+        except Exception:
+            pass
         return JSONResponse({
             "ok": True, "text": result, "cached": False,
             "product": {"name": p_name, "price": p_price, "old_price": p_old_price},
@@ -1231,6 +1243,14 @@ async def ai_plan_target_hint(request: Request):
                 return JSONResponse({"ok": False, "error": "Недостаточно данных для подсказки."})
 
         _plhint_cache_set(_ck, result, float(suggestion))
+        try:
+            from web.rate_store import log_ai_request as _lar
+            _plan_label = "Еженедельный" if plan_type == "weekly" else "Месячный"
+            _metric_label = "выручка" if metric_type == "turnover" else "количество"
+            _lar("planhint", tg_id, org_db,
+                 f"{who} · {_plan_label} · {_metric_label}", result)
+        except Exception:
+            pass
         return JSONResponse({"ok": True, "text": result, "suggestion": float(suggestion), "cached": False,
                              "filter_type": filter_type, "filter_label": _filter_label})
 

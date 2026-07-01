@@ -1037,44 +1037,126 @@ async def generate_network_insights(request: Request):
 # ─── Личная история AI-запросов ───────────────────────────────────────────────
 
 _HISTORY_FEATURE_LABELS = {
-    "report":   "Объяснить отчёт",
-    "prodesc":  "Описание товара",
-    "forecast": "Прогноз продаж",
-    "plan":     "Анализ плана",
+    "report":      "Объяснить отчёт",
+    "prodesc":     "Описание товара",
+    "forecast":    "Прогноз продаж",
+    "plan":        "Анализ плана",
+    "crosssell":   "Кросс-продажи",
+    "priceadvice": "Совет по цене",
+    "planhint":    "Цель плана",
+}
+
+_HISTORY_FEATURE_ICONS = {
+    "report":      "📊",
+    "prodesc":     "🏷️",
+    "forecast":    "📈",
+    "plan":        "🎯",
+    "crosssell":   "🔗",
+    "priceadvice": "💰",
+    "planhint":    "🎯",
+}
+
+# URL для кнопки «Перейти» — None означает вычислить из input_summary
+_HISTORY_FEATURE_REFS = {
+    "report":      "/reports",
+    "prodesc":     "/products",
+    "forecast":    "/reports",
+    "plan":        "/plans",
+    "crosssell":   "/products",
+    "priceadvice": None,   # строится из «#id» в input_summary
+    "planhint":    "/plans",
+}
+
+_DIGEST_JOB_LABELS = {
+    "smart_alerts":            "AI-алерт",
+    "weekly_digest":           "Недельный дайджест",
+    "morning_briefing":        "Утренний брифинг",
+    "task_digest":             "Дайджест задач",
+    "task_overdue_predictor":  "Предиктор просрочки",
+    "procurement_advisor":     "Советник закупок",
+    "seller_coach":            "Коуч продавца",
+    "anomaly_check":           "Проверка аномалий",
+}
+
+_DIGEST_JOB_ICONS = {
+    "smart_alerts":            "🚨",
+    "weekly_digest":           "📊",
+    "morning_briefing":        "☀️",
+    "task_digest":             "📋",
+    "task_overdue_predictor":  "🔮",
+    "procurement_advisor":     "📦",
+    "seller_coach":            "⭐",
+    "anomaly_check":           "🔍",
 }
 
 
 @router.get("/ai/history")
 def ai_history_page(request: Request):
     """Личный журнал AI-запросов текущего пользователя."""
+    import re as _re
+    import json as _json
     from web.auth import get_session_user
-    from web.rate_store import get_ai_request_log
+    from web.rate_store import get_ai_request_log, get_ai_digest_log
     from fastapi.responses import RedirectResponse as _RR
 
     user = get_session_user(request)
     if not user:
         return _RR("/login", status_code=303)
 
-    tg_id = int(user["sub"])
-    days = int(request.query_params.get("days", 30))
+    tg_id  = int(user["sub"])
+    org_db = user.get("org_db")
+    days   = int(request.query_params.get("days", 30))
     if days not in (7, 14, 30):
         days = 30
     feature = request.query_params.get("feature", "")
+    tab = request.query_params.get("tab", "requests")
+    if tab not in ("requests", "digests"):
+        tab = "requests"
 
+    entries = []
     try:
         rows = get_ai_request_log(days=days, feature=feature or None, tg_id=tg_id, limit=100)
         for r in rows:
             r["feature_label"] = _HISTORY_FEATURE_LABELS.get(r["feature"], r["feature"])
+            r["icon"] = _HISTORY_FEATURE_ICONS.get(r["feature"], "🤖")
+            # Вычисляем ссылку «Перейти»
+            ref = _HISTORY_FEATURE_REFS.get(r["feature"])
+            if r["feature"] == "priceadvice":
+                m = _re.match(r"^#(\d+)", r.get("input_summary") or "")
+                ref = f"/products/{m.group(1)}" if m else "/products"
+            r["ref_url"] = ref
+        entries = rows
     except Exception as exc:
-        logger.error("ai_history_page error: %s", exc)
-        rows = []
+        logger.error("ai_history_page requests error: %s", exc)
+
+    digest_entries = []
+    try:
+        if org_db:
+            drows = get_ai_digest_log(days=days, org_db=org_db, limit=50)
+            for d in drows:
+                d["job_label"] = _DIGEST_JOB_LABELS.get(d["job_type"], d["job_type"])
+                d["icon"] = _DIGEST_JOB_ICONS.get(d["job_type"], "🤖")
+                if d.get("data_snapshot_json"):
+                    try:
+                        d["snapshot"] = _json.loads(d["data_snapshot_json"])
+                    except Exception:
+                        d["snapshot"] = None
+                else:
+                    d["snapshot"] = None
+            digest_entries = drows
+    except Exception as exc:
+        logger.error("ai_history_page digests error: %s", exc)
 
     tpl = request.app.state.templates
     return tpl.TemplateResponse(request, "ai_history_user.html", {
-        "user": user,
-        "entries": rows,
-        "days": days,
-        "feature": feature,
-        "feature_labels": _HISTORY_FEATURE_LABELS,
-        "total": len(rows),
+        "user":              user,
+        "entries":           entries,
+        "digest_entries":    digest_entries,
+        "days":              days,
+        "feature":           feature,
+        "tab":               tab,
+        "feature_labels":    _HISTORY_FEATURE_LABELS,
+        "digest_job_labels": _DIGEST_JOB_LABELS,
+        "total":             len(entries),
+        "digest_total":      len(digest_entries),
     })
