@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.346.0"
+CURRENT_VERSION = "1.347.0"
 
 ENTRIES = [
+    {
+        "version": "1.347.0",
+        "date": "1 июля 2026",
+        "items": [
+            "Update landing page button to link to login and fix AI history display",
+        ],
+    },
     {
         "version": "1.346.0",
         "date": "1 июля 2026",
