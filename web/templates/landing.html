@@ -88,7 +88,7 @@
     </script>
 
     <link rel="stylesheet" href="/static/fonts.css?v=faf9d188bd">
-    <link rel="stylesheet" href="/static/app.css?v=5d337a6b14">
+    <link rel="stylesheet" href="/static/app.css?v=cfe2bc2df4">
     <style>
         * { font-family: 'Inter', system-ui, sans-serif; }
 
@@ -430,11 +430,10 @@
         <div class="flex items-center gap-2 sm:gap-3">
             <a href="/dashboard" class="hidden sm:inline text-sm text-slate-400 hover:text-white transition-colors px-4 py-2">Войти</a>
             {% if bot_username %}
-            <a href="https://t.me/{{ bot_username }}" target="_blank"
+            <a href="/login"
                class="btn-primary text-white font-semibold inline-flex items-center gap-1.5
                       text-xs px-3 py-1.5 rounded-md
                       sm:text-sm sm:px-5 sm:py-2 sm:rounded-lg sm:gap-2">
-                <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/></svg>
                 Попробовать
             </a>
             {% else %}
