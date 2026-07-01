@@ -36,19 +36,23 @@
   <!-- Фильтры -->
   <form method="get" action="/ai/history" class="flex flex-wrap gap-2 items-center">
     <input type="hidden" name="tab" value="requests">
-    <select name="feature" onchange="this.form.submit()"
+    <select name="feature"
             class="text-sm border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-400 outline-none">
       <option value="" {% if not feature %}selected{% endif %}>Все функции</option>
       {% for key, label in feature_labels.items() %}
       <option value="{{ key }}" {% if feature == key %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
-    <select name="days" onchange="this.form.submit()"
+    <select name="days"
             class="text-sm border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-400 outline-none">
       <option value="7"  {% if days == 7  %}selected{% endif %}>7 дней</option>
       <option value="14" {% if days == 14 %}selected{% endif %}>14 дней</option>
       <option value="30" {% if days == 30 %}selected{% endif %}>30 дней</option>
     </select>
+    <button type="submit"
+            class="text-sm px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition-colors">
+      Применить
+    </button>
   </form>
 
   <!-- Пустое состояние -->
@@ -123,12 +127,16 @@
   <!-- Фильтр периода -->
   <form method="get" action="/ai/history" class="flex flex-wrap gap-2 items-center">
     <input type="hidden" name="tab" value="digests">
-    <select name="days" onchange="this.form.submit()"
+    <select name="days"
             class="text-sm border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-400 outline-none">
       <option value="7"  {% if days == 7  %}selected{% endif %}>7 дней</option>
       <option value="14" {% if days == 14 %}selected{% endif %}>14 дней</option>
       <option value="30" {% if days == 30 %}selected{% endif %}>30 дней</option>
     </select>
+    <button type="submit"
+            class="text-sm px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition-colors">
+      Применить
+    </button>
   </form>
 
   {% if not digest_entries %}
