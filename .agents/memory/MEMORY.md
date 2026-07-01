@@ -98,3 +98,4 @@
 - [Task automation & SLA engine](task-automation-sla.md) — run_rules идемпотентен (fire_key для time-events, claim_task_escalation атомарен, notify дедуп по tg_id); КАЖДЫЙ create/status путь (web+bot) обязан звать run_rules иначе хук молча мёртв
 - [Kanban quick-move client sync](kanban-quickmove-client.md) — relocateCard/updateColumnCount синкают только badge (не header-ring/WIP-баннер); скрытая кнопка текущей колонки рендерится ПЕРВОЙ → в тестах селектор `:visible`, не `.first`
 - [Deploy requires Chromium](deploy-requires-chromium.md) — deploy.sh шаг 0 гонит smoke с WEB_SMOKE_REQUIRE_BROWSER=1 → жёсткий fail без системного Chromium; на свежем окружении сперва installSystemDependencies(['chromium'])
+- [forceescape kills script blocks](forceescape-in-script.md) — `{{ x | tojson | forceescape }}` в теле <script> рендерит &#34; → SyntaxError → ВЕСЬ блок не выполняется (все функции undefined); forceescape только для HTML-атрибутов, в <script> только | tojson

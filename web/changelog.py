@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.352.0"
+CURRENT_VERSION = "1.353.0"
 
 ENTRIES = [
+    {
+        "version": "1.353.0",
+        "date": "1 июля 2026",
+        "items": [
+            "Improve task management interface for desktop users",
+            "Add bulk action functionality for managing multiple tasks",
+        ],
+    },
     {
         "version": "1.352.0",
         "date": "1 июля 2026",

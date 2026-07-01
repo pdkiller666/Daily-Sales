@@ -558,7 +558,7 @@ function inlineRating(taskId, initialRating, csrfToken) {
 }
 
 // ── Save-view dialog ────────────────────────────────────────────────────────
-const _CSRF_INDEX = {{ csrf_token | tojson | forceescape }};
+const _CSRF_INDEX = {{ csrf_token | tojson }};
 
 window.showSaveView = function() {
   const dlg = document.getElementById('save-view-dialog');
