@@ -11,7 +11,7 @@
       <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">История ответов AI в веб-кабинете</p>
     </div>
     {% if total > 0 %}
-    <span class="text-sm text-slate-500 dark:text-slate-400">{{ total }} запрос{{ total|pluralize("","а","ов") }}</span>
+    <span class="text-sm text-slate-500 dark:text-slate-400">{{ total }} запрос{% if total == 1 %}{% elif total in (2,3,4) %}а{% else %}ов{% endif %}</span>
     {% endif %}
   </div>
 
