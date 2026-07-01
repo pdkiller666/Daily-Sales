@@ -1070,8 +1070,7 @@ def ai_history_page(request: Request):
         rows = []
 
     tpl = request.app.state.templates
-    return tpl.TemplateResponse("ai_history_user.html", {
-        "request": request,
+    return tpl.TemplateResponse(request, "ai_history_user.html", {
         "user": user,
         "entries": rows,
         "days": days,
