@@ -727,30 +727,34 @@ def log_ai_request(
 def get_ai_request_log(
     days: int = 30,
     feature: "str | None" = None,
+    tg_id: "int | None" = None,
     limit: int = 200,
 ) -> list:
-    """Возвращает записи ai_request_log за последние N дней."""
+    """Возвращает записи ai_request_log за последние N дней.
+
+    Если передан tg_id — только записи этого пользователя.
+    """
     import datetime as _dt
     cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=days)).strftime("%Y-%m-%d")
     with _lock:
         try:
             conn = _get_conn()
+            wheres = ["created_at >= ?"]
+            params: list = [cutoff]
             if feature:
-                rows = conn.execute(
-                    """SELECT id, feature, tg_id, org_db, input_summary, response_text, created_at
-                       FROM ai_request_log
-                       WHERE created_at >= ? AND feature = ?
-                       ORDER BY created_at DESC LIMIT ?""",
-                    (cutoff, feature, limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT id, feature, tg_id, org_db, input_summary, response_text, created_at
-                       FROM ai_request_log
-                       WHERE created_at >= ?
-                       ORDER BY created_at DESC LIMIT ?""",
-                    (cutoff, limit),
-                ).fetchall()
+                wheres.append("feature = ?")
+                params.append(feature)
+            if tg_id is not None:
+                wheres.append("tg_id = ?")
+                params.append(tg_id)
+            params.append(limit)
+            rows = conn.execute(
+                f"""SELECT id, feature, tg_id, org_db, input_summary, response_text, created_at
+                    FROM ai_request_log
+                    WHERE {' AND '.join(wheres)}
+                    ORDER BY created_at DESC LIMIT ?""",
+                params,
+            ).fetchall()
             conn.close()
             return [
                 {

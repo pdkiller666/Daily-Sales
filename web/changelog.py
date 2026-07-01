@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.341.0"
+CURRENT_VERSION = "1.342.0"
 
 ENTRIES = [
+    {
+        "version": "1.342.0",
+        "date": "1 июля 2026",
+        "items": [
+            "Add a new section to view AI request and job history",
+        ],
+    },
     {
         "version": "1.341.0",
         "date": "1 июля 2026",
