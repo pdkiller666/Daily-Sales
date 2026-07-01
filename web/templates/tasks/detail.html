@@ -445,8 +445,8 @@
 
   </div>
 
-  <!-- RIGHT: Meta + Actions -->
-  <div class="space-y-4">
+  <!-- RIGHT: Meta + Actions (sticky на десктопе) -->
+  <div class="space-y-4 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto lg:pr-1">
 
     <!-- Status actions -->
     {% if task.status not in ('done', 'cancelled') %}
@@ -727,6 +727,12 @@
     </div>
     {% endif %}
 
+
+  </div>
+
+  <!-- Вторичный контент: десктоп — под левой колонкой (col-span-2); мобиль — после правой -->
+  <div class="lg:col-span-2 space-y-4">
+
     {% if tasks_pro and task_history|default([]) %}
     <div class="card p-4 dark:bg-slate-900">
       <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">История изменений</p>
@@ -833,7 +839,6 @@
     </div>
     {% endif %}
 
-    <!-- Phase 4.3: Учёт времени (tasks_pro) -->
     {% if tasks_pro %}
     <div class="card p-4 dark:bg-slate-900" x-data="{showLog: false}">
       <div class="flex items-center justify-between mb-3">
@@ -846,7 +851,6 @@
           {% else %}—{% endif %}
         </span>
       </div>
-
       {% if task.get('estimated_hours') %}
       {% set _est_m = (task.estimated_hours * 60)|int %}
       {% set _spent = time_total_minutes %}
@@ -862,8 +866,6 @@
         </div>
       </div>
       {% endif %}
-
-      <!-- Форма добавления времени -->
       <details class="mb-2">
         <summary class="text-xs text-indigo-600 dark:text-indigo-400 cursor-pointer hover:underline select-none">+ Записать время</summary>
         <form method="POST" action="/tasks/{{ task.id }}/log_time" class="mt-2 space-y-2">
@@ -888,7 +890,6 @@
           </button>
         </form>
       </details>
-
       {% if time_logs %}
       <button @click="showLog = !showLog" type="button"
               class="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer select-none">
@@ -922,7 +923,6 @@
     </div>
     {% endif %}
 
-    <!-- Phase 4.4: AI-шаблон из истории задачи (tasks_ai, admin only, done) -->
     {% if tasks_ai and is_admin and task.status == 'done' %}
     <div class="card p-4 dark:bg-slate-900"
          x-data="{
