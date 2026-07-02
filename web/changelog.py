@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.357.0"
+CURRENT_VERSION = "1.358.0"
 
 ENTRIES = [
+    {
+        "version": "1.358.0",
+        "date": "2 июля 2026",
+        "items": [
+            "Fix issue preventing cards from being saved in new Kanban columns",
+            "Update motivation calculation to correctly account for team bonuses and absences",
+        ],
+    },
     {
         "version": "1.357.0",
         "date": "2 июля 2026",

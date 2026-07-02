@@ -9147,22 +9147,32 @@ class Database:
 
             final_commission = base_commission
             if coeff_conditions:
-                if year is not None and month is not None:
+                # Количество продавцов определяется по составу команды (users.shop_name),
+                # а не по тому, кто фактически продавал в периоде — иначе при joint
+                # один неактивный продавец ломает порог для всей команды.
+                # Vacation-исключение: если есть одобренное отсутствие в периоде →
+                # не считаем в effective-составе.
+                cursor.execute(
+                    'SELECT id FROM users WHERE shop_name = ?', (shop_name,)
+                )
+                _team_ids = [r[0] for r in cursor.fetchall()]
+                if _team_ids and (year is not None and month is not None):
                     import calendar as _cal
-                    _, last_day = _cal.monthrange(year, month)
-                    start_of_month = f"{year}-{month:02d}-01"
-                    end_of_month   = f"{year}-{month:02d}-{last_day:02d}"
-                    cursor.execute('''
-                        SELECT COUNT(DISTINCT user_id) FROM sales
-                        WHERE shop_name = ? AND date(sale_date) BETWEEN date(?) AND date(?)
-                    ''', (shop_name, start_of_month, end_of_month))
+                    _, _last_day = _cal.monthrange(year, month)
+                    _m_start = f"{year}-{month:02d}-01"
+                    _m_end   = f"{year}-{month:02d}-{_last_day:02d}"
+                    _tid_ph  = ','.join('?' * len(_team_ids))
+                    cursor.execute(
+                        f"SELECT DISTINCT user_id FROM absence_records "
+                        f"WHERE user_id IN ({_tid_ph}) AND status='approved' "
+                        f"AND type IN ('vacation','sick_leave','day_off') "
+                        f"AND start_date <= ? AND end_date >= ?",
+                        _team_ids + [_m_end, _m_start]
+                    )
+                    _vac_ids = {r[0] for r in cursor.fetchall()}
+                    sellers_count = len([u for u in _team_ids if u not in _vac_ids])
                 else:
-                    start_of_month = datetime.now().replace(day=1).strftime('%Y-%m-%d')
-                    cursor.execute('''
-                        SELECT COUNT(DISTINCT user_id) FROM sales
-                        WHERE shop_name = ? AND date(sale_date) >= date(?)
-                    ''', (shop_name, start_of_month))
-                sellers_count = cursor.fetchone()[0]
+                    sellers_count = len(_team_ids)
 
                 for _cond_shop, min_sellers, coefficient, calc_mode in coeff_conditions:
                     if sellers_count >= min_sellers:
@@ -9942,16 +9952,23 @@ class Database:
         """Расчёт корректировки заработка для совместного режима мотивации.
 
         Для магазинов с calc_mode='joint':
-          base_pool    = SUM(commission_amount всех продавцов в магазине за период)
+          base_pool    = SUM(commission_amount не-отпускников в магазине за период)
                          (комиссии записаны БЕЗ коэффициента, т.к. apply_extra_conditions
                           пропускает его для joint-условий)
-          joint_total  = base_pool × coefficient   (если sellers_count >= min_sellers)
+          joint_total  = base_pool × coefficient   (если effective_sellers >= min_sellers)
           adjustment   = joint_total - user_individual
 
         Пример: Андрей продал 2 шт → +20₽ в пул, Ольга 1 шт → +10₽ в пул.
         Пул = 30₽, коэф. 0.7 → joint_total = 21₽. Каждый получает +21₽.
 
-        Если совместных условий нет или min_sellers не достигнут — возвращает 0.0.
+        Состав команды определяется по users.shop_name (НЕ по наличию продаж):
+        сотрудник без продаж в периоде всё равно участвует в joint-распределении.
+
+        Vacation-исключение: если у продавца есть одобренное отсутствие (vacation/
+        sick_leave/day_off), перекрывающее период, он исключается из effective-состава
+        и сам получает 0 joint-бонуса.
+
+        Если совместных условий нет или effective_sellers < min_sellers — возвращает 0.0.
         """
         try:
             conn = self.get_connection()
@@ -10004,83 +10021,102 @@ class Database:
                 conn.close()
                 return 0.0
 
-            # Магазины, где этот пользователь продавал за период
-            date_filter = ""
-            params_user = [user_id]
-            if start_date:
-                date_filter += " AND sale_date >= ?"
-                params_user.append(start_date)
-            if end_date:
-                date_filter += " AND sale_date <= ?"
-                params_user.append(end_date)
-
-            cursor.execute(f"""
-                SELECT DISTINCT shop_name FROM sales
-                WHERE user_id = ? {date_filter}
-            """, params_user)
-            user_shops = {r[0] for r in cursor.fetchall()}
-
-            # Оставляем только магазины с joint-условием
-            active_joint_shops = {}  # shop → (min_sellers, coefficient)
-            for sn in user_shops:
-                if sn in shop_to_cond:
-                    active_joint_shops[sn] = shop_to_cond[sn]
-                elif global_cond is not None:
-                    active_joint_shops[sn] = global_cond
-
-            if not active_joint_shops:
+            # ── Магазин пользователя из профиля (не из продаж) ───────────────
+            cursor.execute('SELECT shop_name FROM users WHERE id = ?', (user_id,))
+            _row = cursor.fetchone()
+            user_shop = _row[0] if _row and _row[0] else None
+            if not user_shop:
                 conn.close()
                 return 0.0
 
-            total_adjustment = 0.0
-            for shop, (min_sellers, coefficient) in active_joint_shops.items():
-                date_clause = ""
-                params_pool = []
-                if start_date:
-                    date_clause += " AND s.sale_date >= ?"
-                    params_pool.append(start_date)
-                if end_date:
-                    date_clause += " AND s.sale_date <= ?"
-                    params_pool.append(end_date)
+            # Проверяем наличие joint-условия для магазина
+            cond = shop_to_cond.get(user_shop) or global_cond
+            if cond is None:
+                conn.close()
+                return 0.0
+            min_sellers, coefficient = cond
 
-                # Количество уникальных продавцов в магазине за период
-                cursor.execute(f"""
-                    SELECT COUNT(DISTINCT s.user_id)
-                    FROM sales s
-                    WHERE s.shop_name = ? {date_clause}
-                """, [shop] + params_pool)
-                sellers_count = cursor.fetchone()[0] or 0
+            # Vacation-check: если сам пользователь в одобренном отпуске → 0.0
+            _vac_args = [user_id]
+            _vac_sql = ("SELECT 1 FROM absence_records "
+                        "WHERE user_id = ? AND status = 'approved' "
+                        "AND type IN ('vacation','sick_leave','day_off')")
+            if start_date and end_date:
+                _vac_sql += " AND start_date <= ? AND end_date >= ?"
+                _vac_args += [end_date, start_date]
+            elif start_date:
+                _vac_sql += " AND end_date >= ?"
+                _vac_args.append(start_date)
+            _vac_sql += " LIMIT 1"
+            cursor.execute(_vac_sql, _vac_args)
+            if cursor.fetchone() is not None:
+                conn.close()
+                return 0.0
 
-                # Если порог продавцов не достигнут — joint не применяется
-                if sellers_count < min_sellers:
-                    continue
+            # ── Состав команды из users.shop_name ────────────────────────────
+            cursor.execute('SELECT id FROM users WHERE shop_name = ?', (user_shop,))
+            team_uids = [r[0] for r in cursor.fetchall()]
+            if not team_uids:
+                conn.close()
+                return 0.0
 
-                # Базовый пул = сумма комиссий всех продавцов (без коэффициента,
-                # т.к. apply_extra_conditions не применял его для joint)
-                cursor.execute(f"""
-                    SELECT COALESCE(SUM(se.commission_amount), 0.0)
-                    FROM seller_earnings se
-                    JOIN sales s ON se.sale_id = s.id
-                    WHERE s.shop_name = ? {date_clause}
-                """, [shop] + params_pool)
-                base_pool = cursor.fetchone()[0] or 0.0
+            # ── Отпускники в периоде → исключаются из effective-состава ──────
+            _team_ph = ','.join('?' * len(team_uids))
+            _leave_args = list(team_uids)
+            _leave_sql = (f"SELECT DISTINCT user_id FROM absence_records "
+                          f"WHERE user_id IN ({_team_ph}) AND status = 'approved' "
+                          f"AND type IN ('vacation','sick_leave','day_off')")
+            if start_date and end_date:
+                _leave_sql += " AND start_date <= ? AND end_date >= ?"
+                _leave_args += [end_date, start_date]
+            elif start_date:
+                _leave_sql += " AND end_date >= ?"
+                _leave_args.append(start_date)
+            cursor.execute(_leave_sql, _leave_args)
+            vacation_uids = {r[0] for r in cursor.fetchall()}
 
-                # Каждый продавец получает: пул × коэффициент
-                joint_total = round(base_pool * coefficient, 2)
+            effective_uids = [u for u in team_uids if u not in vacation_uids]
+            effective_count = len(effective_uids)
 
-                # Личный вклад пользователя (уже учтён в его seller_earnings)
-                cursor.execute(f"""
-                    SELECT COALESCE(SUM(se.commission_amount), 0.0)
-                    FROM seller_earnings se
-                    JOIN sales s ON se.sale_id = s.id
-                    WHERE se.user_id = ? AND s.shop_name = ? {date_clause}
-                """, [user_id, shop] + params_pool)
-                user_individual = cursor.fetchone()[0] or 0.0
+            # Если порог продавцов (по составу команды) не достигнут — joint не применяется
+            if effective_count < min_sellers:
+                conn.close()
+                return 0.0
 
-                total_adjustment += joint_total - user_individual
+            # Пул = комиссии не-отпускников по продажам в магазине за период
+            date_clause = ""
+            params_pool = []
+            if start_date:
+                date_clause += " AND s.sale_date >= ?"
+                params_pool.append(start_date)
+            if end_date:
+                date_clause += " AND s.sale_date <= ?"
+                params_pool.append(end_date)
 
+            _eff_ph = ','.join('?' * len(effective_uids))
+            cursor.execute(f"""
+                SELECT COALESCE(SUM(se.commission_amount), 0.0)
+                FROM seller_earnings se
+                JOIN sales s ON se.sale_id = s.id
+                WHERE se.user_id IN ({_eff_ph}) AND s.shop_name = ? {date_clause}
+            """, effective_uids + [user_shop] + params_pool)
+            base_pool = cursor.fetchone()[0] or 0.0
+
+            # Каждый активный продавец получает: пул × коэффициент
+            joint_total = round(base_pool * coefficient, 2)
+
+            # Личный вклад пользователя (уже учтён в его seller_earnings)
+            cursor.execute(f"""
+                SELECT COALESCE(SUM(se.commission_amount), 0.0)
+                FROM seller_earnings se
+                JOIN sales s ON se.sale_id = s.id
+                WHERE se.user_id = ? AND s.shop_name = ? {date_clause}
+            """, [user_id, user_shop] + params_pool)
+            user_individual = cursor.fetchone()[0] or 0.0
+
+            total_adjustment = round(joint_total - user_individual, 2)
             conn.close()
-            return round(total_adjustment, 2)
+            return total_adjustment
         except Exception as e:
             logger.error(f"Ошибка get_joint_bonus_adjustment: {e}")
             if 'conn' in locals():
@@ -12456,33 +12492,65 @@ class Database:
                     shop_to_cond[sn] = (min_s, coeff)
 
             if shop_to_cond or global_cond is not None:
-                pool_by_shop: dict = {
-                    sn: float(v) for sn, v in conn.execute(
-                        'SELECT s.shop_name, COALESCE(SUM(se.commission_amount), 0.0) '
-                        'FROM seller_earnings se JOIN sales s ON se.sale_id = s.id '
-                        'WHERE s.sale_date >= ? AND s.sale_date <= ? GROUP BY s.shop_name',
-                        [start_date, end_date],
-                    ).fetchall()
-                }
-                sellers_by_shop: dict = {
-                    sn: int(cnt) for sn, cnt in conn.execute(
-                        'SELECT shop_name, COUNT(DISTINCT user_id) FROM sales '
-                        'WHERE sale_date >= ? AND sale_date <= ? GROUP BY shop_name',
-                        [start_date, end_date],
-                    ).fetchall()
-                }
-                # Магазины, где каждый пользователь продавал за период —
-                # берём из sales (как в оригинальном get_joint_bonus_adjustment),
-                # чтобы учесть пользователей без seller_earnings строк.
-                user_shops: dict = {}
+                # ── Магазин каждого пользователя из профиля (не из продаж) ──
+                # users.shop_name — источник team-принадлежности; продавец без
+                # продаж в периоде всё равно участвует в joint-распределении.
+                uid_to_shop: dict = {}
                 for uid, sn in conn.execute(
-                    f'SELECT DISTINCT user_id, shop_name FROM sales '
-                    f'WHERE user_id IN ({ph}) AND sale_date >= ? AND sale_date <= ?',
-                    uids + [start_date, end_date],
+                    f'SELECT id, shop_name FROM users WHERE id IN ({ph}) AND shop_name IS NOT NULL',
+                    uids,
                 ).fetchall():
-                    user_shops.setdefault(uid, set()).add(sn)
+                    if sn:
+                        uid_to_shop[uid] = sn
 
-                # Личный вклад из seller_earnings (может быть 0 для пользователей без SE)
+                # ── Состав команды по магазину (users.shop_name) ─────────────
+                all_shops = set(uid_to_shop.values())
+                team_by_shop: dict = {}   # shop → [user_id, ...]
+                if all_shops:
+                    _shops_ph = ','.join('?' * len(all_shops))
+                    for uid2, sn in conn.execute(
+                        f'SELECT id, shop_name FROM users WHERE shop_name IN ({_shops_ph})',
+                        list(all_shops),
+                    ).fetchall():
+                        team_by_shop.setdefault(sn, []).append(uid2)
+
+                # ── Vacation-исключение для всех магазинов ────────────────────
+                all_team_uids = list({u for ulist in team_by_shop.values() for u in ulist})
+                vacation_uids_global: set = set()
+                if all_team_uids:
+                    _at_ph = ','.join('?' * len(all_team_uids))
+                    for (vuid,) in conn.execute(
+                        f'SELECT DISTINCT user_id FROM absence_records '
+                        f'WHERE user_id IN ({_at_ph}) AND status=\'approved\' '
+                        f'AND type IN (\'vacation\',\'sick_leave\',\'day_off\') '
+                        f'AND start_date <= ? AND end_date >= ?',
+                        all_team_uids + [end_date, start_date],
+                    ).fetchall():
+                        vacation_uids_global.add(vuid)
+
+                # ── Effective seller count per shop ───────────────────────────
+                sellers_by_shop: dict = {
+                    sn: len([u for u in ulist if u not in vacation_uids_global])
+                    for sn, ulist in team_by_shop.items()
+                }
+
+                # ── Пул по магазину = комиссии не-отпускников ─────────────────
+                # Фильтруем seller_earnings только по active-пользователям
+                active_team_uids = [u for u in all_team_uids if u not in vacation_uids_global]
+                pool_by_shop: dict = {}
+                if active_team_uids:
+                    _act_ph = ','.join('?' * len(active_team_uids))
+                    for sn, v in conn.execute(
+                        f'SELECT s.shop_name, COALESCE(SUM(se.commission_amount), 0.0) '
+                        f'FROM seller_earnings se JOIN sales s ON se.sale_id = s.id '
+                        f'WHERE se.user_id IN ({_act_ph}) '
+                        f'AND s.sale_date >= ? AND s.sale_date <= ? '
+                        f'GROUP BY s.shop_name',
+                        active_team_uids + [start_date, end_date],
+                    ).fetchall():
+                        pool_by_shop[sn] = float(v)
+
+                # ── Личный вклад каждого пользователя (из uids) ──────────────
                 user_shop_comm: dict = {}
                 for uid, sn, amt in conn.execute(
                     f'SELECT se.user_id, s.shop_name, COALESCE(SUM(se.commission_amount), 0.0) '
@@ -12494,18 +12562,22 @@ class Database:
                     user_shop_comm[(uid, sn)] = float(amt)
 
                 for uid in uids:
-                    adj_total = 0.0
-                    for sn in user_shops.get(uid, set()):
-                        cond = shop_to_cond.get(sn) or global_cond
-                        if cond is None:
-                            continue
-                        min_sellers, coefficient = cond
-                        if sellers_by_shop.get(sn, 0) < min_sellers:
-                            continue
-                        base_pool = pool_by_shop.get(sn, 0.0)
-                        joint_total = round(base_pool * coefficient, 2)
-                        user_individual = user_shop_comm.get((uid, sn), 0.0)
-                        adj_total += joint_total - user_individual
+                    # Если пользователь сам в отпуске → 0 joint-бонуса
+                    if uid in vacation_uids_global:
+                        continue
+                    sn = uid_to_shop.get(uid)
+                    if not sn:
+                        continue
+                    cond = shop_to_cond.get(sn) or global_cond
+                    if cond is None:
+                        continue
+                    min_sellers, coefficient = cond
+                    if sellers_by_shop.get(sn, 0) < min_sellers:
+                        continue
+                    base_pool = pool_by_shop.get(sn, 0.0)
+                    joint_total = round(base_pool * coefficient, 2)
+                    user_individual = user_shop_comm.get((uid, sn), 0.0)
+                    adj_total = joint_total - user_individual
                     if adj_total:
                         result[uid]['total_earnings'] = round(
                             result[uid]['total_earnings'] + adj_total, 2

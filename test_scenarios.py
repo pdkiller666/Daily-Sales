@@ -2772,6 +2772,128 @@ if _pl is not None:
 else:
     check("subscription_utils: _plan_limits_from_shop_bot (план не найден) → None — OK", True)
 
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ: Joint-мотивация — состав команды и vacation
+# ─────────────────────────────────────────────────────────
+section("Joint-мотивация: sellers_count по команде, vacation-исключение")
+
+jdb = make_db("joint.db")
+# Два продавца в одном магазине
+jdb.add_user(700001, "Бутаков", "Алексей", shop_name="Магазин Б")
+jdb.add_user(700002, "Тарасов", "Иван",    shop_name="Магазин Б")
+juid_b = jdb.get_user_id(700001)
+juid_t = jdb.get_user_id(700002)
+
+jpid = jdb.add_product("Товар J", "Кат", 1000.0)
+jdb.add_inventory("Магазин Б", jpid, 200)
+jdb.set_product_motivation(jpid, "fixed", 100.0, admin_telegram_id=700001)
+
+# Joint-условие: min_sellers=2, coefficient=0.7
+import json as _json_j
+jdb.get_connection().execute("""
+    CREATE TABLE IF NOT EXISTS motivation_extra_conditions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shop_name TEXT,
+        condition_type TEXT,
+        min_sellers INTEGER,
+        coefficient REAL,
+        calc_mode TEXT DEFAULT 'individual',
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+""")
+jdb.get_connection().execute("""
+    INSERT INTO motivation_extra_conditions
+        (shop_name, condition_type, min_sellers, coefficient, calc_mode, is_active)
+    VALUES (?, 'multi_seller_coeff', 2, 0.7, 'joint', 1)
+""", ("Магазин Б",))
+jdb.get_connection().commit()
+
+today_str = datetime.now().strftime("%Y-%m-%d")
+yr_now = datetime.now().year
+mo_now = datetime.now().month
+m_start = f"{yr_now}-{mo_now:02d}-01"
+import calendar as _cal_j
+_, _last = _cal_j.monthrange(yr_now, mo_now)
+m_end = f"{yr_now}-{mo_now:02d}-{_last:02d}"
+
+# Бутаков продаёт 5 единиц → add_sale автоматически пишет seller_earning (fixed 100 × 5 = 500₽)
+jsale_b = jdb.add_sale(jpid, "Магазин Б", 5, juid_b, sale_price=1000.0)
+# Проверяем, что комиссия рассчитана правильно (не добавляем вручную — add_sale уже сделал это)
+comm_b = jdb.calculate_seller_commission(jsale_b, jpid, 1000.0, 5)
+
+# Тарасов ничего НЕ продаёт
+
+# Базовые комиссии
+check("joint: Бутаков, комиссия (calculate) = 500", abs(comm_b - 500.0) < 0.01)
+
+# get_joint_bonus_adjustment для БУТАКОВА
+# Пул=500 (auto-added by add_sale), joint_total=500×0.7=350, вклад Бутакова=500 → adjustment=-150
+j_adj_b = jdb.get_joint_bonus_adjustment(juid_b, m_start, m_end)
+check("joint: adjustment Бутакова = 350-500 = -150",
+      abs(j_adj_b - (-150.0)) < 0.01, f"got {j_adj_b}")
+
+# get_joint_bonus_adjustment для ТАРАСОВА
+# Тарасов в команде (users.shop_name='Магазин Б'), joint_total=350, вклад=0 → adjustment=+350
+j_adj_t = jdb.get_joint_bonus_adjustment(juid_t, m_start, m_end)
+check("joint: Тарасов без продаж получает joint-бонус 350",
+      abs(j_adj_t - 350.0) < 0.01, f"got {j_adj_t}")
+
+# Итоговый заработок: Бутаков=500-150=350, Тарасов=0+350=350 — оба равны
+check("joint: Бутаков итого = 350",
+      abs((comm_b + j_adj_b) - 350.0) < 0.01, f"got {comm_b + j_adj_b}")
+check("joint: Тарасов итого = 350 (без личных продаж)",
+      abs(j_adj_t - 350.0) < 0.01)
+
+# ── Vacation-исключение: Тарасов в одобренном отпуске ────────────────────────
+jdb.get_connection().execute("""
+    CREATE TABLE IF NOT EXISTS absence_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        is_paid INTEGER,
+        comment TEXT,
+        admin_comment TEXT,
+        created_by INTEGER,
+        reviewed_by INTEGER,
+        created_at TEXT DEFAULT (datetime('now')),
+        reviewed_at TEXT
+    )
+""")
+jdb.get_connection().execute("""
+    INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid)
+    VALUES (?, 'vacation', ?, ?, 'approved', 1)
+""", (juid_t, m_start, m_end))
+jdb.get_connection().commit()
+
+# Тарасов в отпуске → сам получает 0 joint
+j_adj_t_vac = jdb.get_joint_bonus_adjustment(juid_t, m_start, m_end)
+check("joint vacation: Тарасов в отпуске → joint = 0",
+      j_adj_t_vac == 0.0, f"got {j_adj_t_vac}")
+
+# Бутаков в одиночку → effective_count=1 < min_sellers=2 → joint не применяется → полная комиссия
+j_adj_b_vac = jdb.get_joint_bonus_adjustment(juid_b, m_start, m_end)
+check("joint vacation: Бутаков единственный работающий → joint не применяется (adjustment=0)",
+      j_adj_b_vac == 0.0, f"got {j_adj_b_vac}")
+
+# ── bulk-версия ───────────────────────────────────────────────────────────────
+# Убираем отпуск Тарасова для теста bulk без vacation
+jdb.get_connection().execute(
+    "DELETE FROM absence_records WHERE user_id = ?", (juid_t,)
+)
+jdb.get_connection().commit()
+
+bulk_result = jdb.get_seller_total_earnings_bulk(
+    [juid_b, juid_t], m_start, m_end, yr_now, mo_now
+)
+bulk_b_earn = bulk_result.get(juid_b, {}).get('total_earnings', 0.0)
+bulk_t_earn = bulk_result.get(juid_t, {}).get('total_earnings', 0.0)
+check("joint bulk: Бутаков итого ≈ 350", abs(bulk_b_earn - 350.0) < 0.01, f"got {bulk_b_earn}")
+check("joint bulk: Тарасов итого ≈ 350 (joint без личных продаж)", abs(bulk_t_earn - 350.0) < 0.01, f"got {bulk_t_earn}")
+
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)
 total  = len(results)
