@@ -560,7 +560,7 @@
             <div>
                 <span class="font-medium text-slate-800">Оклад</span>
                 <p class="text-xs text-slate-400 mt-0.5">
-                    {{ detail_user.worked_days }} смен × {{ detail_user.daily_rate|int|fmt_currency }}{% if detail_user.paid_absence_days %} + {{ detail_user.paid_absence_days }} оплач. отсутств. × {{ detail_user.daily_rate|int|fmt_currency }}{% endif %}
+                    {{ detail_user.worked_days }} смен × {{ detail_user.daily_rate|int|fmt_currency }}{% if detail_user.paid_absence_days %} + {{ detail_user.paid_absence_days }} оплач. отсутств. × {{ detail_user.daily_rate|int|fmt_currency }}{% endif %}{% if detail_user.vac_cal_days %} + {{ detail_user.vac_cal_days }} кал. дн. отпуска × {{ detail_user.avg_daily_earnings|int|fmt_currency }}/день{% if detail_user.vac_fallback %} <span class="text-amber-500">(нет 12 мес. истории — использована ставка)</span>{% endif %}{% endif %}
                 </p>
             </div>
             <span class="font-semibold text-slate-800 ml-4 shrink-0">{{ detail_user.base_salary|int|fmt_currency }}</span>

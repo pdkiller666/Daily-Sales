@@ -518,7 +518,7 @@ def salary_page(
             adj_sum = bk['adj_sum']
             non_vac_paid_abs = paid_abs_bulk.get(uid, 0)
             vac_info = vac_pay_bulk.get(uid, (0.0, 0, 0.0, False))
-            vac_pay_i, vac_cal_days_i, avg_daily_i, _ = vac_info
+            vac_pay_i, vac_cal_days_i, avg_daily_i, vac_fallback_i = vac_info
             base = rate * (worked + non_vac_paid_abs) + vac_pay_i
             motivation = round(float((earnings_bulk.get(uid) or {}).get('total_earnings', 0.0) or 0), 2)
             contest_rewards = round(contest_bulk.get(row[4], 0.0), 2)
@@ -536,6 +536,7 @@ def salary_page(
                 "vac_cal_days": vac_cal_days_i,
                 "vac_pay": round(vac_pay_i, 2),
                 "avg_daily_earnings": avg_daily_i,
+                "vac_fallback": vac_fallback_i,
                 "base_salary": base,
                 "adj_sum": adj_sum,
                 "motivation": motivation,
