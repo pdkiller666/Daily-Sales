@@ -602,8 +602,9 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
             current_db.get_worked_days_count(user_id, year, month),
             current_db.get_seller_total_earnings(user_id, start_date=month_start, end_date=today),
             current_db.get_user_contest_rewards(telegram_id, month_start, today),
-            current_db.get_paid_absence_days_count(user_id, year, month),
+            current_db.get_paid_absence_days_count(user_id, year, month, exclude_vacation=True),
             current_db.get_salary_adjustments_sum(user_id, year, month),
+            current_db.get_vacation_pay_12m(user_id, year, month),
         ]
         if user_id else []
     )
@@ -631,6 +632,7 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
     salary = worked_days = daily_rate = 0.0
     motivations = contest_rewards = adj_sum_val = 0.0
     paid_absence_days = 0
+    vac_pay_db = vac_cal_days_db = avg_daily_db = 0.0
     if user_id:
         daily_rate        = _r(5, 0.0) or 0.0
         worked_days       = _r(6, 0) or 0
@@ -639,7 +641,10 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
         contest_rewards   = _r(8, 0.0) or 0.0
         paid_absence_days = _r(9, 0) or 0
         adj_sum_val       = _r(10, 0.0) or 0.0
-        salary            = daily_rate * (worked_days + paid_absence_days)
+        _vac              = _r(11)
+        if isinstance(_vac, tuple) and len(_vac) == 4:
+            vac_pay_db, vac_cal_days_db, avg_daily_db, _ = _vac
+        salary = daily_rate * (worked_days + paid_absence_days) + vac_pay_db
 
     month_ru = MONTH_NAMES_RU.get(month, str(month))
 
@@ -668,12 +673,16 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
     # ── Зарплата (общая для всех масштабов) ──────────────────────────────────
     text += f"💰 <b>Моя зарплата — {month_ru} {year}</b>\n"
     if user_id and daily_rate > 0:
+        _base_part = daily_rate * (worked_days + paid_absence_days)
         if paid_absence_days:
             text += (f"• Оклад: ({worked_days}+{paid_absence_days} оплач.) × {daily_rate:,.0f} ₽"
-                     f" = <b>{salary:,.0f} ₽</b>\n")
+                     f" = <b>{_base_part:,.0f} ₽</b>\n")
         else:
             text += (f"• Оклад: {worked_days} смен × {daily_rate:,.0f} ₽"
-                     f" = <b>{salary:,.0f} ₽</b>\n")
+                     f" = <b>{_base_part:,.0f} ₽</b>\n")
+        if vac_cal_days_db > 0:
+            text += (f"• 🌴 Отпуск: {int(vac_cal_days_db)} кал.дн. × {avg_daily_db:,.0f} ₽/дн."
+                     f" = <b>{vac_pay_db:,.0f} ₽</b>\n")
     elif user_id:
         text += "• Оклад: не установлен\n"
     else:
@@ -838,8 +847,9 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         current_db.get_user_contest_rewards(telegram_id, month_start, today),
         current_db.get_user_plans_progress(telegram_id, today_dt.date()),
         current_db.get_contests(status='active'),
-        current_db.get_paid_absence_days_count(user_id, year, month),
+        current_db.get_paid_absence_days_count(user_id, year, month, exclude_vacation=True),
         current_db.get_salary_adjustments_sum(user_id, year, month),
+        current_db.get_vacation_pay_12m(user_id, year, month),
         return_exceptions=True,
     )
 
@@ -860,7 +870,11 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
     user_contests     = _ur(7, []) or []
     paid_absence_days = _ur(8, 0) or 0
     adj_sum_val       = _ur(9, 0.0) or 0.0
-    salary            = daily_rate * (worked_days + paid_absence_days)
+    _vac_my           = _ur(10)
+    vac_pay_my = vac_cal_days_my = avg_daily_my = 0.0
+    if isinstance(_vac_my, tuple) and len(_vac_my) == 4:
+        vac_pay_my, vac_cal_days_my, avg_daily_my, _ = _vac_my
+    salary            = daily_rate * (worked_days + paid_absence_days) + vac_pay_my
 
     month_ru = MONTH_NAMES_RU.get(month, str(month))
 
@@ -870,12 +884,16 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
 
     text += f"💰 <b>Моя зарплата — {month_ru} {year}</b>\n"
     if daily_rate > 0:
+        _base_my = daily_rate * (worked_days + paid_absence_days)
         if paid_absence_days:
             text += (f"• Оклад: ({worked_days}+{paid_absence_days} оплач.) × {daily_rate:,.0f} ₽"
-                     f" = <b>{salary:,.0f} ₽</b>\n")
+                     f" = <b>{_base_my:,.0f} ₽</b>\n")
         else:
             text += (f"• Оклад: {worked_days} смен × {daily_rate:,.0f} ₽"
-                     f" = <b>{salary:,.0f} ₽</b>\n")
+                     f" = <b>{_base_my:,.0f} ₽</b>\n")
+        if vac_cal_days_my > 0:
+            text += (f"• 🌴 Отпуск: {int(vac_cal_days_my)} кал.дн. × {avg_daily_my:,.0f} ₽/дн."
+                     f" = <b>{vac_pay_my:,.0f} ₽</b>\n")
     else:
         text += "• Оклад: не установлен\n"
     text += f"• Мотивация (месяц): <b>+{motivations:,.0f} ₽</b>\n"

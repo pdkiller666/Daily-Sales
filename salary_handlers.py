@@ -154,20 +154,26 @@ async def _refresh_admin_calendar(callback: CallbackQuery, state: FSMContext,
     # net_worked_count исключает дни, покрытые оплачиваемыми отсутствиями (отпуск,
     # больничный, отгул и т.д.), чтобы не считать их дважды при +paid_abs ниже
     net_worked_count = await current_db.get_worked_days_count(target_uid, year, month)
-    paid_abs = await current_db.get_paid_absence_days_count(target_uid, year, month)
-    salary = (net_worked_count + paid_abs) * daily_rate
+    non_vac_paid_abs = await current_db.get_paid_absence_days_count(target_uid, year, month, exclude_vacation=True)
+    try:
+        vac_pay, vac_cal_days, avg_daily, _ = await current_db.get_vacation_pay_12m(target_uid, year, month)
+    except Exception:
+        vac_pay, vac_cal_days, avg_daily = 0.0, 0, 0.0
+    salary = net_worked_count * daily_rate + non_vac_paid_abs * daily_rate + vac_pay
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
-    if paid_abs > 0:
-        shifts_str = f"📊 Смен: {net_worked_count} + оплач. отпуск: {paid_abs} = {net_worked_count + paid_abs}"
+    if non_vac_paid_abs > 0:
+        shifts_str = f"📊 Смен: {net_worked_count} + оплач.: {non_vac_paid_abs} = {net_worked_count + non_vac_paid_abs}"
     else:
         shifts_str = f"📊 Смен отмечено: {net_worked_count}"
+    vac_str = (f"\n🌴 Отпуск: {vac_cal_days} кал.дн. × {format_price(avg_daily)}₽/дн. = {format_price(vac_pay)}₽"
+               if vac_cal_days > 0 else "")
     text = (
         f"📅 <b>График работы: {name}</b>\n"
         f"{_MONTH_NAMES[month - 1]} {year}\n\n"
         f"⬜ — нажмите чтобы добавить смену\n"
         f"✅ — нажмите для управления сменой\n\n"
         f"💼 Ставка: {rate_str}\n"
-        f"{shifts_str}\n"
+        f"{shifts_str}{vac_str}\n"
         f"💰 Оклад: {format_price(salary)}₽"
     )
     kb = _calendar_kb(year, month, worked, uid=target_uid, editable=True,
@@ -1073,14 +1079,19 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
     summary = [r for r in raw_summary
                if not env_manager.is_super_admin(r[7])]
     if summary:
-        # Параллельно: мотивация, оплаченные отсутствия, конкурсы (bulk)
+        # Параллельно: мотивация, оплаченные отсутствия, отпускные, конкурсы
         motivation_results = await asyncio.gather(
             *[current_db.get_seller_total_earnings(row[0], start_date=month_start, end_date=month_end)
               for row in summary],
             return_exceptions=True
         )
         paid_abs_results = await asyncio.gather(
-            *[current_db.get_paid_absence_days_count(row[0], year, month)
+            *[current_db.get_paid_absence_days_count(row[0], year, month, exclude_vacation=True)
+              for row in summary],
+            return_exceptions=True
+        )
+        vac_pay_results = await asyncio.gather(
+            *[current_db.get_vacation_pay_12m(row[0], year, month)
               for row in summary],
             return_exceptions=True
         )
@@ -1091,29 +1102,34 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
     else:
         motivation_results = []
         paid_abs_results = []
+        vac_pay_results = []
         contest_bulk = {}
     text = f"📊 <b>Сводка ФОТ — {_MONTH_NAMES[month - 1]} {year}</b>\n\n"
     total_fot = 0
     if not summary:
         text += "❌ Нет данных"
     else:
-        for row, earn, paid_abs_r in zip(summary, motivation_results, paid_abs_results):
+        for row, earn, paid_abs_r, vac_r in zip(summary, motivation_results, paid_abs_results, vac_pay_results):
             s_uid, fn, ln, daily_rate, worked_days, _salary_raw, shop, tg_id, adj_sum = row
             earn_dict = earn if isinstance(earn, dict) else {}
             motivation = float(earn_dict.get('total_earnings', 0.0) or 0.0)
             plan_coeff = earn_dict.get('plan_coeff')
-            paid_abs = int(paid_abs_r) if not isinstance(paid_abs_r, Exception) else 0
+            non_vac_paid_abs = int(paid_abs_r) if not isinstance(paid_abs_r, Exception) else 0
+            vac_pay_i, vac_cal_i, avg_daily_i, _ = (vac_r if isinstance(vac_r, tuple) else (0.0, 0, 0.0, False))
             contest_r = float(contest_bulk.get(tg_id, 0.0) or 0.0)
-            # Оклад = (смены + оплач.отсутствия) × ставка
-            salary = float(daily_rate or 0) * (worked_days + paid_abs)
+            # Оклад = смены × ставка + оплач.отсутствия (не отпуск) × ставка + отпускные по ср. ЗП
+            rate_val = float(daily_rate or 0)
+            salary = rate_val * (worked_days + non_vac_paid_abs) + vac_pay_i
             total_salary = salary + adj_sum + motivation + contest_r
             name = he(f"{fn} {ln}".strip())
             shop_str = f" · {he(shop)}" if shop else ""
             rate_str = f"{format_price(daily_rate)}₽" if daily_rate else "—"
-            if paid_abs:
-                lines = [f"   📅 ({worked_days}+{paid_abs} оплач.) × {rate_str} = {format_price(salary)}₽"]
+            if non_vac_paid_abs:
+                lines = [f"   📅 ({worked_days}+{non_vac_paid_abs} оплач.) × {rate_str} = {format_price(rate_val * (worked_days + non_vac_paid_abs))}₽"]
             else:
-                lines = [f"   📅 {worked_days} смен × {rate_str} = {format_price(salary)}₽"]
+                lines = [f"   📅 {worked_days} смен × {rate_str} = {format_price(rate_val * worked_days)}₽"]
+            if vac_cal_i > 0:
+                lines.append(f"   🌴 Отпуск: {vac_cal_i} кал.дн. × {format_price(avg_daily_i)}₽/дн. = {format_price(vac_pay_i)}₽")
             if motivation > 0:
                 if plan_coeff is not None and plan_coeff < 1.0:
                     lines.append(f"   🎯 Мотивация: <b>+{format_price(motivation)}₽</b> (план ×{plan_coeff:.2f})")
@@ -1147,19 +1163,22 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
 
 def _my_schedule_text(month_name: str, year: int, daily_rate: float,
                       worked_count: int, salary: float,
-                      paid_abs: int = 0) -> str:
+                      paid_abs: int = 0, vac_cal_days: int = 0,
+                      avg_daily: float = 0.0) -> str:
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
     if paid_abs > 0:
-        shifts_str = f"📊 Смен: {worked_count} + оплач. отпуск: {paid_abs} = {worked_count + paid_abs}"
+        shifts_str = f"📊 Смен: {worked_count} + оплач.: {paid_abs} = {worked_count + paid_abs}"
     else:
         shifts_str = f"📊 Смен отработано: {worked_count}"
+    vac_str = (f"\n🌴 Отпуск: {vac_cal_days} кал.дн. × {format_price(avg_daily)}₽/дн."
+               if vac_cal_days > 0 else "")
     return (
         f"📅 <b>Мой график работы</b>\n"
         f"{month_name} {year}\n\n"
         f"✅ — рабочая смена · нажмите чтобы узнать время\n"
         f"⬜ — выходной\n\n"
         f"💼 Ставка: {rate_str}\n"
-        f"{shifts_str}\n"
+        f"{shifts_str}{vac_str}\n"
         f"💰 Оклад к выплате: {format_price(salary)}₽"
     )
 
@@ -1179,9 +1198,14 @@ async def my_schedule(callback: CallbackQuery, state: FSMContext):
     daily_rate = await current_db.get_salary_rate(user_id)
     worked = await current_db.get_work_schedule(user_id, year, month)
     net_worked_count = await current_db.get_worked_days_count(user_id, year, month)
-    paid_abs = await current_db.get_paid_absence_days_count(user_id, year, month)
-    salary = (net_worked_count + paid_abs) * daily_rate
-    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, net_worked_count, salary, paid_abs)
+    non_vac_paid_abs = await current_db.get_paid_absence_days_count(user_id, year, month, exclude_vacation=True)
+    try:
+        vac_pay, vac_cal_days, avg_daily, _ = await current_db.get_vacation_pay_12m(user_id, year, month)
+    except Exception:
+        vac_pay, vac_cal_days, avg_daily = 0.0, 0, 0.0
+    salary = net_worked_count * daily_rate + non_vac_paid_abs * daily_rate + vac_pay
+    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, net_worked_count, salary,
+                             non_vac_paid_abs, vac_cal_days, avg_daily)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
@@ -1200,9 +1224,14 @@ async def my_schedule_nav(callback: CallbackQuery, state: FSMContext):
     daily_rate = await current_db.get_salary_rate(user_id)
     worked = await current_db.get_work_schedule(user_id, year, month)
     net_worked_count = await current_db.get_worked_days_count(user_id, year, month)
-    paid_abs = await current_db.get_paid_absence_days_count(user_id, year, month)
-    salary = (net_worked_count + paid_abs) * daily_rate
-    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, net_worked_count, salary, paid_abs)
+    non_vac_paid_abs = await current_db.get_paid_absence_days_count(user_id, year, month, exclude_vacation=True)
+    try:
+        vac_pay, vac_cal_days, avg_daily, _ = await current_db.get_vacation_pay_12m(user_id, year, month)
+    except Exception:
+        vac_pay, vac_cal_days, avg_daily = 0.0, 0, 0.0
+    salary = net_worked_count * daily_rate + non_vac_paid_abs * daily_rate + vac_pay
+    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, net_worked_count, salary,
+                             non_vac_paid_abs, vac_cal_days, avg_daily)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
@@ -1257,26 +1286,30 @@ async def _show_adj_list(callback: CallbackQuery, state: FSMContext, db, uid: in
     adj_sum = sum(r[1] for r in rows)
     month_name = _MONTH_NAMES[month - 1]
 
+    daily_rate = net_worked_count = non_vac_paid_abs = base_salary = None
+    vac_cal_days_adj = avg_daily_adj = 0
     try:
         daily_rate = await db.get_salary_rate(uid)
         net_worked_count = await db.get_worked_days_count(uid, year, month)
-        paid_abs = await db.get_paid_absence_days_count(uid, year, month)
-        effective_days = net_worked_count + paid_abs
-        base_salary = effective_days * daily_rate
+        non_vac_paid_abs = await db.get_paid_absence_days_count(uid, year, month, exclude_vacation=True)
+        vac_pay_adj, vac_cal_days_adj, avg_daily_adj, _ = await db.get_vacation_pay_12m(uid, year, month)
+        base_salary = net_worked_count * daily_rate + non_vac_paid_abs * daily_rate + vac_pay_adj
     except Exception:
-        daily_rate = net_worked_count = paid_abs = effective_days = base_salary = None
+        pass
 
     text = f"✏️ <b>Корректировки: {he(name)}</b>\n📅 {month_name} {year}\n\n"
 
     if daily_rate is not None and daily_rate > 0:
         rate_str = f"{format_price(daily_rate)}₽/смену"
-        if paid_abs and paid_abs > 0:
-            shifts_str = f"Смен: {net_worked_count} + оплач. отпуск: {paid_abs} = {effective_days}"
+        if non_vac_paid_abs and non_vac_paid_abs > 0:
+            shifts_str = f"Смен: {net_worked_count} + оплач.: {non_vac_paid_abs} = {net_worked_count + non_vac_paid_abs}"
         else:
             shifts_str = f"Смен отработано: {net_worked_count}"
+        vac_line = (f"\n🌴 Отпуск: {vac_cal_days_adj} кал.дн. × {format_price(avg_daily_adj)}₽/дн."
+                    if vac_cal_days_adj > 0 else "")
         text += (
             f"💼 Ставка: {rate_str}\n"
-            f"📊 {shifts_str}\n"
+            f"📊 {shifts_str}{vac_line}\n"
             f"💰 Оклад: {format_price(base_salary)}₽\n\n"
         )
 
