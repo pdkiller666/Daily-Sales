@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.356.0"
+CURRENT_VERSION = "1.357.0"
 
 ENTRIES = [
+    {
+        "version": "1.357.0",
+        "date": "2 июля 2026",
+        "items": [
+            "Add drag-and-drop functionality to the kanban board using SortableJS",
+        ],
+    },
     {
         "version": "1.356.0",
         "date": "1 июля 2026",

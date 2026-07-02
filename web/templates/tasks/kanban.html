@@ -293,10 +293,15 @@ if (!GROUPED) {
         var card       = evt.item;
         var taskId     = Number(card.dataset.taskId);
         var fromStatus = card.dataset.status;
-        var toColEl    = evt.to.closest('[data-drop-status]');
-        var toStatus   = toColEl ? toColEl.dataset.dropStatus : null;
+        // Берём статус из id контейнера: id="drop-{status}"
+        var toId       = (evt.to && evt.to.id) ? evt.to.id : '';
+        var toStatus   = toId.startsWith('drop-') ? toId.slice(5) : null;
 
-        if (!toStatus || fromStatus === toStatus) return;
+        if (!toStatus || fromStatus === toStatus) {
+          // Статус не определён или карточка дропнута в ту же колонку — откат
+          if (toStatus === null) evt.from.insertBefore(card, evt.from.children[evt.oldIndex] || null);
+          return;
+        }
         // Отменённые задачи нельзя перетаскивать (только кнопкой «В работе»)
         if (fromStatus === 'cancelled') {
           evt.from.insertBefore(card, evt.from.children[evt.oldIndex] || null);
