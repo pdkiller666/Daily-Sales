@@ -13323,9 +13323,12 @@ class Database:
             conn.close()
 
     def get_paid_absence_days_count(self, user_id: int,
-                                     year: int, month: int) -> int:
+                                     year: int, month: int,
+                                     exclude_vacation: bool = False) -> int:
         """Количество оплачиваемых одобренных дней отсутствия за месяц.
         Используется в расчёте зарплаты как надбавка к отработанным дням.
+        exclude_vacation=True — не считать дни vacation (они считаются отдельно
+        через get_vacation_pay_12m с формулой среднего дневного заработка).
         """
         import calendar as _cal
         from datetime import date, timedelta
@@ -13354,10 +13357,10 @@ class Database:
 
         month_start_d = date(year, month, 1)
         month_end_d = date(year, month, days_in_month)
-        # Collect all paid-absence dates into a set to prevent double-counting
-        # overlapping records (e.g. two approved records covering the same day)
         paid_days: set = set()
         for atype, sd, ed, is_paid_override in rows:
+            if exclude_vacation and atype == 'vacation':
+                continue
             paid = bool(is_paid_override) if is_paid_override is not None \
                 else type_paid.get(atype, True)
             if not paid:
@@ -13374,10 +13377,11 @@ class Database:
         return len(paid_days)
 
     def get_paid_absence_days_bulk(self, year: int, month: int,
-                                    user_ids: list) -> dict:
+                                    user_ids: list,
+                                    exclude_vacation: bool = False) -> dict:
         """Bulk-версия get_paid_absence_days_count для списка пользователей.
         Возвращает {user_id: int} — количество оплачиваемых дней за месяц.
-        Делает 2 запроса вместо N (один для type_settings, один для всех records).
+        exclude_vacation=True — не считать дни типа vacation.
         """
         import calendar as _cal
         from datetime import date, timedelta
@@ -13408,7 +13412,6 @@ class Database:
             return {uid: 0 for uid in user_ids}
         finally:
             conn.close()
-        # Group records by user_id
         by_user: dict = {}
         for row in rows:
             by_user.setdefault(row[0], []).append(row[1:])
@@ -13416,6 +13419,8 @@ class Database:
         for uid in user_ids:
             paid_days: set = set()
             for atype, sd, ed, is_paid_override in by_user.get(uid, []):
+                if exclude_vacation and atype == 'vacation':
+                    continue
                 paid = bool(is_paid_override) if is_paid_override is not None \
                     else type_paid.get(atype, True)
                 if not paid:
@@ -13431,6 +13436,318 @@ class Database:
                     logger.debug("get_paid_absence_days_bulk uid=%s: %s", uid, _exc)
             result[uid] = len(paid_days)
         return result
+
+    def get_avg_daily_earnings_12m(self, user_id: int,
+                                    reference_date: str = None) -> tuple:
+        """Средний дневной заработок за 12 полных предшествующих месяцев.
+
+        reference_date — строка YYYY-MM-DD (первый день месяца отпуска),
+        или None (используется сегодня).
+
+        Возвращает (avg_daily: float, has_history: bool).
+        Формула: (оклад 12 мес + мотивация 12 мес) / рабочих дней 12 мес.
+        Оклад = SUM(net_worked_days_per_month × current_rate).
+        Мотивация = SUM(seller_earnings.commission_amount) за период.
+        Если рабочих дней нет — fallback на текущую дневную ставку
+        (has_history=False).
+        """
+        import calendar as _cal
+        from datetime import date as _d, timedelta as _td
+        try:
+            if reference_date:
+                ref = _d.fromisoformat(reference_date[:10])
+            else:
+                ref = _d.today()
+            y, m = ref.year, ref.month
+            periods = []
+            for _ in range(12):
+                m -= 1
+                if m == 0:
+                    m = 12
+                    y -= 1
+                periods.append((y, m))
+            earliest = periods[-1]
+            latest = periods[0]
+            _, last_day_latest = _cal.monthrange(*latest)
+            range_start = f"{earliest[0]}-{earliest[1]:02d}-01"
+            range_end = f"{latest[0]}-{latest[1]:02d}-{last_day_latest:02d}"
+
+            conn = self.get_connection()
+            rate_row = conn.execute(
+                'SELECT daily_rate FROM salary_settings WHERE user_id=?',
+                (user_id,)
+            ).fetchone()
+            rate = float(rate_row[0]) if rate_row else 0.0
+
+            worked_rows = conn.execute(
+                'SELECT work_date FROM work_schedule WHERE user_id=? '
+                'AND work_date >= ? AND work_date <= ?',
+                (user_id, range_start, range_end)
+            ).fetchall()
+
+            settings_rows = conn.execute(
+                'SELECT type, is_paid FROM absence_type_settings'
+            ).fetchall()
+            type_paid = {r[0]: bool(r[1]) for r in settings_rows}
+
+            abs_rows = conn.execute(
+                '''SELECT ar.type, ar.start_date, ar.end_date, ar.is_paid
+                   FROM absence_records ar
+                   WHERE ar.user_id=? AND ar.status='approved'
+                     AND ar.start_date <= ? AND ar.end_date >= ?
+                     AND ar.type != 'absence' ''',
+                (user_id, range_end, range_start)
+            ).fetchall() or []
+
+            se_row = conn.execute(
+                'SELECT COALESCE(SUM(se.commission_amount), 0.0) '
+                'FROM seller_earnings se JOIN sales s ON se.sale_id=s.id '
+                'WHERE se.user_id=? AND s.sale_date >= ? AND s.sale_date <= ?',
+                (user_id, range_start, range_end)
+            ).fetchone()
+            conn.close()
+
+            range_start_d = _d.fromisoformat(range_start)
+            range_end_d = _d.fromisoformat(range_end)
+            paid_abs_dates: set = set()
+            for atype, sd, ed, is_paid_override in abs_rows:
+                paid = bool(is_paid_override) if is_paid_override is not None \
+                    else type_paid.get(atype, True)
+                if not paid:
+                    continue
+                try:
+                    d_start = max(_d.fromisoformat(sd[:10]), range_start_d)
+                    d_end = min(_d.fromisoformat(ed[:10]), range_end_d)
+                    cur = d_start
+                    while cur <= d_end:
+                        paid_abs_dates.add(cur.isoformat())
+                        cur += _td(days=1)
+                except Exception:
+                    pass
+
+            worked_dates = {r[0] for r in worked_rows if r[0] not in paid_abs_dates}
+            total_worked_days = len(worked_dates)
+            total_motivation = float(se_row[0]) if se_row else 0.0
+            total_earnings = total_worked_days * rate + total_motivation
+
+            if total_worked_days == 0:
+                return (rate, False)
+            return (round(total_earnings / total_worked_days, 2), True)
+        except Exception as e:
+            logger.error("get_avg_daily_earnings_12m user_id=%s: %s", user_id, e)
+            if 'conn' in locals():
+                conn.close()
+            try:
+                return (self.get_salary_rate(user_id), False)
+            except Exception:
+                return (0.0, False)
+
+    def get_vacation_pay_12m(self, user_id: int, year: int, month: int) -> tuple:
+        """Сумма отпускных по среднему дневному заработку за 12 мес.
+
+        Возвращает (vac_pay, vac_cal_days, avg_daily, fallback_used).
+        vac_pay        — итоговая сумма отпускных за данный месяц.
+        vac_cal_days   — количество календарных дней отпуска в месяце.
+        avg_daily      — использованный средний дневной заработок.
+        fallback_used  — True, если avg_daily = текущая ставка (нет истории).
+        Если отпуска нет — (0.0, 0, 0.0, False).
+        """
+        import calendar as _cal
+        from datetime import date as _d, timedelta as _td
+        try:
+            _, days_in_month = _cal.monthrange(year, month)
+            ms = f"{year}-{month:02d}-01"
+            me = f"{year}-{month:02d}-{days_in_month:02d}"
+            month_start_d = _d(year, month, 1)
+            month_end_d = _d(year, month, days_in_month)
+
+            conn = self.get_connection()
+            vac_rows = conn.execute(
+                '''SELECT start_date, end_date FROM absence_records
+                   WHERE user_id=? AND status='approved' AND type='vacation'
+                     AND start_date <= ? AND end_date >= ?''',
+                (user_id, me, ms)
+            ).fetchall() or []
+            conn.close()
+
+            if not vac_rows:
+                return (0.0, 0, 0.0, False)
+
+            vac_days_set: set = set()
+            for sd, ed in vac_rows:
+                try:
+                    d_start = max(_d.fromisoformat(sd[:10]), month_start_d)
+                    d_end = min(_d.fromisoformat(ed[:10]), month_end_d)
+                    cur = d_start
+                    while cur <= d_end:
+                        vac_days_set.add(cur)
+                        cur += _td(days=1)
+                except Exception:
+                    pass
+
+            vac_cal_days = len(vac_days_set)
+            if vac_cal_days == 0:
+                return (0.0, 0, 0.0, False)
+
+            avg_daily, has_history = self.get_avg_daily_earnings_12m(
+                user_id, reference_date=ms
+            )
+            vac_pay = round(avg_daily * vac_cal_days, 2)
+            return (vac_pay, vac_cal_days, avg_daily, not has_history)
+        except Exception as e:
+            logger.error("get_vacation_pay_12m user_id=%s %s/%s: %s",
+                         user_id, year, month, e)
+            return (0.0, 0, 0.0, True)
+
+    def get_vacation_pay_12m_bulk(self, user_ids: list,
+                                   year: int, month: int) -> dict:
+        """Bulk-версия get_vacation_pay_12m — 5 запросов на все userId.
+
+        Возвращает {uid: (vac_pay, vac_cal_days, avg_daily, fallback_used)}.
+        Пользователи без отпуска в этом месяце: (0.0, 0, 0.0, False).
+        """
+        import calendar as _cal
+        from datetime import date as _d, timedelta as _td
+        if not user_ids:
+            return {}
+
+        _, days_in_month = _cal.monthrange(year, month)
+        ms = f"{year}-{month:02d}-01"
+        me = f"{year}-{month:02d}-{days_in_month:02d}"
+        month_start_d = _d(year, month, 1)
+        month_end_d = _d(year, month, days_in_month)
+
+        y, m = year, month
+        periods = []
+        for _ in range(12):
+            m -= 1
+            if m == 0:
+                m = 12
+                y -= 1
+            periods.append((y, m))
+        earliest = periods[-1]
+        latest = periods[0]
+        _, last_day_latest = _cal.monthrange(*latest)
+        range_start = f"{earliest[0]}-{earliest[1]:02d}-01"
+        range_end = f"{latest[0]}-{latest[1]:02d}-{last_day_latest:02d}"
+        range_start_d = _d.fromisoformat(range_start)
+        range_end_d = _d.fromisoformat(range_end)
+
+        ph = ','.join('?' * len(user_ids))
+        no_vac = {uid: (0.0, 0, 0.0, False) for uid in user_ids}
+
+        try:
+            conn = self.get_connection()
+
+            vac_rows = conn.execute(
+                f'''SELECT user_id, start_date, end_date FROM absence_records
+                   WHERE user_id IN ({ph}) AND status='approved' AND type='vacation'
+                     AND start_date <= ? AND end_date >= ?''',
+                (*user_ids, me, ms)
+            ).fetchall() or []
+
+            vac_cal_days_by_uid: dict = {}
+            for uid, sd, ed in vac_rows:
+                try:
+                    d_start = max(_d.fromisoformat(sd[:10]), month_start_d)
+                    d_end = min(_d.fromisoformat(ed[:10]), month_end_d)
+                    cur = d_start
+                    while cur <= d_end:
+                        vac_cal_days_by_uid.setdefault(uid, set()).add(cur)
+                        cur += _td(days=1)
+                except Exception:
+                    pass
+
+            vac_uids = [uid for uid in user_ids if uid in vac_cal_days_by_uid]
+            if not vac_uids:
+                conn.close()
+                return no_vac
+
+            vph = ','.join('?' * len(vac_uids))
+
+            rate_by_uid = {}
+            for uid, r in conn.execute(
+                f'SELECT user_id, daily_rate FROM salary_settings WHERE user_id IN ({vph})',
+                vac_uids
+            ).fetchall():
+                rate_by_uid[uid] = float(r or 0)
+
+            worked_dates_by_uid: dict = {}
+            for uid, wd in conn.execute(
+                f'SELECT user_id, work_date FROM work_schedule '
+                f'WHERE user_id IN ({vph}) AND work_date >= ? AND work_date <= ?',
+                (*vac_uids, range_start, range_end)
+            ).fetchall():
+                worked_dates_by_uid.setdefault(uid, set()).add(wd)
+
+            settings_rows = conn.execute(
+                'SELECT type, is_paid FROM absence_type_settings'
+            ).fetchall()
+            type_paid = {r[0]: bool(r[1]) for r in settings_rows}
+
+            abs_rows_12m = conn.execute(
+                f'''SELECT ar.user_id, ar.type, ar.start_date, ar.end_date, ar.is_paid
+                   FROM absence_records ar
+                   WHERE ar.user_id IN ({vph}) AND ar.status='approved'
+                     AND ar.start_date <= ? AND ar.end_date >= ?
+                     AND ar.type != 'absence' ''',
+                (*vac_uids, range_end, range_start)
+            ).fetchall() or []
+
+            paid_abs_dates_by_uid: dict = {}
+            for uid, atype, sd, ed, is_paid_override in abs_rows_12m:
+                paid = bool(is_paid_override) if is_paid_override is not None \
+                    else type_paid.get(atype, True)
+                if not paid:
+                    continue
+                try:
+                    d_start = max(_d.fromisoformat(sd[:10]), range_start_d)
+                    d_end = min(_d.fromisoformat(ed[:10]), range_end_d)
+                    cur = d_start
+                    while cur <= d_end:
+                        paid_abs_dates_by_uid.setdefault(uid, set()).add(cur.isoformat())
+                        cur += _td(days=1)
+                except Exception:
+                    pass
+
+            se_by_uid = {}
+            for uid, comm in conn.execute(
+                f'SELECT se.user_id, COALESCE(SUM(se.commission_amount), 0.0) '
+                f'FROM seller_earnings se JOIN sales s ON se.sale_id=s.id '
+                f'WHERE se.user_id IN ({vph}) AND s.sale_date >= ? AND s.sale_date <= ? '
+                f'GROUP BY se.user_id',
+                (*vac_uids, range_start, range_end)
+            ).fetchall():
+                se_by_uid[uid] = float(comm)
+
+            conn.close()
+
+            result = {}
+            for uid in user_ids:
+                vac_days_set = vac_cal_days_by_uid.get(uid, set())
+                vac_cal_days = len(vac_days_set)
+                if vac_cal_days == 0:
+                    result[uid] = (0.0, 0, 0.0, False)
+                    continue
+                rate = rate_by_uid.get(uid, 0.0)
+                worked = worked_dates_by_uid.get(uid, set())
+                paid_abs = paid_abs_dates_by_uid.get(uid, set())
+                net_worked = len(worked - paid_abs)
+                total_earnings = net_worked * rate + se_by_uid.get(uid, 0.0)
+                if net_worked == 0:
+                    avg_daily = rate
+                    fallback = True
+                else:
+                    avg_daily = round(total_earnings / net_worked, 2)
+                    fallback = False
+                vac_pay = round(avg_daily * vac_cal_days, 2)
+                result[uid] = (vac_pay, vac_cal_days, avg_daily, fallback)
+            return result
+        except Exception as e:
+            logger.error("get_vacation_pay_12m_bulk %s/%s: %s", year, month, e)
+            if 'conn' in locals():
+                conn.close()
+            return no_vac
 
     def get_absence_used_days(self, user_id: int, atype: str, year: int) -> int:
         """Использованных дней данного типа за год (для лимитов)."""

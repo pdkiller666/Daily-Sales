@@ -228,7 +228,7 @@
                 <span title="{{ 'Отсутствует' if is_current_month else 'Отсутствовал(а) в этом месяце' }}" class="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Нет</span>
                 {% endif %}
             </p>
-            <p class="text-xs text-slate-400">{{ month_name }} {{ year }} · {{ detail_user.worked_days }}{% if detail_user.paid_absence_days %} + {{ detail_user.paid_absence_days }} оплач.{% endif %} смен × {{ detail_user.daily_rate|int|fmt_currency }}</p>
+            <p class="text-xs text-slate-400">{{ month_name }} {{ year }} · {{ detail_user.worked_days }}{% if detail_user.paid_absence_days %} + {{ detail_user.paid_absence_days }} оплач.{% endif %} смен × {{ detail_user.daily_rate|int|fmt_currency }}{% if detail_user.vac_cal_days %} + {{ detail_user.vac_cal_days }} кал. дней отпуска × {{ detail_user.avg_daily_earnings|int|fmt_currency }}/день{% endif %}</p>
         </div>
         {% if detail_user.user_id %}
         <a href="/staff/{{ detail_user.user_id }}?year={{ year }}&month={{ month }}"

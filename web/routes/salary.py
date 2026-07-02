@@ -304,11 +304,22 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         except Exception:
             pass
 
-        # Base salary from schedule × rate (+ paid approved absences)
+        # Base salary: worked days × rate + vacation pay by avg 12m + other paid absences × rate
         worked = db.get_worked_days_count(user_db_id, year, month)
-        paid_abs = db.get_paid_absence_days_count(user_db_id, year, month)
         rate = db.get_salary_rate(user_db_id)
-        base_salary = (worked + paid_abs) * rate
+        # Vacation pay by average daily earnings over 12 months
+        vac_pay, vac_cal_days, avg_daily_earnings, vac_fallback = (0.0, 0, 0.0, False)
+        try:
+            vac_pay, vac_cal_days, avg_daily_earnings, vac_fallback = \
+                db.get_vacation_pay_12m(user_db_id, year, month)
+        except Exception:
+            pass
+        # Non-vacation paid absences (sick/day-off/etc.) — still rate × days
+        non_vac_paid_abs = db.get_paid_absence_days_count(
+            user_db_id, year, month, exclude_vacation=True
+        )
+        paid_abs = non_vac_paid_abs  # for legacy display
+        base_salary = worked * rate + non_vac_paid_abs * rate + vac_pay
         adj_sum = db.get_salary_adjustments_sum(user_db_id, year, month)
         adj_rows = db.get_salary_adjustments(user_db_id, year, month) or []
 
@@ -366,6 +377,10 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
             "adj_rows": adj_rows,
             "page": page,
             "total_pages": total_pages,
+            "vac_cal_days": vac_cal_days,
+            "vac_pay": round(vac_pay, 2),
+            "avg_daily_earnings": avg_daily_earnings,
+            "vac_fallback": vac_fallback,
         })
 
     except Exception as exc:
@@ -460,11 +475,20 @@ def salary_page(
         # Bulk-fetch worked/adj_sum in 2 GROUP BY queries → avoids N+1 for these fields
         bulk = db.get_salary_bulk_stats(year, month, start_date, end_date)
 
-        # Bulk-fetch paid absence days for all users (2 queries instead of N)
+        # Bulk-fetch paid absence days for all users (non-vacation only: vacation uses avg 12m)
         non_admin_uids = [r[0] for r in all_rates if not env_manager.is_super_admin(r[4])]
         paid_abs_bulk: dict = {}
         try:
-            paid_abs_bulk = db.get_paid_absence_days_bulk(year, month, non_admin_uids)
+            paid_abs_bulk = db.get_paid_absence_days_bulk(
+                year, month, non_admin_uids, exclude_vacation=True
+            )
+        except Exception:
+            pass
+
+        # Vacation pay bulk: avg daily earnings × calendar vacation days
+        vac_pay_bulk: dict = {}
+        try:
+            vac_pay_bulk = db.get_vacation_pay_12m_bulk(non_admin_uids, year, month)
         except Exception:
             pass
 
@@ -492,10 +516,11 @@ def salary_page(
             bk = bulk.get(uid, {'worked': 0, 'adj_sum': 0.0, 'motivation': 0.0})
             worked = bk['worked']
             adj_sum = bk['adj_sum']
-            paid_abs = paid_abs_bulk.get(uid, 0)
-            base = rate * (worked + paid_abs)
+            non_vac_paid_abs = paid_abs_bulk.get(uid, 0)
+            vac_info = vac_pay_bulk.get(uid, (0.0, 0, 0.0, False))
+            vac_pay_i, vac_cal_days_i, avg_daily_i, _ = vac_info
+            base = rate * (worked + non_vac_paid_abs) + vac_pay_i
             motivation = round(float((earnings_bulk.get(uid) or {}).get('total_earnings', 0.0) or 0), 2)
-            # Contest prizes
             contest_rewards = round(contest_bulk.get(row[4], 0.0), 2)
             total = base + adj_sum + motivation + contest_rewards
             total_fund += total
@@ -507,7 +532,10 @@ def salary_page(
                 "telegram_id": row[4],
                 "daily_rate": rate,
                 "worked_days": worked,
-                "paid_absence_days": paid_abs,
+                "paid_absence_days": non_vac_paid_abs,
+                "vac_cal_days": vac_cal_days_i,
+                "vac_pay": round(vac_pay_i, 2),
+                "avg_daily_earnings": avg_daily_i,
                 "base_salary": base,
                 "adj_sum": adj_sum,
                 "motivation": motivation,
@@ -720,11 +748,20 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         except Exception:
             pass
 
-        # Bulk paid absence days for Excel export
+        # Bulk paid absence days for Excel export (non-vacation only)
         xls_non_admin_uids = [r[0] for r in all_rates if not env_manager.is_super_admin(r[4])]
         xls_paid_abs_bulk: dict = {}
         try:
-            xls_paid_abs_bulk = db.get_paid_absence_days_bulk(year, month, xls_non_admin_uids)
+            xls_paid_abs_bulk = db.get_paid_absence_days_bulk(
+                year, month, xls_non_admin_uids, exclude_vacation=True
+            )
+        except Exception:
+            pass
+
+        # Vacation pay bulk for Excel export
+        xls_vac_pay_bulk: dict = {}
+        try:
+            xls_vac_pay_bulk = db.get_vacation_pay_12m_bulk(xls_non_admin_uids, year, month)
         except Exception:
             pass
 
@@ -753,16 +790,19 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
             uid = row[0]
             rate = float(row[3] or 0)
             worked = xls_bulk['worked'].get(uid, 0)
-            paid_abs = xls_paid_abs_bulk.get(uid, 0)
+            non_vac_paid_abs = xls_paid_abs_bulk.get(uid, 0)
+            xls_vac_info = xls_vac_pay_bulk.get(uid, (0.0, 0, 0.0, False))
+            xls_vac_pay_i = xls_vac_info[0]
+            xls_vac_cal_i = xls_vac_info[1]
             adj = xls_bulk['adj_sum'].get(uid, 0.0)
             motivation = round(float((xls_earnings_bulk.get(uid) or {}).get(
                 'total_earnings', xls_bulk['earnings'].get(uid, 0.0)) or 0), 2)
             contest_r = round(xls_contest_bulk.get(row[4], 0.0), 2)
-            base = rate * (worked + paid_abs)
+            base = rate * (worked + non_vac_paid_abs) + xls_vac_pay_i
             total = base + adj + motivation + contest_r
             total_fund += total
             name = f"{row[1] or ''} {row[2] or ''}".strip()
-            rows.append((name, rate, worked, paid_abs, base, motivation, adj, contest_r, total, uid))
+            rows.append((name, rate, worked, non_vac_paid_abs, base, motivation, adj, contest_r, total, uid))
             earnings_detail = xls_bulk['earnings_detail'].get(uid, [])
             if earnings_detail:
                 motivation_details[name] = earnings_detail
@@ -785,7 +825,7 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         # ── Заголовок ведомости ───────────────────────────────────────────────
         ws["A1"] = f"Зарплатная ведомость — {mn} {year}"
         ws["A1"].font = Font(bold=True, size=13)
-        ws["A2"] = f"Формула: Оклад = Ставка × (Смен + Оплач. отсутствия)  |  Итого = Оклад + Мотивация + Корректировки + Конкурсы"
+        ws["A2"] = f"Формула: Оклад = Ставка × (Смен + Оплач. отсутств.) + Отпускные по ср. ЗП 12 мес  |  Итого = Оклад + Мотивация + Корректировки + Конкурсы"
         ws["A2"].font = meta_font
         ws.merge_cells("A2:I2")
 

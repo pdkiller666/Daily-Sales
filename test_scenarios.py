@@ -3066,6 +3066,109 @@ check("partial vacation bulk: Бутаков итого = 1200 (индивиду
 check("partial vacation bulk: Тарасов итого = 700 (500 own + 200 joint adj)",
       abs(pv_bulk_t - 700.0) < 0.01, f"got {pv_bulk_t}")
 
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ: Отпускные по среднему дневному заработку за 12 мес
+# ─────────────────────────────────────────────────────────
+section("Отпускные по среднему дневному заработку за 12 мес")
+
+_vacdb = make_db("vacation_avg.db")
+_vacconn = _vacdb.get_connection()
+
+# Создаём сотрудника
+_vacconn.execute("INSERT INTO users (id, telegram_id, first_name, last_name) VALUES (1, 100001, 'Тест', 'Вакация')")
+_vacconn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 1000)")
+
+# Добавляем 120 рабочих дней за последние 12 месяцев (примерно 10 в месяц)
+from datetime import date as _ddate, timedelta as _dtd
+_today_v = _ddate(2026, 7, 1)  # reference: first day of July 2026
+# 12 months before July 2026 = July 2025 ... June 2026
+_work_days_added = 0
+_d = _ddate(2025, 7, 1)
+while _d <= _ddate(2026, 6, 30):
+    if _d.weekday() < 5:  # Mon-Fri as working days
+        _vacconn.execute(
+            "INSERT INTO work_schedule (user_id, work_date) VALUES (1, ?)",
+            (_d.isoformat(),)
+        )
+        _work_days_added += 1
+    _d += _dtd(days=1)
+
+# Добавляем комиссии за 12 месяцев: итого 36000₽
+_vacconn.execute(
+    "INSERT INTO products (id, name, category, price) VALUES (1, 'Товар', 'Кат', 100)"
+)
+_vacconn.execute(
+    "INSERT INTO sales (id, user_id, product_id, shop_name, quantity_sold, sale_price, sale_date) "
+    "VALUES (1, 1, 1, 'Магазин', 1, 100, '2025-07-15')"
+)
+_vacconn.execute(
+    "INSERT INTO seller_earnings (user_id, sale_id, product_id, commission_amount, motivation_type, motivation_value) "
+    "VALUES (1, 1, 1, 36000.0, 'fixed', 36000.0)"
+)
+
+# Отпуск в июле 2026: 10 кал. дней (1-10 июля)
+_vacconn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'vacation', '2026-07-01', '2026-07-10', 'approved', 1)"
+)
+_vacconn.commit()
+
+# Проверяем get_avg_daily_earnings_12m
+_avg, _has_hist = _vacdb.get_avg_daily_earnings_12m(1, reference_date='2026-07-01')
+# Ожидание: оклад = _work_days_added * 1000, мотивация = 36000
+# avg = (_work_days_added * 1000 + 36000) / _work_days_added
+_expected_avg = (_work_days_added * 1000 + 36000) / _work_days_added
+check("avg_daily_earnings_12m: has_history=True",
+      _has_hist, f"got has_hist={_has_hist}")
+check("avg_daily_earnings_12m: корректное значение (оклад+мотивация / раб.дни)",
+      abs(_avg - _expected_avg) < 1.0,
+      f"expected ~{_expected_avg:.1f}, got {_avg}")
+
+# Проверяем get_vacation_pay_12m
+_vp, _vcd, _avd, _vfb = _vacdb.get_vacation_pay_12m(1, 2026, 7)
+check("vacation_pay_12m: 10 кал. дней",
+      _vcd == 10, f"got {_vcd}")
+check("vacation_pay_12m: avg_daily = среднее из 12м",
+      abs(_avd - _expected_avg) < 1.0, f"got {_avd}")
+_expected_vp = round(_expected_avg * 10, 2)
+check("vacation_pay_12m: vac_pay = avg * 10",
+      abs(_vp - _expected_vp) < 1.0, f"expected {_expected_vp}, got {_vp}")
+check("vacation_pay_12m: fallback_used=False (есть история)",
+      not _vfb, f"got fallback={_vfb}")
+
+# Без истории — fallback на ставку
+_nohistdb = make_db("vacation_nohistory.db")
+_nohistconn = _nohistdb.get_connection()
+_nohistconn.execute("INSERT INTO users (id, telegram_id, first_name, last_name) VALUES (1, 100002, 'Новый', 'Сотрудник')")
+_nohistconn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 2000)")
+_nohistconn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'vacation', '2026-07-01', '2026-07-05', 'approved', 1)"
+)
+_nohistconn.commit()
+_nh_avg, _nh_hist = _nohistdb.get_avg_daily_earnings_12m(1, '2026-07-01')
+check("avg_daily_earnings без истории: fallback на ставку 2000₽",
+      abs(_nh_avg - 2000.0) < 0.01 and not _nh_hist,
+      f"avg={_nh_avg}, has_hist={_nh_hist}")
+
+# get_vacation_pay_12m_bulk
+_vbulk = _vacdb.get_vacation_pay_12m_bulk([1], 2026, 7)
+_vb = _vbulk.get(1, (0.0, 0, 0.0, False))
+check("vacation_pay_12m_bulk: соответствует single-call результату",
+      abs(_vb[0] - _vp) < 0.01 and _vb[1] == _vcd,
+      f"bulk={_vb}, single=({_vp},{_vcd})")
+
+# exclude_vacation в paid_absence_days_count
+_excl = _vacdb.get_paid_absence_days_count(1, 2026, 7, exclude_vacation=True)
+check("get_paid_absence_days_count exclude_vacation=True → 0 (только vacation)",
+      _excl == 0, f"got {_excl}")
+_incl = _vacdb.get_paid_absence_days_count(1, 2026, 7, exclude_vacation=False)
+check("get_paid_absence_days_count exclude_vacation=False → 10 дней",
+      _incl == 10, f"got {_incl}")
+
+_vacconn.close()
+_nohistconn.close()
+
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)
 total  = len(results)

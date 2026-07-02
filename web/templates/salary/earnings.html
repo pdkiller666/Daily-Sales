@@ -61,7 +61,10 @@
     <div class="card p-4">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Оклад</p>
         <p class="text-xl font-bold text-slate-800">{{ total_base|int|fmt_currency }}</p>
-        <p class="text-xs text-slate-400 mt-0.5">{{ worked_days }}{% if paid_absence_days %} + {{ paid_absence_days }} оплач.{% endif %} смен × {{ daily_rate|int|fmt_currency }}</p>
+        <p class="text-xs text-slate-400 mt-0.5">
+            {{ worked_days }}{% if paid_absence_days %} + {{ paid_absence_days }} оплач.{% endif %} смен × {{ daily_rate|int|fmt_currency }}
+            {%- if vac_cal_days %} + {{ vac_cal_days }} кал. дней отпуска × {{ avg_daily_earnings|int|fmt_currency }}/день{% endif %}
+        </p>
     </div>
     <div class="card p-4">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Мотивация</p>
@@ -309,8 +312,16 @@
             <div>
                 <span class="font-medium text-slate-800">Оклад</span>
                 <p class="text-xs text-slate-400 mt-0.5">
-                    {{ worked_days }} смен × {{ daily_rate|int|fmt_currency }}{% if paid_absence_days %} + {{ paid_absence_days }} оплач. отсутств. × {{ daily_rate|int|fmt_currency }}{% endif %}
+                    {{ worked_days }} смен × {{ daily_rate|int|fmt_currency }}
+                    {%- if paid_absence_days %} + {{ paid_absence_days }} оплач. отсутств. × {{ daily_rate|int|fmt_currency }}{% endif %}
                 </p>
+                {%- if vac_cal_days %}
+                <p class="text-xs text-blue-500 mt-0.5">
+                    + {{ vac_cal_days }} кал. дней отпуска × {{ avg_daily_earnings|int|fmt_currency }}/день
+                    = {{ vac_pay|int|fmt_currency }}
+                    {%- if vac_fallback %} <span class="text-slate-400">(по тек. ставке — нет истории 12 мес)</span>{% endif %}
+                </p>
+                {%- endif %}
             </div>
             <span class="font-semibold text-slate-800 ml-4 shrink-0">{{ total_base|int|fmt_currency }}</span>
         </div>
