@@ -2894,6 +2894,178 @@ bulk_t_earn = bulk_result.get(juid_t, {}).get('total_earnings', 0.0)
 check("joint bulk: Бутаков итого ≈ 350", abs(bulk_b_earn - 350.0) < 0.01, f"got {bulk_b_earn}")
 check("joint bulk: Тарасов итого ≈ 350 (joint без личных продаж)", abs(bulk_t_earn - 350.0) < 0.01, f"got {bulk_t_earn}")
 
+# ── day_off / sick_leave НЕ исключает из joint ────────────────────────────────
+section("Joint: day_off и sick_leave не исключают из effective-состава")
+
+# jdb: оба без отпуска; добавляем day_off для Тарасова → joint должен работать
+jdb.get_connection().execute("""
+    INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid)
+    VALUES (?, 'day_off', ?, ?, 'approved', 0)
+""", (juid_t, m_start, m_end))
+jdb.get_connection().commit()
+
+j_adj_b_dayoff = jdb.get_joint_bonus_adjustment(juid_b, m_start, m_end)
+j_adj_t_dayoff = jdb.get_joint_bonus_adjustment(juid_t, m_start, m_end)
+# Ожидаем те же значения, что без отсутствия: adj_b=-150, adj_t=+350
+check("joint day_off: Бутаков — joint всё ещё работает (adj=-150)",
+      abs(j_adj_b_dayoff - (-150.0)) < 0.01, f"got {j_adj_b_dayoff}")
+check("joint day_off: Тарасов с day_off — joint бонус +350 (не исключён)",
+      abs(j_adj_t_dayoff - 350.0) < 0.01, f"got {j_adj_t_dayoff}")
+jdb.get_connection().execute("DELETE FROM absence_records")
+jdb.get_connection().commit()
+
+# sick_leave: то же самое
+jdb.get_connection().execute("""
+    INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid)
+    VALUES (?, 'sick_leave', ?, ?, 'approved', 1)
+""", (juid_t, m_start, m_end))
+jdb.get_connection().commit()
+
+j_adj_b_sick = jdb.get_joint_bonus_adjustment(juid_b, m_start, m_end)
+j_adj_t_sick = jdb.get_joint_bonus_adjustment(juid_t, m_start, m_end)
+check("joint sick_leave: Бутаков — joint работает (adj=-150)",
+      abs(j_adj_b_sick - (-150.0)) < 0.01, f"got {j_adj_b_sick}")
+check("joint sick_leave: Тарасов с sick_leave — joint бонус +350 (не исключён)",
+      abs(j_adj_t_sick - 350.0) < 0.01, f"got {j_adj_t_sick}")
+jdb.get_connection().execute("DELETE FROM absence_records")
+jdb.get_connection().commit()
+
+# ── Partial vacation: timeline-splitting ──────────────────────────────────────
+section("Joint: частичный отпуск (timeline-splitting)")
+
+# Новая БД, чтобы не мешать данные
+pvdb = make_db("partial_vac.db")
+pvdb.add_user(800001, "ПартБутаков", "Алексей", shop_name="Магазин П")
+pvdb.add_user(800002, "ПартТарасов", "Иван",    shop_name="Магазин П")
+pvuid_b = pvdb.get_user_id(800001)
+pvuid_t = pvdb.get_user_id(800002)
+
+pvpid = pvdb.add_product("Товар П", "Кат", 1000.0)
+pvdb.add_inventory("Магазин П", pvpid, 500)
+pvdb.set_product_motivation(pvpid, "fixed", 100.0, admin_telegram_id=800001)
+
+pvconn = pvdb.get_connection()
+pvconn.execute("""
+    CREATE TABLE IF NOT EXISTS motivation_extra_conditions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shop_name TEXT,
+        condition_type TEXT,
+        min_sellers INTEGER,
+        coefficient REAL,
+        calc_mode TEXT DEFAULT 'individual',
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+""")
+pvconn.execute("""
+    INSERT INTO motivation_extra_conditions
+        (shop_name, condition_type, min_sellers, coefficient, calc_mode, is_active)
+    VALUES (?, 'multi_seller_coeff', 2, 0.7, 'joint', 1)
+""", ("Магазин П",))
+pvconn.execute("""
+    CREATE TABLE IF NOT EXISTS absence_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        is_paid INTEGER,
+        comment TEXT,
+        admin_comment TEXT,
+        created_by INTEGER,
+        reviewed_by INTEGER,
+        created_at TEXT DEFAULT (datetime('now')),
+        reviewed_at TEXT
+    )
+""")
+pvconn.commit()
+
+# Периоды: текущий месяц; день 5 и 6
+import calendar as _cal_pv
+_, _pv_last = _cal_pv.monthrange(yr_now, mo_now)
+pv_start  = f"{yr_now}-{mo_now:02d}-01"
+pv_end    = f"{yr_now}-{mo_now:02d}-{_pv_last:02d}"
+pv_day5   = f"{yr_now}-{mo_now:02d}-05"
+pv_day6   = f"{yr_now}-{mo_now:02d}-06"
+
+# Вставляем продажи напрямую (чтобы задать sale_date)
+# Бутаков: 1 ед Jan 1-5 (5 продаж × 100₽) + 1 ед Jan 6-end (25/26/... продаж × 100₽)
+# Упрощаем: 1 продажа Jan 1-5 (5 ед.) и 1 продажа Jan 6-end (5 ед.)
+pvconn.execute(
+    "INSERT INTO sales (product_id, shop_name, quantity_sold, sale_price, user_id, sale_date) "
+    "VALUES (?,?,?,?,?,?)",
+    (pvpid, "Магазин П", 5, 1000.0, pvuid_b, pv_day5)
+)
+sale_b_early_id = pvconn.execute("SELECT last_insert_rowid()").fetchone()[0]
+pvconn.execute(
+    "INSERT INTO seller_earnings (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value) "
+    "VALUES (?,?,?,?,?,?)",
+    (sale_b_early_id, pvuid_b, pvpid, 500.0, "fixed", 100.0)
+)
+
+pvconn.execute(
+    "INSERT INTO sales (product_id, shop_name, quantity_sold, sale_price, user_id, sale_date) "
+    "VALUES (?,?,?,?,?,?)",
+    (pvpid, "Магазин П", 5, 1000.0, pvuid_b, pv_end)
+)
+sale_b_late_id = pvconn.execute("SELECT last_insert_rowid()").fetchone()[0]
+pvconn.execute(
+    "INSERT INTO seller_earnings (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value) "
+    "VALUES (?,?,?,?,?,?)",
+    (sale_b_late_id, pvuid_b, pvpid, 500.0, "fixed", 100.0)
+)
+
+# Тарасов: только Jan 1-5 (5 ед. × 100₽)
+pvconn.execute(
+    "INSERT INTO sales (product_id, shop_name, quantity_sold, sale_price, user_id, sale_date) "
+    "VALUES (?,?,?,?,?,?)",
+    (pvpid, "Магазин П", 5, 1000.0, pvuid_t, pv_day5)
+)
+sale_t_early_id = pvconn.execute("SELECT last_insert_rowid()").fetchone()[0]
+pvconn.execute(
+    "INSERT INTO seller_earnings (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value) "
+    "VALUES (?,?,?,?,?,?)",
+    (sale_t_early_id, pvuid_t, pvpid, 500.0, "fixed", 100.0)
+)
+
+# Тарасов в одобренном отпуске Jan 6 → конец месяца
+pvconn.execute("""
+    INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid)
+    VALUES (?, 'vacation', ?, ?, 'approved', 1)
+""", (pvuid_t, pv_day6, pv_end))
+pvconn.commit()
+
+# ── Ожидаемые результаты ──
+# Период Jan 1-5 (день ≤ pv_day5): оба активны → JOINT
+#   Пул = 500 (Бутаков) + 500 (Тарасов) = 1000₽
+#   joint_total = 1000 × 0.7 = 700₽
+#   Бутаков adj (Jan 1-5) = 700 - 500 = +200₽
+#   Тарасов adj (Jan 1-5) = 700 - 500 = +200₽
+# Период Jan 6-end: только Бутаков (effective=1 < 2) → НЕТ joint
+#   Бутаков adj (Jan 6-end) = 0
+#   Тарасов — в отпуске, adj = 0
+
+pv_adj_b = pvdb.get_joint_bonus_adjustment(pvuid_b, pv_start, pv_end)
+pv_adj_t = pvdb.get_joint_bonus_adjustment(pvuid_t, pv_start, pv_end)
+
+check("partial vacation: Бутаков adj = +200 (joint только за Jan 1-5)",
+      abs(pv_adj_b - 200.0) < 0.01, f"got {pv_adj_b}")
+check("partial vacation: Тарасов adj = +200 (joint только за Jan 1-5, 0 за отпуск)",
+      abs(pv_adj_t - 200.0) < 0.01, f"got {pv_adj_t}")
+
+# Бутаков: Jan 6-end идёт как полная индивидуальная комиссия (500₽ без joint-коэф.)
+# Итого: 500 (Jan1-5) + 500 (Jan6+) + 200 (joint adj) = 1200₽
+pv_bulk = pvdb.get_seller_total_earnings_bulk(
+    [pvuid_b, pvuid_t], pv_start, pv_end, yr_now, mo_now
+)
+pv_bulk_b = pv_bulk.get(pvuid_b, {}).get('total_earnings', 0.0)
+pv_bulk_t = pv_bulk.get(pvuid_t, {}).get('total_earnings', 0.0)
+check("partial vacation bulk: Бутаков итого = 1200 (индивидуал Jan6+ без joint-потерь)",
+      abs(pv_bulk_b - 1200.0) < 0.01, f"got {pv_bulk_b}")
+check("partial vacation bulk: Тарасов итого = 700 (500 own + 200 joint adj)",
+      abs(pv_bulk_t - 700.0) < 0.01, f"got {pv_bulk_t}")
+
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)
 total  = len(results)

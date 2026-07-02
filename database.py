@@ -9162,10 +9162,11 @@ class Database:
                     _m_start = f"{year}-{month:02d}-01"
                     _m_end   = f"{year}-{month:02d}-{_last_day:02d}"
                     _tid_ph  = ','.join('?' * len(_team_ids))
+                    # Только vacation исключает из joint; sick_leave/day_off — не исключают
                     cursor.execute(
                         f"SELECT DISTINCT user_id FROM absence_records "
                         f"WHERE user_id IN ({_tid_ph}) AND status='approved' "
-                        f"AND type IN ('vacation','sick_leave','day_off') "
+                        f"AND type='vacation' "
                         f"AND start_date <= ? AND end_date >= ?",
                         _team_ids + [_m_end, _m_start]
                     )
@@ -9952,25 +9953,28 @@ class Database:
         """Расчёт корректировки заработка для совместного режима мотивации.
 
         Для магазинов с calc_mode='joint':
-          base_pool    = SUM(commission_amount не-отпускников в магазине за период)
-                         (комиссии записаны БЕЗ коэффициента, т.к. apply_extra_conditions
-                          пропускает его для joint-условий)
-          joint_total  = base_pool × coefficient   (если effective_sellers >= min_sellers)
-          adjustment   = joint_total - user_individual
-
-        Пример: Андрей продал 2 шт → +20₽ в пул, Ольга 1 шт → +10₽ в пул.
-        Пул = 30₽, коэф. 0.7 → joint_total = 21₽. Каждый получает +21₽.
+          joint_total  = pool_for_interval × coefficient
+          adjustment   = joint_total - user_individual_for_interval
 
         Состав команды определяется по users.shop_name (НЕ по наличию продаж):
-        сотрудник без продаж в периоде всё равно участвует в joint-распределении.
+        продавец без продаж в периоде всё равно участвует в joint-распределении.
 
-        Vacation-исключение: если у продавца есть одобренное отсутствие (vacation/
-        sick_leave/day_off), перекрывающее период, он исключается из effective-состава
-        и сам получает 0 joint-бонуса.
+        Vacation-исключение (только type='vacation', approved):
+          sick_leave/day_off НЕ исключают из joint.
+          Реализуется timeline-splitting — период делится на подинтервалы по границам
+          отпусков. Для каждого подинтервала:
+            • пользователь в отпуске → он не получает joint за этот подинтервал
+            • effective_count < min_sellers → joint не применяется ни для кого
+              (коллеги получают полную индивидуальную комиссию без коэффициента)
+            • иначе → pool × coefficient раздаётся каждому участнику
 
-        Если совместных условий нет или effective_sellers < min_sellers — возвращает 0.0.
+        Поддерживает сценарий «продал первые 5 дней, ушёл в отпуск»:
+        только продажи рабочего периода входят в joint-пул; продажи коллеги
+        в период отпуска идут как полная индивидуальная комиссия (без коэф.).
         """
         try:
+            from datetime import date as _dt_date, timedelta as _td
+
             conn = self.get_connection()
             cursor = conn.cursor()
 
@@ -9991,8 +9995,6 @@ class Database:
             """)
             joint_conditions = cursor.fetchall()
 
-            # Строим словарь shop_name → (min_sellers, coefficient)
-            # None = условие применяется ко всем магазинам
             shop_to_cond = {}
             global_cond  = None
             for sn, min_s, coeff in joint_conditions:
@@ -10001,8 +10003,6 @@ class Database:
                 else:
                     shop_to_cond[sn] = (min_s, coeff)
 
-            # Перекрываем глобальные условия месячными (extra_conditions_schedule),
-            # если период известен — месячные имеют приоритет над глобальными
             if _period_year is not None and _period_month is not None:
                 cursor.execute("""
                     SELECT shop_name, min_sellers, coefficient
@@ -10010,8 +10010,7 @@ class Database:
                     WHERE condition_type = 'multi_seller_coeff' AND calc_mode = 'joint'
                       AND is_active = 1 AND year = ? AND month = ?
                 """, (_period_year, _period_month))
-                monthly_conditions = cursor.fetchall()
-                for sn, min_s, coeff in monthly_conditions:
+                for sn, min_s, coeff in cursor.fetchall():
                     if sn is None:
                         global_cond = (min_s, coeff)
                     else:
@@ -10021,7 +10020,7 @@ class Database:
                 conn.close()
                 return 0.0
 
-            # ── Магазин пользователя из профиля (не из продаж) ───────────────
+            # Магазин пользователя из профиля (НЕ из продаж)
             cursor.execute('SELECT shop_name FROM users WHERE id = ?', (user_id,))
             _row = cursor.fetchone()
             user_shop = _row[0] if _row and _row[0] else None
@@ -10029,94 +10028,126 @@ class Database:
                 conn.close()
                 return 0.0
 
-            # Проверяем наличие joint-условия для магазина
             cond = shop_to_cond.get(user_shop) or global_cond
             if cond is None:
                 conn.close()
                 return 0.0
             min_sellers, coefficient = cond
 
-            # Vacation-check: если сам пользователь в одобренном отпуске → 0.0
-            _vac_args = [user_id]
-            _vac_sql = ("SELECT 1 FROM absence_records "
-                        "WHERE user_id = ? AND status = 'approved' "
-                        "AND type IN ('vacation','sick_leave','day_off')")
-            if start_date and end_date:
-                _vac_sql += " AND start_date <= ? AND end_date >= ?"
-                _vac_args += [end_date, start_date]
-            elif start_date:
-                _vac_sql += " AND end_date >= ?"
-                _vac_args.append(start_date)
-            _vac_sql += " LIMIT 1"
-            cursor.execute(_vac_sql, _vac_args)
-            if cursor.fetchone() is not None:
-                conn.close()
-                return 0.0
-
-            # ── Состав команды из users.shop_name ────────────────────────────
+            # Состав команды из users.shop_name
             cursor.execute('SELECT id FROM users WHERE shop_name = ?', (user_shop,))
             team_uids = [r[0] for r in cursor.fetchall()]
             if not team_uids:
                 conn.close()
                 return 0.0
 
-            # ── Отпускники в периоде → исключаются из effective-состава ──────
-            _team_ph = ','.join('?' * len(team_uids))
-            _leave_args = list(team_uids)
-            _leave_sql = (f"SELECT DISTINCT user_id FROM absence_records "
-                          f"WHERE user_id IN ({_team_ph}) AND status = 'approved' "
-                          f"AND type IN ('vacation','sick_leave','day_off')")
-            if start_date and end_date:
-                _leave_sql += " AND start_date <= ? AND end_date >= ?"
-                _leave_args += [end_date, start_date]
-            elif start_date:
-                _leave_sql += " AND end_date >= ?"
-                _leave_args.append(start_date)
-            cursor.execute(_leave_sql, _leave_args)
-            vacation_uids = {r[0] for r in cursor.fetchall()}
-
-            effective_uids = [u for u in team_uids if u not in vacation_uids]
-            effective_count = len(effective_uids)
-
-            # Если порог продавцов (по составу команды) не достигнут — joint не применяется
-            if effective_count < min_sellers:
+            # Без дат — считаем без разбивки по подинтервалам
+            if not start_date or not end_date:
+                # Fallback: no vacation splitting possible, use full period
+                date_clause = ""
+                params_p: list = []
+                if start_date:
+                    date_clause += " AND s.sale_date >= ?"
+                    params_p.append(start_date)
+                if end_date:
+                    date_clause += " AND s.sale_date <= ?"
+                    params_p.append(end_date)
+                _tph = ','.join('?' * len(team_uids))
+                pool = cursor.execute(
+                    f"SELECT COALESCE(SUM(se.commission_amount),0.0) "
+                    f"FROM seller_earnings se JOIN sales s ON se.sale_id=s.id "
+                    f"WHERE se.user_id IN ({_tph}) AND s.shop_name=? {date_clause}",
+                    team_uids + [user_shop] + params_p
+                ).fetchone()[0] or 0.0
+                jt = round(pool * coefficient, 2)
+                ui = cursor.execute(
+                    f"SELECT COALESCE(SUM(se.commission_amount),0.0) "
+                    f"FROM seller_earnings se JOIN sales s ON se.sale_id=s.id "
+                    f"WHERE se.user_id=? AND s.shop_name=? {date_clause}",
+                    [user_id, user_shop] + params_p
+                ).fetchone()[0] or 0.0
                 conn.close()
-                return 0.0
+                return round(jt - ui, 2)
 
-            # Пул = комиссии не-отпускников по продажам в магазине за период
-            date_clause = ""
-            params_pool = []
-            if start_date:
-                date_clause += " AND s.sale_date >= ?"
-                params_pool.append(start_date)
-            if end_date:
-                date_clause += " AND s.sale_date <= ?"
-                params_pool.append(end_date)
+            period_start = _dt_date.fromisoformat(start_date[:10])
+            period_end   = _dt_date.fromisoformat(end_date[:10])
 
-            _eff_ph = ','.join('?' * len(effective_uids))
-            cursor.execute(f"""
-                SELECT COALESCE(SUM(se.commission_amount), 0.0)
-                FROM seller_earnings se
-                JOIN sales s ON se.sale_id = s.id
-                WHERE se.user_id IN ({_eff_ph}) AND s.shop_name = ? {date_clause}
-            """, effective_uids + [user_shop] + params_pool)
-            base_pool = cursor.fetchone()[0] or 0.0
+            # Vacation intervals (type='vacation' ONLY, approved) for all team members
+            _tph = ','.join('?' * len(team_uids))
+            vac_rows = cursor.execute(
+                f"SELECT user_id, start_date, end_date FROM absence_records "
+                f"WHERE user_id IN ({_tph}) AND status='approved' AND type='vacation' "
+                f"AND start_date <= ? AND end_date >= ?",
+                team_uids + [end_date, start_date]
+            ).fetchall()
 
-            # Каждый активный продавец получает: пул × коэффициент
-            joint_total = round(base_pool * coefficient, 2)
+            # vac_by_uid: uid → [(clamped_start, clamped_end), ...]
+            vac_by_uid: dict = {}
+            for uid, vs, ve in vac_rows:
+                vs_d = max(_dt_date.fromisoformat(vs[:10]), period_start)
+                ve_d = min(_dt_date.fromisoformat(ve[:10]), period_end)
+                if vs_d <= ve_d:
+                    vac_by_uid.setdefault(uid, []).append((vs_d, ve_d))
 
-            # Личный вклад пользователя (уже учтён в его seller_earnings)
-            cursor.execute(f"""
-                SELECT COALESCE(SUM(se.commission_amount), 0.0)
-                FROM seller_earnings se
-                JOIN sales s ON se.sale_id = s.id
-                WHERE se.user_id = ? AND s.shop_name = ? {date_clause}
-            """, [user_id, user_shop] + params_pool)
-            user_individual = cursor.fetchone()[0] or 0.0
+            def _on_vac(uid, d):
+                for vs_d, ve_d in vac_by_uid.get(uid, []):
+                    if vs_d <= d <= ve_d:
+                        return True
+                return False
 
-            total_adjustment = round(joint_total - user_individual, 2)
+            # Timeline events: period boundaries + vacation start/end+1
+            events: set = {period_start, period_end + _td(days=1)}
+            for intervals in vac_by_uid.values():
+                for vs_d, ve_d in intervals:
+                    events.add(vs_d)
+                    events.add(ve_d + _td(days=1))
+            sorted_events = sorted(events)
+
+            # Process each sub-interval
+            total_adj = 0.0
+            for i in range(len(sorted_events) - 1):
+                ivl_s_d = max(sorted_events[i],     period_start)
+                ivl_e_d = min(sorted_events[i + 1] - _td(days=1), period_end)
+                if ivl_s_d > ivl_e_d:
+                    continue
+
+                # If target user is on vacation this interval → skip (no joint for them)
+                if _on_vac(user_id, ivl_s_d):
+                    continue
+
+                # Effective team: non-vacation members
+                active_uids = [u for u in team_uids if not _on_vac(u, ivl_s_d)]
+                if len(active_uids) < min_sellers:
+                    # Threshold not met → no joint; colleague gets full individual
+                    continue
+
+                ivl_s = ivl_s_d.isoformat()
+                ivl_e = ivl_e_d.isoformat()
+
+                # Pool = commissions of active team members at this shop in this interval
+                _aph = ','.join('?' * len(active_uids))
+                pool = cursor.execute(
+                    f"SELECT COALESCE(SUM(se.commission_amount),0.0) "
+                    f"FROM seller_earnings se JOIN sales s ON se.sale_id=s.id "
+                    f"WHERE se.user_id IN ({_aph}) AND s.shop_name=? "
+                    f"AND s.sale_date >= ? AND s.sale_date <= ?",
+                    active_uids + [user_shop, ivl_s, ivl_e]
+                ).fetchone()[0] or 0.0
+
+                joint_total = round(pool * coefficient, 2)
+
+                user_ind = cursor.execute(
+                    "SELECT COALESCE(SUM(se.commission_amount),0.0) "
+                    "FROM seller_earnings se JOIN sales s ON se.sale_id=s.id "
+                    "WHERE se.user_id=? AND s.shop_name=? "
+                    "AND s.sale_date >= ? AND s.sale_date <= ?",
+                    [user_id, user_shop, ivl_s, ivl_e]
+                ).fetchone()[0] or 0.0
+
+                total_adj += joint_total - user_ind
+
             conn.close()
-            return total_adjustment
+            return round(total_adj, 2)
         except Exception as e:
             logger.error(f"Ошибка get_joint_bonus_adjustment: {e}")
             if 'conn' in locals():
@@ -12492,9 +12523,9 @@ class Database:
                     shop_to_cond[sn] = (min_s, coeff)
 
             if shop_to_cond or global_cond is not None:
+                from datetime import date as _dt_date, timedelta as _td
+
                 # ── Магазин каждого пользователя из профиля (не из продаж) ──
-                # users.shop_name — источник team-принадлежности; продавец без
-                # продаж в периоде всё равно участвует в joint-распределении.
                 uid_to_shop: dict = {}
                 for uid, sn in conn.execute(
                     f'SELECT id, shop_name FROM users WHERE id IN ({ph}) AND shop_name IS NOT NULL',
@@ -12505,7 +12536,7 @@ class Database:
 
                 # ── Состав команды по магазину (users.shop_name) ─────────────
                 all_shops = set(uid_to_shop.values())
-                team_by_shop: dict = {}   # shop → [user_id, ...]
+                team_by_shop: dict = {}
                 if all_shops:
                     _shops_ph = ','.join('?' * len(all_shops))
                     for uid2, sn in conn.execute(
@@ -12514,71 +12545,96 @@ class Database:
                     ).fetchall():
                         team_by_shop.setdefault(sn, []).append(uid2)
 
-                # ── Vacation-исключение для всех магазинов ────────────────────
+                # ── Vacation intervals (type='vacation' ONLY, approved) ───────
                 all_team_uids = list({u for ulist in team_by_shop.values() for u in ulist})
-                vacation_uids_global: set = set()
+                # vac_by_uid: uid → [(clamped_start, clamped_end), ...]
+                vac_by_uid_bulk: dict = {}
+                _period_start_d = _dt_date.fromisoformat(start_date[:10])
+                _period_end_d   = _dt_date.fromisoformat(end_date[:10])
                 if all_team_uids:
                     _at_ph = ','.join('?' * len(all_team_uids))
-                    for (vuid,) in conn.execute(
-                        f'SELECT DISTINCT user_id FROM absence_records '
+                    for vuid, vs, ve in conn.execute(
+                        f'SELECT user_id, start_date, end_date FROM absence_records '
                         f'WHERE user_id IN ({_at_ph}) AND status=\'approved\' '
-                        f'AND type IN (\'vacation\',\'sick_leave\',\'day_off\') '
+                        f'AND type=\'vacation\' '
                         f'AND start_date <= ? AND end_date >= ?',
                         all_team_uids + [end_date, start_date],
                     ).fetchall():
-                        vacation_uids_global.add(vuid)
+                        vs_d = max(_dt_date.fromisoformat(vs[:10]), _period_start_d)
+                        ve_d = min(_dt_date.fromisoformat(ve[:10]), _period_end_d)
+                        if vs_d <= ve_d:
+                            vac_by_uid_bulk.setdefault(vuid, []).append((vs_d, ve_d))
 
-                # ── Effective seller count per shop ───────────────────────────
-                sellers_by_shop: dict = {
-                    sn: len([u for u in ulist if u not in vacation_uids_global])
-                    for sn, ulist in team_by_shop.items()
-                }
+                def _on_vac_bulk(uid, d):
+                    for vs_d, ve_d in vac_by_uid_bulk.get(uid, []):
+                        if vs_d <= d <= ve_d:
+                            return True
+                    return False
 
-                # ── Пул по магазину = комиссии не-отпускников ─────────────────
-                # Фильтруем seller_earnings только по active-пользователям
-                active_team_uids = [u for u in all_team_uids if u not in vacation_uids_global]
-                pool_by_shop: dict = {}
-                if active_team_uids:
-                    _act_ph = ','.join('?' * len(active_team_uids))
-                    for sn, v in conn.execute(
-                        f'SELECT s.shop_name, COALESCE(SUM(se.commission_amount), 0.0) '
-                        f'FROM seller_earnings se JOIN sales s ON se.sale_id = s.id '
-                        f'WHERE se.user_id IN ({_act_ph}) '
-                        f'AND s.sale_date >= ? AND s.sale_date <= ? '
-                        f'GROUP BY s.shop_name',
-                        active_team_uids + [start_date, end_date],
-                    ).fetchall():
-                        pool_by_shop[sn] = float(v)
+                # ── Per-shop timeline-splitting ───────────────────────────────
+                # adj_by_uid[uid] += adjustment from each joint-eligible interval
+                adj_by_uid: dict = {}
 
-                # ── Личный вклад каждого пользователя (из uids) ──────────────
-                user_shop_comm: dict = {}
-                for uid, sn, amt in conn.execute(
-                    f'SELECT se.user_id, s.shop_name, COALESCE(SUM(se.commission_amount), 0.0) '
-                    f'FROM seller_earnings se JOIN sales s ON se.sale_id = s.id '
-                    f'WHERE se.user_id IN ({ph}) AND s.sale_date >= ? AND s.sale_date <= ? '
-                    f'GROUP BY se.user_id, s.shop_name',
-                    uids + [start_date, end_date],
-                ).fetchall():
-                    user_shop_comm[(uid, sn)] = float(amt)
-
-                for uid in uids:
-                    # Если пользователь сам в отпуске → 0 joint-бонуса
-                    if uid in vacation_uids_global:
-                        continue
-                    sn = uid_to_shop.get(uid)
-                    if not sn:
-                        continue
-                    cond = shop_to_cond.get(sn) or global_cond
+                for shop_sn, team_uids_shop in team_by_shop.items():
+                    cond = shop_to_cond.get(shop_sn) or global_cond
                     if cond is None:
                         continue
-                    min_sellers, coefficient = cond
-                    if sellers_by_shop.get(sn, 0) < min_sellers:
-                        continue
-                    base_pool = pool_by_shop.get(sn, 0.0)
-                    joint_total = round(base_pool * coefficient, 2)
-                    user_individual = user_shop_comm.get((uid, sn), 0.0)
-                    adj_total = joint_total - user_individual
-                    if adj_total:
+                    min_sellers_s, coefficient_s = cond
+
+                    # Timeline events for this shop
+                    events_set: set = {_period_start_d, _period_end_d + _td(days=1)}
+                    for tm_uid in team_uids_shop:
+                        for vs_d, ve_d in vac_by_uid_bulk.get(tm_uid, []):
+                            events_set.add(vs_d)
+                            events_set.add(ve_d + _td(days=1))
+                    sorted_evts = sorted(events_set)
+
+                    for ei in range(len(sorted_evts) - 1):
+                        ivl_s_d = max(sorted_evts[ei],     _period_start_d)
+                        ivl_e_d = min(sorted_evts[ei + 1] - _td(days=1), _period_end_d)
+                        if ivl_s_d > ivl_e_d:
+                            continue
+
+                        active_shop_uids = [u for u in team_uids_shop if not _on_vac_bulk(u, ivl_s_d)]
+                        if len(active_shop_uids) < min_sellers_s:
+                            continue
+
+                        ivl_s = ivl_s_d.isoformat()
+                        ivl_e = ivl_e_d.isoformat()
+
+                        # Pool = active team commissions at this shop in this interval
+                        _aph = ','.join('?' * len(active_shop_uids))
+                        pool_ivl = conn.execute(
+                            f'SELECT COALESCE(SUM(se.commission_amount),0.0) '
+                            f'FROM seller_earnings se JOIN sales s ON se.sale_id=s.id '
+                            f'WHERE se.user_id IN ({_aph}) AND s.shop_name=? '
+                            f'AND s.sale_date >= ? AND s.sale_date <= ?',
+                            active_shop_uids + [shop_sn, ivl_s, ivl_e],
+                        ).fetchone()[0] or 0.0
+                        jt_ivl = round(float(pool_ivl) * coefficient_s, 2)
+
+                        # Per-uid individual for this interval (only for uids we track)
+                        _uids_set = set(uids)
+                        tracked_active = [u for u in active_shop_uids if u in _uids_set]
+                        if not tracked_active:
+                            continue
+                        _tph2 = ','.join('?' * len(tracked_active))
+                        rows_ivl = conn.execute(
+                            f'SELECT se.user_id, COALESCE(SUM(se.commission_amount),0.0) '
+                            f'FROM seller_earnings se JOIN sales s ON se.sale_id=s.id '
+                            f'WHERE se.user_id IN ({_tph2}) AND s.shop_name=? '
+                            f'AND s.sale_date >= ? AND s.sale_date <= ? '
+                            f'GROUP BY se.user_id',
+                            tracked_active + [shop_sn, ivl_s, ivl_e],
+                        ).fetchall()
+                        ind_by_uid_ivl = {r[0]: float(r[1]) for r in rows_ivl}
+                        for uid in tracked_active:
+                            ind_amt = ind_by_uid_ivl.get(uid, 0.0)
+                            adj_by_uid[uid] = adj_by_uid.get(uid, 0.0) + (jt_ivl - ind_amt)
+
+                for uid, adj_total in adj_by_uid.items():
+                    adj_total = round(adj_total, 2)
+                    if adj_total and uid in result:
                         result[uid]['total_earnings'] = round(
                             result[uid]['total_earnings'] + adj_total, 2
                         )
