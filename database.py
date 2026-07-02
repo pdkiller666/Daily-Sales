@@ -13528,6 +13528,14 @@ class Database:
             worked_dates = {r[0] for r in worked_rows if r[0] not in paid_abs_dates}
             total_worked_days = len(worked_dates)
             total_motivation = float(se_row[0]) if se_row else 0.0
+            # Include joint-bonus adjustment over the same 12-month period
+            try:
+                joint_adj_12m = self.get_joint_bonus_adjustment(
+                    user_id, range_start, range_end
+                )
+                total_motivation += float(joint_adj_12m or 0)
+            except Exception:
+                pass
             total_earnings = total_worked_days * rate + total_motivation
 
             if total_worked_days == 0:
@@ -13721,6 +13729,14 @@ class Database:
                 se_by_uid[uid] = float(comm)
 
             conn.close()
+
+            # Add joint-bonus adjustment per vac_uid over the 12-month range
+            for uid in vac_uids:
+                try:
+                    joint_adj = self.get_joint_bonus_adjustment(uid, range_start, range_end)
+                    se_by_uid[uid] = se_by_uid.get(uid, 0.0) + float(joint_adj or 0)
+                except Exception:
+                    pass
 
             result = {}
             for uid in user_ids:

@@ -772,6 +772,16 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         except Exception:
             xls_bulk = {'worked': {}, 'adj_sum': {}, 'earnings': {}, 'earnings_detail': {}}
 
+        # Net worked (schedule − all paid absences), same logic as web view
+        # get_salary_bulk_stats subtracts ALL paid-absence days from schedule count
+        xls_net_worked_bulk: dict = {}
+        try:
+            _xls_stats = db.get_salary_bulk_stats(year, month, start_date, end_date)
+            xls_net_worked_bulk = {uid: _xls_stats.get(uid, {}).get('worked', 0)
+                                   for uid in xls_non_admin_uids}
+        except Exception:
+            pass
+
         # Earnings bulk: joint-бонусы + план-коэффициент (как в web-таблице)
         xls_earnings_bulk: dict = {}
         try:
@@ -789,7 +799,8 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
                 continue
             uid = row[0]
             rate = float(row[3] or 0)
-            worked = xls_bulk['worked'].get(uid, 0)
+            # Use net worked (same as web): schedule days minus ALL paid-absence days
+            worked = xls_net_worked_bulk.get(uid, xls_bulk['worked'].get(uid, 0))
             non_vac_paid_abs = xls_paid_abs_bulk.get(uid, 0)
             xls_vac_info = xls_vac_pay_bulk.get(uid, (0.0, 0, 0.0, False))
             xls_vac_pay_i = xls_vac_info[0]
