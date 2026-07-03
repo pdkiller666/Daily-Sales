@@ -455,6 +455,7 @@ def salary_page(
         "total_salary_fund": 0.0, "error": None,
         "csrf_token": get_csrf_token(request),
     }
+    is_admin: bool = ctx["is_admin"]
 
     try:
         from env_manager import env_manager

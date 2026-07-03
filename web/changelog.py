@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.383.0"
+CURRENT_VERSION = "1.384.0"
 
 ENTRIES = [
+    {
+        "version": "1.384.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Fix template syntax errors affecting absence and user deletion pages",
+        ],
+    },
     {
         "version": "1.383.0",
         "date": "3 июля 2026",
