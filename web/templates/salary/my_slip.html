@@ -189,6 +189,38 @@
     </table>
 </div>
 
+<!-- Motivation summary -->
+{% if gross_motivation != 0 or return_deduction < 0 %}
+<div class="card overflow-hidden mb-5">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+            <h2 class="font-semibold text-slate-800">🎯 Мотивация</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Комиссионные с продаж за период</p>
+        </div>
+        <span class="text-sm font-bold text-blue-600">
+            {% if gross_motivation > 0 %}+{% endif %}{{ (gross_motivation + return_deduction)|int|fmt_currency }}
+        </span>
+    </div>
+    <div class="divide-y divide-slate-50">
+        {% if gross_motivation != 0 %}
+        <div class="flex items-center justify-between px-5 py-3">
+            <p class="text-sm text-slate-700">Начислено (до вычетов)</p>
+            <span class="font-semibold text-sm text-emerald-600">+{{ gross_motivation|int|fmt_currency }}</span>
+        </div>
+        {% endif %}
+        {% if return_deduction < 0 %}
+        <div class="flex items-center justify-between px-5 py-3">
+            <div>
+                <p class="text-sm text-slate-700">↩️ Вычет возвратов</p>
+                <p class="text-xs text-slate-400 mt-0.5">сторно мотивации по возвращённым товарам</p>
+            </div>
+            <span class="font-semibold text-sm text-red-500">{{ return_deduction|int|fmt_currency }}</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
 <!-- Adjustments -->
 {% if adj_rows %}
 <div class="card overflow-hidden mb-5">
@@ -236,6 +268,8 @@
                 {% if shifts_pay %}{% set _ = parts.append(shifts_pay|int|fmt_currency ~ ' (смены)') %}{% endif %}
                 {% if abs_pay %}{% set _ = parts.append(abs_pay|int|fmt_currency ~ ' (отсутствия)') %}{% endif %}
                 {% if vac_pay %}{% set _ = parts.append(vac_pay|int|fmt_currency ~ ' (отпуск)') %}{% endif %}
+                {% if gross_motivation %}{% set _ = parts.append('+' ~ gross_motivation|int|fmt_currency ~ ' (мотивация)') %}{% endif %}
+                {% if return_deduction < 0 %}{% set _ = parts.append(return_deduction|int|fmt_currency ~ ' (возвраты)') %}{% endif %}
                 {% if adj_sum > 0 %}{% set _ = parts.append('+' ~ adj_sum|int|fmt_currency ~ ' (корр.)') %}{% elif adj_sum < 0 %}{% set _ = parts.append(adj_sum|int|fmt_currency ~ ' (корр.)') %}{% endif %}
                 {{ parts | join(' + ') }}
             </p>

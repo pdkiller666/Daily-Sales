@@ -189,6 +189,7 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         "csrf_token": get_csrf_token(request),
         "earnings": [],
         "total_commission": 0.0,
+        "returns_deduction": 0.0,
         "commission_before_coeff": 0.0,
         "plan_coeff": None,
         "plan_coeff_details": [],
@@ -279,6 +280,13 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
                 "source_label": _source_label(row[8] if len(row) > 8 else "global"),
             })
 
+        # Выделяем сторно возвратов (отрицательные строки return_reversal)
+        returns_deduction = round(sum(
+            e["commission"] for e in earnings if e["mtype"] == "return_reversal"
+        ), 2)
+        # Убираем строки return_reversal из таблицы детализации и commission_by_source
+        earnings = [e for e in earnings if e["mtype"] != "return_reversal"]
+
         # Учитываем joint-бонус (совместный режим мотивации, если настроен)
         commission_raw = total_commission  # сумма из seller_earnings до joint-корр.
         try:
@@ -361,6 +369,7 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
             "total_earnings_count": total_earnings_count,
             "commission_by_source": _commission_by_source(earnings),
             "total_commission": round(total_commission, 2),
+            "returns_deduction": returns_deduction,
             "commission_raw": round(commission_raw, 2),
             "joint_adj": round(joint_adj, 2),
             "commission_before_coeff": round(commission_before_coeff, 2),
@@ -1099,6 +1108,8 @@ def salary_my_slip(
         "abs_pay": 0.0,
         "adj_rows": [],
         "adj_sum": 0.0,
+        "gross_motivation": 0.0,
+        "return_deduction": 0.0,
         "total": 0.0,
         "error": None,
     }
@@ -1151,9 +1162,21 @@ def salary_my_slip(
         except Exception:
             pass
 
+        import calendar as _cal_slip
+        _slip_last = _cal_slip.monthrange(year, month)[1]
+        _slip_start = f"{year}-{month:02d}-01"
+        _slip_end = f"{year}-{month:02d}-{_slip_last}"
+        gross_motivation = 0.0
+        return_deduction = 0.0
+        try:
+            gross_motivation, return_deduction = db.get_seller_motivation_summary(
+                user_db_id, _slip_start, _slip_end)
+        except Exception:
+            pass
+
         shifts_pay = worked * rate
         abs_pay = non_vac_paid_abs * rate
-        total = shifts_pay + abs_pay + vac_pay + adj_sum
+        total = shifts_pay + abs_pay + vac_pay + adj_sum + gross_motivation + return_deduction
 
         ctx.update({
             "daily_rate": rate,
@@ -1167,6 +1190,8 @@ def salary_my_slip(
             "abs_pay": round(abs_pay, 2),
             "adj_rows": adj_rows,
             "adj_sum": round(adj_sum, 2),
+            "gross_motivation": round(gross_motivation, 2),
+            "return_deduction": round(return_deduction, 2),
             "total": round(total, 2),
         })
 

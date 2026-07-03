@@ -641,11 +641,23 @@ async def salary_payslip_admin(callback: CallbackQuery, state: FSMContext):
     except Exception:
         adj_rows, adj_sum = [], 0.0
 
+    import calendar as _cal_slip
+    _slip_last = _cal_slip.monthrange(year, month)[1]
+    _slip_start = f"{year}-{month:02d}-01"
+    _slip_end = f"{year}-{month:02d}-{_slip_last}"
+    gross_motivation = 0.0
+    return_deduction = 0.0
+    try:
+        gross_motivation, return_deduction = await current_db.get_seller_motivation_summary(
+            target_uid, _slip_start, _slip_end)
+    except Exception:
+        pass
+
     rate_val = daily_rate or 0  # guard against None for arithmetic
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
     shifts_pay = net_worked_count * rate_val
     abs_pay = non_vac_paid_abs * rate_val
-    total = shifts_pay + abs_pay + vac_pay + adj_sum
+    total = shifts_pay + abs_pay + vac_pay + adj_sum + gross_motivation + return_deduction
 
     lines = [
         f"📄 <b>Расчётный листок: {name}</b>",
@@ -679,6 +691,10 @@ async def salary_payslip_admin(callback: CallbackQuery, state: FSMContext):
             f"🌴 Отпускные: {vac_cal_days} кал.дн. × {format_price(avg_daily)}₽/дн."
             f" = <b>{format_price(vac_pay)}₽</b>"
         )
+    if gross_motivation != 0:
+        lines.append(f"🎯 Мотивация: <b>+{format_price(gross_motivation)}₽</b>")
+    if return_deduction < 0:
+        lines.append(f"↩️ Вычет возвратов: <b>{format_price(return_deduction)}₽</b>")
     if adj_sum != 0:
         sign = "+" if adj_sum > 0 else ""
         lines.append(f"✏️ Корректировки: <b>{sign}{format_price(adj_sum)}₽</b>")
@@ -1415,10 +1431,22 @@ async def my_payslip(callback: CallbackQuery, state: FSMContext):
     except Exception:
         adj_rows, adj_sum = [], 0.0
 
+    import calendar as _cal_slip
+    _slip_last = _cal_slip.monthrange(year, month)[1]
+    _slip_start = f"{year}-{month:02d}-01"
+    _slip_end = f"{year}-{month:02d}-{_slip_last}"
+    gross_motivation = 0.0
+    return_deduction = 0.0
+    try:
+        gross_motivation, return_deduction = await current_db.get_seller_motivation_summary(
+            user_id, _slip_start, _slip_end)
+    except Exception:
+        pass
+
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
     shifts_pay = net_worked_count * daily_rate
     abs_pay = non_vac_paid_abs * daily_rate
-    total = shifts_pay + abs_pay + vac_pay + adj_sum
+    total = shifts_pay + abs_pay + vac_pay + adj_sum + gross_motivation + return_deduction
 
     lines = [
         f"📄 <b>Мой расчётный листок</b>",
@@ -1436,6 +1464,10 @@ async def my_payslip(callback: CallbackQuery, state: FSMContext):
         lines.append(
             f"🌴 Отпускные: {vac_cal_days} кал.дн. × {format_price(avg_daily)}₽/дн. = <b>{format_price(vac_pay)}₽</b>"
         )
+    if gross_motivation != 0:
+        lines.append(f"🎯 Мотивация: <b>+{format_price(gross_motivation)}₽</b>")
+    if return_deduction < 0:
+        lines.append(f"↩️ Вычет возвратов: <b>{format_price(return_deduction)}₽</b>")
     if adj_rows:
         lines.append("")
         lines.append("✏️ <b>Корректировки:</b>")

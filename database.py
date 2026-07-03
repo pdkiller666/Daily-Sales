@@ -7605,11 +7605,13 @@ class Database:
             cur.execute("BEGIN IMMEDIATE")
 
             # ── Атомарная защита от двойного возврата ───────────────────
+            _qty_sold_cache = 0  # для пропорционального сторно в шаге 3
             if sale_id is not None:
                 cur.execute('SELECT quantity_sold FROM sales WHERE id = ?', (sale_id,))
                 sale_row = cur.fetchone()
                 if sale_row:
                     qty_sold = int(sale_row[0])
+                    _qty_sold_cache = qty_sold
                     cur.execute(
                         'SELECT COALESCE(SUM(quantity_returned), 0) FROM sale_returns WHERE sale_id = ?',
                         (sale_id,)
@@ -7643,21 +7645,29 @@ class Database:
             ''', (quantity_returned, datetime.now().isoformat(), shop_name, product_id))
 
             # 3. Если у продавца есть начисленная мотивация по этой продаже —
-            #    добавляем отрицательную корректировку (SUM не сломается)
+            #    добавляем отрицательную строку пропорционально доле возврата.
+            #    Берём только положительные начисления (игнорируем уже вставленные
+            #    return_reversal от предыдущих частичных возвратов).
             if sale_id and seller_user_id:
                 cur.execute(
-                    'SELECT SUM(commission_amount) FROM seller_earnings WHERE sale_id = ?',
+                    'SELECT COALESCE(SUM(commission_amount), 0) FROM seller_earnings '
+                    'WHERE sale_id = ? AND commission_amount > 0',
                     (sale_id,)
                 )
                 row = cur.fetchone()
-                earned = float(row[0] or 0) if row else 0.0
-                if earned > 0:
+                gross_earned = float(row[0] or 0) if row else 0.0
+                if gross_earned > 0:
+                    ratio = (
+                        min(1.0, quantity_returned / _qty_sold_cache)
+                        if _qty_sold_cache > 0 else 1.0
+                    )
+                    reversal = round(gross_earned * ratio, 2)
                     cur.execute('''
                         INSERT INTO seller_earnings
                             (sale_id, user_id, product_id, commission_amount,
                              motivation_type, motivation_value)
                         VALUES (?, ?, ?, ?, 'return_reversal', 0)
-                    ''', (sale_id, seller_user_id, product_id, -earned))
+                    ''', (sale_id, seller_user_id, product_id, -reversal))
 
             cur.execute("COMMIT")
             _raw.isolation_level = _prev_isolation
@@ -11486,6 +11496,39 @@ class Database:
         except Exception as e:
             logger.error(f"Ошибка при получении общего заработка: {e}")
             return {'total_earnings': 0.0, 'total_sales': 0}
+        finally:
+            if conn is not None:
+                conn.close()
+
+    def get_seller_motivation_summary(self, user_id: int, start_date: str, end_date: str):
+        """Gross positive motivation and return_reversal deduction for the period.
+
+        Returns (gross_commission: float, return_deduction: float) where
+        gross_commission — сумма положительных начислений (без return_reversal),
+        return_deduction — сумма строк return_reversal (отрицательное число, 0.0 если нет).
+        """
+        conn = None
+        try:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                '''SELECT
+                    COALESCE(SUM(CASE WHEN se.motivation_type != 'return_reversal'
+                                     THEN se.commission_amount ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN se.motivation_type = 'return_reversal'
+                                     THEN se.commission_amount ELSE 0 END), 0)
+                   FROM seller_earnings se
+                   JOIN sales s ON se.sale_id = s.id
+                   WHERE se.user_id = ? AND s.sale_date >= ? AND s.sale_date <= ?''',
+                (user_id, start_date, end_date)
+            )
+            row = cur.fetchone()
+            if row:
+                return (round(float(row[0] or 0), 2), round(float(row[1] or 0), 2))
+            return (0.0, 0.0)
+        except Exception as e:
+            logger.error(f"get_seller_motivation_summary error: {e}")
+            return (0.0, 0.0)
         finally:
             if conn is not None:
                 conn.close()
