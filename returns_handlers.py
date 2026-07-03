@@ -136,35 +136,47 @@ async def return_sale_selected(callback: CallbackQuery, state: FSMContext):
         return
 
     # sale: (sale_id, product_name, shop_name, qty, price, sale_date, user_id, first, last)
+    current_db = await get_db(callback.from_user.id, state)
+
+    # Получаем product_id из оригинальной продажи + уже возвращённое кол-во
+    orig = await current_db.get_sale_by_id(sale_id)
+    already_returned = await current_db.get_already_returned_qty(sale_id)
+    available_qty = max(0, sale[3] - already_returned)
+
+    if available_qty == 0:
+        await callback.message.edit_text(
+            f"⚠️ <b>Невозможно оформить возврат</b>\n\n"
+            f"По этой продаже уже возвращены все {sale[3]} шт.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("returns_menu")]]),
+            parse_mode="HTML",
+        )
+        return
+
     await state.update_data(
         ret_sale_id=sale[0],
         ret_product_name=sale[1],
-        ret_product_id=None,      # берём из get_sale_by_id ниже
+        ret_product_id=orig[1] if orig else None,
         ret_shop_name=sale[2],
-        ret_max_qty=sale[3],
+        ret_max_qty=available_qty,
+        ret_sold_qty=sale[3],
         ret_price=sale[4],
         ret_sale_date=str(sale[5])[:10],
         ret_seller_user_id=sale[6],
         anchor_msg_id=callback.message.message_id,
     )
 
-    # Получаем product_id из оригинальной продажи
-    current_db = await get_db(callback.from_user.id, state)
-    orig = await current_db.get_sale_by_id(sale_id)
-    if orig:
-        await state.update_data(ret_product_id=orig[1])
-
     seller = f"{sale[7] or ''} {sale[8] or ''}".strip() or "—"
     total = sale[3] * sale[4]
+    already_note = f"\n⚠️ Уже возвращено: {already_returned} шт." if already_returned > 0 else ""
     await fsm_edit(state, callback.message,
         f"↩️ <b>Возврат продажи</b>\n\n"
         f"🏷 Товар: <b>{he(sale[1])}</b>\n"
         f"🏪 Магазин: {he(sale[2])}\n"
-        f"📦 Продано: {sale[3]} шт.\n"
+        f"📦 Продано: {sale[3]} шт.{already_note}\n"
         f"💰 Цена: {format_currency(sale[4])} → Итого: {format_currency(total)}\n"
         f"📅 Дата продажи: {str(sale[5])[:10]}\n"
         f"👤 Продавец: {he(seller)}\n\n"
-        f"Введите количество для возврата (от 1 до {sale[3]}):",
+        f"Введите количество для возврата (от 1 до {available_qty}):",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="❌ Отмена", callback_data="returns_menu")]
         ]),
@@ -281,23 +293,33 @@ async def return_confirm_ok(callback: CallbackQuery, state: FSMContext):
     tz = await current_db.get_user_timezone(callback.from_user.id)
     return_date = _gcur(tz).date().isoformat()
 
-    return_id = await current_db.create_sale_return(
-        sale_id             = data.get("ret_sale_id"),
-        product_id          = data.get("ret_product_id"),
-        product_name        = data.get("ret_product_name", ""),
-        shop_name           = data.get("ret_shop_name", ""),
-        quantity_returned   = data.get("ret_qty", 1),
-        return_price        = data.get("ret_price", 0.0),
-        seller_user_id      = data.get("ret_seller_user_id"),
-        returned_by_user_id = returned_by_uid,
-        return_date         = return_date,
-        reason              = data.get("ret_reason"),
-    )
-
     qty    = data.get("ret_qty", 1)
     price  = data.get("ret_price", 0.0)
     pname  = data.get("ret_product_name", "")
     shop   = data.get("ret_shop_name", "")
+
+    try:
+        return_id = await current_db.create_sale_return(
+            sale_id             = data.get("ret_sale_id"),
+            product_id          = data.get("ret_product_id"),
+            product_name        = pname,
+            shop_name           = shop,
+            quantity_returned   = qty,
+            return_price        = price,
+            seller_user_id      = data.get("ret_seller_user_id"),
+            returned_by_user_id = returned_by_uid,
+            return_date         = return_date,
+            reason              = data.get("ret_reason"),
+        )
+    except ValueError as e:
+        await callback.message.edit_text(
+            f"⚠️ <b>Возврат невозможен</b>\n\n{he(str(e))}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [back_button("returns_menu")]
+            ]),
+            parse_mode="HTML",
+        )
+        return
 
     if return_id:
         text = (f"✅ <b>Возврат оформлен!</b>\n\n"

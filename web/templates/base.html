@@ -2063,7 +2063,7 @@ function mainApp() {
                     <span class="sht-icon">💰</span>
                     <span class="sht-label">Продажи</span>
                 </a>
-                {% if nm.sales %}
+                {% if _nm.sales %}
                 <a href="/returns" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/returns') %}sht-active{% endif %}">
                     <span class="sht-icon">↩️</span>

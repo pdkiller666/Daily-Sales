@@ -159,18 +159,21 @@ def api_returns_create(
             return JSONResponse({"ok": False, "error": "Пользователь не найден"}, status_code=404)
 
         return_date = date.today().isoformat()
-        return_id = db.create_sale_return(
-            sale_id             = sale_id,
-            product_id          = sale[1],
-            product_name        = sale[7],
-            shop_name           = sale[2],
-            quantity_returned   = quantity_returned,
-            return_price        = sale[4],
-            seller_user_id      = sale[5],
-            returned_by_user_id = returned_by_uid,
-            return_date         = return_date,
-            reason              = reason.strip()[:200] or None,
-        )
+        try:
+            return_id = db.create_sale_return(
+                sale_id             = sale_id,
+                product_id          = sale[1],
+                product_name        = sale[7],
+                shop_name           = sale[2],
+                quantity_returned   = quantity_returned,
+                return_price        = sale[4],
+                seller_user_id      = sale[5],
+                returned_by_user_id = returned_by_uid,
+                return_date         = return_date,
+                reason              = reason.strip()[:200] or None,
+            )
+        except ValueError as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=409)
         if return_id:
             amount = quantity_returned * sale[4]
             return JSONResponse({

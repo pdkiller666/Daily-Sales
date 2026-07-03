@@ -7559,15 +7559,56 @@ class Database:
     # ВОЗВРАТЫ ТОВАРА (sale_returns)
     # ──────────────────────────────────────────────────────────────────────
 
-    def create_sale_return(self, sale_id, product_id, product_name, shop_name,
-                           quantity_returned, return_price, seller_user_id,
-                           returned_by_user_id, return_date, reason=None):
-        """Создать возврат: зафиксировать, восстановить остатки, скорректировать мотивацию продавца.
-        Возвращает return_id (int) или None при ошибке."""
+    def get_already_returned_qty(self, sale_id: int) -> int:
+        """Сумма уже возвращённых единиц по данной продаже."""
         conn = None
         try:
             conn = self.get_connection()
             cur = conn.cursor()
+            cur.execute(
+                'SELECT COALESCE(SUM(quantity_returned), 0) FROM sale_returns WHERE sale_id = ?',
+                (sale_id,)
+            )
+            row = cur.fetchone()
+            conn.close()
+            return int(row[0]) if row else 0
+        except Exception as e:
+            logger.error(f"get_already_returned_qty error: {e}")
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return 0
+
+    def create_sale_return(self, sale_id, product_id, product_name, shop_name,
+                           quantity_returned, return_price, seller_user_id,
+                           returned_by_user_id, return_date, reason=None):
+        """Создать возврат: зафиксировать, восстановить остатки, скорректировать мотивацию продавца.
+        Возвращает return_id (int) или None при ошибке.
+        Поднимает ValueError если суммарный возврат превысит количество проданных единиц."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cur = conn.cursor()
+
+            # ── Атомарная защита от двойного возврата ───────────────────
+            if sale_id is not None:
+                cur.execute('SELECT quantity_sold FROM sales WHERE id = ?', (sale_id,))
+                sale_row = cur.fetchone()
+                if sale_row:
+                    qty_sold = int(sale_row[0])
+                    cur.execute(
+                        'SELECT COALESCE(SUM(quantity_returned), 0) FROM sale_returns WHERE sale_id = ?',
+                        (sale_id,)
+                    )
+                    already = int(cur.fetchone()[0])
+                    if already + quantity_returned > qty_sold:
+                        conn.close()
+                        available = max(0, qty_sold - already)
+                        raise ValueError(
+                            f"Уже возвращено {already} шт., доступно не более {available} шт."
+                        )
 
             # 1. Вставляем запись возврата
             cur.execute('''
@@ -7607,6 +7648,8 @@ class Database:
             conn.commit()
             conn.close()
             return return_id
+        except ValueError:
+            raise
         except Exception as e:
             logger.error(f"create_sale_return error: {e}")
             if conn:

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.391.0"
+CURRENT_VERSION = "1.392.0"
 
 ENTRIES = [
+    {
+        "version": "1.392.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Add functionality for processing product returns",
+        ],
+    },
     {
         "version": "1.391.0",
         "date": "3 июля 2026",
