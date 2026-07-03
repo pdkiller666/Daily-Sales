@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.368.0"
+CURRENT_VERSION = "1.369.0"
 
 ENTRIES = [
+    {
+        "version": "1.369.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update release notes and version number after deployment",
+            "Предотвратить расхождение зарплаты при пересекающихся отпусках",
+        ],
+    },
     {
         "version": "1.368.0",
         "date": "3 июля 2026",

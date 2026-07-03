@@ -10197,6 +10197,17 @@ class Database:
                     if vs_d <= ve_d:
                         vac_by_uid.setdefault(uid, []).append((vs_d, ve_d))
 
+                # Merge overlapping intervals per uid to avoid phantom empty sub-intervals
+                for _uid in list(vac_by_uid.keys()):
+                    _ivls = sorted(vac_by_uid[_uid])
+                    _merged = [list(_ivls[0])]
+                    for _s, _e in _ivls[1:]:
+                        if _s <= _merged[-1][1]:
+                            _merged[-1][1] = max(_merged[-1][1], _e)
+                        else:
+                            _merged.append([_s, _e])
+                    vac_by_uid[_uid] = [(_s, _e) for _s, _e in _merged]
+
                 def _on_vac(uid, d, _vbu=vac_by_uid):
                     for vs_d, ve_d in _vbu.get(uid, []):
                         if vs_d <= d <= ve_d:
@@ -12792,6 +12803,17 @@ class Database:
                         ve_d = min(_dt_date.fromisoformat(ve[:10]), _period_end_d)
                         if vs_d <= ve_d:
                             vac_by_uid_bulk.setdefault(vuid, []).append((vs_d, ve_d))
+
+                # Merge overlapping intervals per uid to avoid phantom empty sub-intervals
+                for _buid in list(vac_by_uid_bulk.keys()):
+                    _bivls = sorted(vac_by_uid_bulk[_buid])
+                    _bmerged = [list(_bivls[0])]
+                    for _bs, _be in _bivls[1:]:
+                        if _bs <= _bmerged[-1][1]:
+                            _bmerged[-1][1] = max(_bmerged[-1][1], _be)
+                        else:
+                            _bmerged.append([_bs, _be])
+                    vac_by_uid_bulk[_buid] = [(_bs, _be) for _bs, _be in _bmerged]
 
                 def _on_vac_bulk(uid, d):
                     for vs_d, ve_d in vac_by_uid_bulk.get(uid, []):

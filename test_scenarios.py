@@ -3072,6 +3072,128 @@ check("partial vacation bulk: Тарасов итого = 700 (500 own + 200 joi
       abs(pv_bulk_t - 700.0) < 0.01, f"got {pv_bulk_t}")
 
 # ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ: Пересекающиеся vacation-периоды одного сотрудника
+# ─────────────────────────────────────────────────────────
+section("Пересекающиеся vacation-периоды одного сотрудника")
+
+# Тот же магазин, два продавца. Сидоров уходит в отпуск Jan 6 → конец месяца,
+# но у него ДВА одобренных vacancy-рекорда, перекрывающих этот диапазон:
+#   запись 1: pv_day6 → pv_day5_plus9  (первые 9 дней)
+#   запись 2: pv_day3  → pv_end         (перекрывает с запасом)
+# После merge → один интервал pv_day6 → pv_end (тот же, что и в обычном тесте).
+# Ожидаемые adj должны совпадать с пооперационным расчётом для одного интервала.
+
+ov_db = make_db("overlap_vac.db")
+ovconn = ov_db.get_connection()
+
+ovuid_i = 301  # Иванов (active all month)
+ovuid_s = 302  # Сидоров (two overlapping vacation records)
+ovpid   = 1
+
+ovconn.execute("INSERT INTO users (id, telegram_id, first_name, last_name, shop_name) VALUES (?,?,?,?,?)",
+               (ovuid_i, 3010, "Иванов", "ОВ", "Магазин ОВ"))
+ovconn.execute("INSERT INTO users (id, telegram_id, first_name, last_name, shop_name) VALUES (?,?,?,?,?)",
+               (ovuid_s, 3020, "Сидоров", "ОВ", "Магазин ОВ"))
+ovconn.execute("INSERT INTO products (id, name, category, price) VALUES (?,?,?,?)",
+               (ovpid, "Товар ОВ", "Кат", 100.0))
+ovconn.execute("""
+    INSERT INTO motivation_extra_conditions
+        (shop_name, condition_type, min_sellers, coefficient, calc_mode, is_active)
+    VALUES (?, 'multi_seller_coeff', 2, 0.7, 'joint', 1)
+""", ("Магазин ОВ",))
+ovconn.execute("""
+    CREATE TABLE IF NOT EXISTS absence_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        is_paid INTEGER,
+        comment TEXT,
+        admin_comment TEXT,
+        created_by INTEGER,
+        reviewed_by INTEGER,
+        created_at TEXT DEFAULT (datetime('now')),
+        reviewed_at TEXT
+    )
+""")
+ovconn.commit()
+
+import calendar as _cal_ov
+_, _ov_last = _cal_ov.monthrange(yr_now, mo_now)
+ov_start  = f"{yr_now}-{mo_now:02d}-01"
+ov_end    = f"{yr_now}-{mo_now:02d}-{_ov_last:02d}"
+ov_day5   = f"{yr_now}-{mo_now:02d}-05"
+ov_day6   = f"{yr_now}-{mo_now:02d}-06"
+ov_day8   = f"{yr_now}-{mo_now:02d}-08"
+ov_day10  = f"{yr_now}-{mo_now:02d}-10"
+
+# Иванов: продажа Jan 1-5 (500₽) + продажа Jan 6-end (500₽)
+ovconn.execute(
+    "INSERT INTO sales (product_id, shop_name, quantity_sold, sale_price, user_id, sale_date) VALUES (?,?,?,?,?,?)",
+    (ovpid, "Магазин ОВ", 5, 1000.0, ovuid_i, ov_day5))
+sale_ov_i_early = ovconn.execute("SELECT last_insert_rowid()").fetchone()[0]
+ovconn.execute(
+    "INSERT INTO seller_earnings (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value) VALUES (?,?,?,?,?,?)",
+    (sale_ov_i_early, ovuid_i, ovpid, 500.0, "fixed", 100.0))
+ovconn.execute(
+    "INSERT INTO sales (product_id, shop_name, quantity_sold, sale_price, user_id, sale_date) VALUES (?,?,?,?,?,?)",
+    (ovpid, "Магазин ОВ", 5, 1000.0, ovuid_i, ov_end))
+sale_ov_i_late = ovconn.execute("SELECT last_insert_rowid()").fetchone()[0]
+ovconn.execute(
+    "INSERT INTO seller_earnings (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value) VALUES (?,?,?,?,?,?)",
+    (sale_ov_i_late, ovuid_i, ovpid, 500.0, "fixed", 100.0))
+
+# Сидоров: продажа Jan 1-5 только (уходит в отпуск с Jan 6)
+ovconn.execute(
+    "INSERT INTO sales (product_id, shop_name, quantity_sold, sale_price, user_id, sale_date) VALUES (?,?,?,?,?,?)",
+    (ovpid, "Магазин ОВ", 5, 1000.0, ovuid_s, ov_day5))
+sale_ov_s_early = ovconn.execute("SELECT last_insert_rowid()").fetchone()[0]
+ovconn.execute(
+    "INSERT INTO seller_earnings (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value) VALUES (?,?,?,?,?,?)",
+    (sale_ov_s_early, ovuid_s, ovpid, 500.0, "fixed", 100.0))
+
+# Два ПЕРЕКРЫВАЮЩИХСЯ одобренных отпуска для Сидорова:
+#   запись 1: Jan 6 → Jan 10
+#   запись 2: Jan 8 → конец месяца  (перекрывает с запись 1)
+# clamped к периоду: [Jan 6, Jan 10] и [Jan 8, end] → merge → [Jan 6, end]
+# Итого merged = Jan 6 → end — то же, что в partial vacation тесте
+ovconn.execute("""
+    INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid)
+    VALUES (?, 'vacation', ?, ?, 'approved', 1)
+""", (ovuid_s, ov_day6, ov_day10))
+ovconn.execute("""
+    INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid)
+    VALUES (?, 'vacation', ?, ?, 'approved', 1)
+""", (ovuid_s, ov_day8, ov_end))
+ovconn.commit()
+
+# Ожидание (аналогично partial vacation):
+# Jan 1-5: оба активны → joint; пул=1000₽; joint_total=700₽
+#   Иванов adj = +200,  Сидоров adj = +200
+# Jan 6-end: только Иванов (effective=1 < 2) → нет joint; adj=0 для обоих
+ov_adj_i = ov_db.get_joint_bonus_adjustment(ovuid_i, ov_start, ov_end)
+ov_adj_s = ov_db.get_joint_bonus_adjustment(ovuid_s, ov_start, ov_end)
+
+check("overlap vac: Иванов adj = +200 (joint Jan 1-5, merged overlap не дублирует)",
+      abs(ov_adj_i - 200.0) < 0.01, f"got {ov_adj_i}")
+check("overlap vac: Сидоров adj = +200 (joint Jan 1-5 до отпуска, merged overlap)",
+      abs(ov_adj_s - 200.0) < 0.01, f"got {ov_adj_s}")
+
+ov_bulk = ov_db.get_seller_total_earnings_bulk(
+    [ovuid_i, ovuid_s], ov_start, ov_end, yr_now, mo_now
+)
+ov_bulk_i = ov_bulk.get(ovuid_i, {}).get('total_earnings', 0.0)
+ov_bulk_s = ov_bulk.get(ovuid_s, {}).get('total_earnings', 0.0)
+check("overlap vac bulk: Иванов итого = 1200 (500+500 own + 200 joint adj)",
+      abs(ov_bulk_i - 1200.0) < 0.01, f"got {ov_bulk_i}")
+check("overlap vac bulk: Сидоров итого = 700 (500 own + 200 joint adj)",
+      abs(ov_bulk_s - 700.0) < 0.01, f"got {ov_bulk_s}")
+
+ovconn.close()
+
+# ─────────────────────────────────────────────────────────
 # СЦЕНАРИЙ: Отпускные по среднему дневному заработку за 12 мес
 # ─────────────────────────────────────────────────────────
 section("Отпускные по среднему дневному заработку за 12 мес")
