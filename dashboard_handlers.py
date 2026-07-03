@@ -642,8 +642,9 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
         paid_absence_days = _r(9, 0) or 0
         adj_sum_val       = _r(10, 0.0) or 0.0
         _vac              = _r(11)
+        vac_fallback_db = False
         if isinstance(_vac, tuple) and len(_vac) == 4:
-            vac_pay_db, vac_cal_days_db, avg_daily_db, _ = _vac
+            vac_pay_db, vac_cal_days_db, avg_daily_db, vac_fallback_db = _vac
         salary = daily_rate * (worked_days + paid_absence_days) + vac_pay_db
 
     month_ru = MONTH_NAMES_RU.get(month, str(month))
@@ -681,8 +682,9 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
             text += (f"• Оклад: {worked_days} смен × {daily_rate:,.0f} ₽"
                      f" = <b>{_base_part:,.0f} ₽</b>\n")
         if vac_cal_days_db > 0:
+            _fb_note_db = " (по тек. ставке)" if vac_fallback_db else ""
             text += (f"• 🌴 Отпуск: {int(vac_cal_days_db)} кал.дн. × {avg_daily_db:,.0f} ₽/дн."
-                     f" = <b>{vac_pay_db:,.0f} ₽</b>\n")
+                     f" = <b>{vac_pay_db:,.0f} ₽</b>{_fb_note_db}\n")
     elif user_id:
         text += "• Оклад: не установлен\n"
     else:
@@ -872,8 +874,9 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
     adj_sum_val       = _ur(9, 0.0) or 0.0
     _vac_my           = _ur(10)
     vac_pay_my = vac_cal_days_my = avg_daily_my = 0.0
+    vac_fallback_my = False
     if isinstance(_vac_my, tuple) and len(_vac_my) == 4:
-        vac_pay_my, vac_cal_days_my, avg_daily_my, _ = _vac_my
+        vac_pay_my, vac_cal_days_my, avg_daily_my, vac_fallback_my = _vac_my
     salary            = daily_rate * (worked_days + paid_absence_days) + vac_pay_my
 
     month_ru = MONTH_NAMES_RU.get(month, str(month))
@@ -892,8 +895,9 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
             text += (f"• Оклад: {worked_days} смен × {daily_rate:,.0f} ₽"
                      f" = <b>{_base_my:,.0f} ₽</b>\n")
         if vac_cal_days_my > 0:
+            _fb_note_my = " (по тек. ставке)" if vac_fallback_my else ""
             text += (f"• 🌴 Отпуск: {int(vac_cal_days_my)} кал.дн. × {avg_daily_my:,.0f} ₽/дн."
-                     f" = <b>{vac_pay_my:,.0f} ₽</b>\n")
+                     f" = <b>{vac_pay_my:,.0f} ₽</b>{_fb_note_my}\n")
     else:
         text += "• Оклад: не установлен\n"
     text += f"• Мотивация (месяц): <b>+{motivations:,.0f} ₽</b>\n"

@@ -3169,6 +3169,130 @@ check("get_paid_absence_days_count exclude_vacation=False → 10 дней",
 _vacconn.close()
 _nohistconn.close()
 
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ: Два пересекающихся отсутствия + смена ставки
+# (rate 800 Jul2025-Mar2026, 1200 Apr2026-Jun2026;
+#  paid leave 1: Feb20-Mar5, paid leave 2: Mar3-Mar10)
+# ─────────────────────────────────────────────────────────
+section("Отпускные: два пересекающихся отсутствия + граница смены ставки")
+
+_ovdb = make_db("vacation_overlap.db")
+_ovconn = _ovdb.get_connection()
+
+_ovconn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) "
+    "VALUES (1, 300001, 'Тест', 'Пересечение')"
+)
+_ovconn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 1200)")
+
+# Ставки: 800 ₽/день Jul2025-Mar2026, 1200 ₽/день Apr2026–
+_ovconn.execute(
+    "INSERT INTO salary_rate_history (user_id, rate, effective_from, effective_to) "
+    "VALUES (1, 800, '2025-07-01', '2026-04-01')"
+)
+_ovconn.execute(
+    "INSERT INTO salary_rate_history (user_id, rate, effective_from, effective_to) "
+    "VALUES (1, 1200, '2026-04-01', NULL)"
+)
+
+# Рабочие дни: все Mon-Fri за Jul 2025 – Jun 2026 (12-месячный период до Jul 2026)
+from datetime import date as _ovd, timedelta as _ovtd
+_ov_rs = _ovd(2025, 7, 1)
+_ov_re = _ovd(2026, 6, 30)
+_ov_rate_change = _ovd(2026, 4, 1)
+
+# Два пересекающихся оплачиваемых отсутствия, ПЕРЕСЕКАЮЩИХ границу смены ставки (Apr 1):
+#   Отсутствие 1: Mar 25 – Apr 5  (захватывает конец low-rate и начало high-rate)
+#   Отсутствие 2: Apr 1 – Apr 10  (перекрывается с отсутствием 1 в Apr 1-5)
+#   Объединение:  Mar 25 – Apr 10 (17 кал. дней)
+#   → дни Mar 25-31 исключаются по ставке 800;  Apr 1-10 — по ставке 1200
+_ov_abs1_s = _ovd(2026, 3, 25)
+_ov_abs1_e = _ovd(2026, 4, 5)
+_ov_abs2_s = _ovd(2026, 4, 1)
+_ov_abs2_e = _ovd(2026, 4, 10)
+
+# Строим объединённое множество дней отсутствия
+_ov_paid_abs: set = set()
+_ov_c = _ov_abs1_s
+while _ov_c <= _ov_abs1_e:
+    _ov_paid_abs.add(_ov_c.isoformat())
+    _ov_c += _ovtd(days=1)
+_ov_c = _ov_abs2_s
+while _ov_c <= _ov_abs2_e:
+    _ov_paid_abs.add(_ov_c.isoformat())
+    _ov_c += _ovtd(days=1)
+# Итого дней в объединении: Mar25..Apr10 = 17 кал. дней
+_ov_abs_union_days = (_ovd(2026, 4, 10) - _ovd(2026, 3, 25)).days + 1
+
+# Вычисляем ожидаемые рабочие дни и оклад
+_ov_worked_low = 0    # дни по ставке 800 (до Apr 2026)
+_ov_worked_high = 0   # дни по ставке 1200 (Apr 2026+)
+_ov_c = _ov_rs
+while _ov_c <= _ov_re:
+    if _ov_c.weekday() < 5:
+        _ovconn.execute(
+            "INSERT INTO work_schedule (user_id, work_date) VALUES (1, ?)",
+            (_ov_c.isoformat(),)
+        )
+        if _ov_c.isoformat() not in _ov_paid_abs:
+            if _ov_c < _ov_rate_change:
+                _ov_worked_low += 1
+            else:
+                _ov_worked_high += 1
+    _ov_c += _ovtd(days=1)
+
+_ov_total_worked = _ov_worked_low + _ov_worked_high
+_ov_expected_salary = _ov_worked_low * 800 + _ov_worked_high * 1200
+_ov_expected_avg = round(_ov_expected_salary / _ov_total_worked, 2)
+
+# Два пересекающихся оплачиваемых отсутствия (sick_leave), пересекающих Apr 1:
+#   Запись 1: Mar 25 – Apr 5 (охватывает конец ставки 800 и начало ставки 1200)
+#   Запись 2: Apr 1 – Apr 10 (перекрывается с записью 1 в Apr 1–5)
+_ovconn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'sick_leave', '2026-03-25', '2026-04-05', 'approved', 1)"
+)
+_ovconn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'sick_leave', '2026-04-01', '2026-04-10', 'approved', 1)"
+)
+# Отпуск в июле 2026: 5 кал. дней
+_ovconn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'vacation', '2026-07-01', '2026-07-05', 'approved', 1)"
+)
+_ovconn.commit()
+
+# Проверка объединения дней: Mar25..Apr10 = 17 кал. дней
+check("overlap abs union: Mar25–Apr10 = 17 кал. дней в множестве (пересечение двух записей)",
+      _ov_abs_union_days == 17, f"got {_ov_abs_union_days}")
+
+# Тест single-path: get_avg_daily_earnings_12m
+_ov_avg, _ov_has_hist = _ovdb.get_avg_daily_earnings_12m(1, reference_date='2026-07-01')
+check("overlap+rate-history single: has_history=True",
+      _ov_has_hist, f"has_hist={_ov_has_hist}")
+check("overlap+rate-history single: avg_daily совпадает с ожидаемым (800₽ low-rate + 1200₽ high-rate, без двойного учёта дней отсутствия)",
+      abs(_ov_avg - _ov_expected_avg) < 0.01,
+      f"expected={_ov_expected_avg}, got={_ov_avg}")
+
+# Тест bulk-path: get_vacation_pay_12m_bulk
+_ov_bulk = _ovdb.get_vacation_pay_12m_bulk([1], 2026, 7)
+_ov_b = _ov_bulk.get(1, (0.0, 0, 0.0, False))
+_ov_expected_vp = round(_ov_expected_avg * 5, 2)
+check("overlap+rate-history bulk: vac_cal_days=5",
+      _ov_b[1] == 5, f"got {_ov_b[1]}")
+check("overlap+rate-history bulk: avg_daily совпадает с single-path",
+      abs(_ov_b[2] - _ov_avg) < 0.01,
+      f"bulk_avg={_ov_b[2]}, single={_ov_avg}")
+check("overlap+rate-history bulk: vac_pay соответствует ожидаемому",
+      abs(_ov_b[0] - _ov_expected_vp) < 0.01,
+      f"expected={_ov_expected_vp}, got={_ov_b[0]}")
+check("overlap+rate-history: два пересекающихся отсутствия не задваивают исключённые дни на границе ставки",
+      _ov_b[0] == round(_ov_b[2] * 5, 2),
+      f"vac_pay={_ov_b[0]}, avg*5={round(_ov_b[2] * 5, 2)}")
+
+_ovconn.close()
+
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)
 total  = len(results)

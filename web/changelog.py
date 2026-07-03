@@ -1,6 +1,16 @@
-CURRENT_VERSION = "1.365.0"
+CURRENT_VERSION = "1.366.0"
 
 ENTRIES = [
+    {
+        "version": "1.366.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Show rate change history to admins for salary audit",
+            "Test vacation pay correctness with overlapping absences spanning rate-change boundary",
+            "добавить расчётный листок сотрудника в Telegram-боте для администратора",
+            "Show \"(по текущей ставке)\" note when vacation pay uses fallback rate",
+        ],
+    },
     {
         "version": "1.365.0",
         "date": "3 июля 2026",

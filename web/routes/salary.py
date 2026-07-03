@@ -675,6 +675,14 @@ def salary_page(
             except Exception:
                 pass
 
+            # Rate change history (admins only)
+            rate_history = []
+            if is_admin:
+                try:
+                    rate_history = db.get_salary_rate_history(user_id, limit=10)
+                except Exception:
+                    pass
+
             ctx["detail_user"] = rate_row
             ctx["work_days_set"] = {int(d[8:10]) for d in work_days}
             ctx["adjustments"] = adj_rows
@@ -693,12 +701,45 @@ def salary_page(
             ctx["detail_contest_rewards"] = round(detail_contest_rewards, 2)
             ctx["detail_contest_details"] = detail_contest_details
             ctx["detail_absences"] = detail_absences
+            ctx["rate_history"] = rate_history
 
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "salary/index.html", ctx
+    )
+
+
+@router.get("/salary/rate/history")
+def salary_rate_history(request: Request, user_id: int = 0, limit: int = 10):
+    """Partial: history of rate changes for a staff member (admin-only)."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/salary", status_code=302)
+    if not user_id:
+        return RedirectResponse(url="/salary", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    limit = max(1, min(limit, 50))
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        history = db.get_salary_rate_history(user_id, limit=limit)
+    except Exception as exc:
+        logger.error(f"salary_rate_history error: {exc}")
+        history = []
+
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "salary/rate_history_partial.html",
+        {"request": request, "history": history, "user_id": user_id},
     )
 
 
@@ -1127,8 +1168,9 @@ def salary_rate_set(
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
-        db.set_salary_rate(target_user_id, rate, updated_by=target_user_id)
-        logging.info(f"Salary rate set: user={target_user_id} rate={rate} by={telegram_id}")
+        admin_uid = _get_internal_uid(db, telegram_id)
+        db.set_salary_rate(target_user_id, rate, updated_by=admin_uid)
+        logging.info(f"Salary rate set: user={target_user_id} rate={rate} by={telegram_id}(uid={admin_uid})")
     except Exception as exc:
         logging.error(f"salary_rate_set error: {exc}")
         return RedirectResponse(url="/salary?error=Ошибка+сохранения+ставки.+Попробуйте+позже.", status_code=303)

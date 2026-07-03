@@ -11286,6 +11286,52 @@ class Database:
                 conn.close()
             return 0.0
 
+    def get_salary_rate_history(self, user_id: int, limit: int = 10):
+        """История изменений ставки сотрудника.
+
+        Возвращает список dict:
+          id, rate, effective_from, effective_to, changed_by (int|None),
+          changed_by_name (str|None), created_at
+        Отсортировано по убыванию даты изменения (новые первыми).
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            rows = cursor.execute(
+                '''
+                SELECT h.id, h.rate, h.effective_from, h.effective_to,
+                       h.changed_by, h.created_at,
+                       u.first_name, u.last_name
+                FROM salary_rate_history h
+                LEFT JOIN users u ON u.id = h.changed_by
+                WHERE h.user_id = ?
+                ORDER BY h.id DESC
+                LIMIT ?
+                ''',
+                (user_id, limit),
+            ).fetchall()
+            conn.close()
+            result = []
+            for r in rows:
+                changed_name = None
+                if r[6] or r[7]:
+                    changed_name = f"{r[6] or ''} {r[7] or ''}".strip() or None
+                result.append({
+                    "id": r[0],
+                    "rate": float(r[1]),
+                    "effective_from": r[2],
+                    "effective_to": r[3],
+                    "changed_by": r[4],
+                    "changed_by_name": changed_name,
+                    "created_at": r[5],
+                })
+            return result
+        except Exception as e:
+            logger.error(f"Ошибка get_salary_rate_history: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
+
     def get_all_salary_rates(self):
         """Все продавцы с их дневными ставками: (user_id, first_name, last_name, daily_rate, telegram_id)"""
         try:
