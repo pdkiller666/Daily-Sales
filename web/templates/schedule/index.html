@@ -156,31 +156,35 @@
                     <button type="button"
                             @click="editing = (editing === {{ day }}) ? null : {{ day }}"
                             class="w-full aspect-square flex flex-col items-center justify-center rounded-xl text-xs font-semibold transition-all
-                                   {% if is_working %}
+                                   {% if abs_info %}
+                                       {% if abs_info.type == 'vacation' %}bg-slate-200 text-slate-500 hover:bg-slate-300
+                                       {% elif abs_info.type == 'sick' %}bg-rose-100 text-rose-500 hover:bg-rose-200
+                                       {% elif abs_info.type == 'compensatory' %}bg-amber-100 text-amber-700 hover:bg-amber-200
+                                       {% elif abs_info.type == 'absence' %}bg-red-100 text-red-600 hover:bg-red-200
+                                       {% else %}bg-purple-100 text-purple-700 hover:bg-purple-200{% endif %}
+                                   {% elif is_working %}
                                        bg-emerald-500 text-white shadow-sm hover:bg-emerald-600
                                    {% elif is_today %}
                                        bg-blue-100 text-blue-700 border-2 border-blue-400 hover:bg-blue-200
                                    {% else %}
                                        bg-slate-50 text-slate-400 hover:bg-slate-100
-                                   {% endif %}">
-                        <span>{{ day }}</span>
-                        {% if times %}
+                                   {% endif %}"
+                            title="{% if abs_info %}{% if abs_info.type == 'vacation' %}Отпуск{% elif abs_info.type == 'sick' %}Больничный{% elif abs_info.type == 'compensatory' %}Отгул{% elif abs_info.type == 'absence' %}Прогул{% else %}Отсутствие{% endif %}{% if abs_info.status == 'pending' %} (ожидание){% endif %}{% endif %}">
+                        <span>
+                            {% if abs_info %}
+                                {% if abs_info.type == 'vacation' %}🌴
+                                {% elif abs_info.type == 'sick' %}🤒
+                                {% elif abs_info.type == 'compensatory' %}📝
+                                {% elif abs_info.type == 'absence' %}😴
+                                {% else %}📋{% endif %}
+                            {% else %}{{ day }}{% endif %}
+                        </span>
+                        {% if times and not abs_info %}
                         <span class="text-[9px] font-normal leading-none mt-0.5 opacity-90">
                             {{ times[0][:5] if times[0] else '' }}
                         </span>
                         {% endif %}
                     </button>
-                    {% if abs_info %}
-                    {% set _atype = abs_info.type %}
-                    {% set _pending = abs_info.status == 'pending' %}
-                    {% if _atype == 'vacation' %}{% set _dot = 'bg-slate-400' %}
-                    {% elif _atype == 'sick' %}{% set _dot = 'bg-blue-500' %}
-                    {% elif _atype == 'compensatory' %}{% set _dot = 'bg-amber-400' %}
-                    {% elif _atype == 'absence' %}{% set _dot = 'bg-red-500' %}
-                    {% else %}{% set _dot = 'bg-purple-400' %}{% endif %}
-                    <span class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full {{ _dot }} {% if _pending %}opacity-50{% endif %}"
-                          title="{% if _atype == 'vacation' %}⚪ Отпуск{% elif _atype == 'sick' %}🔵 Больничный{% elif _atype == 'compensatory' %}🟡 Отгул{% elif _atype == 'absence' %}🔴 Прогул{% else %}⬜ Другое{% endif %}{% if _pending %} (ожидание){% endif %}"></span>
-                    {% endif %}
 
                     <!-- Popup panel -->
                     <div x-show="editing === {{ day }}" x-cloak
@@ -263,7 +267,7 @@
                 {% endfor %}
             </div>
 
-            <div class="flex items-center gap-4 mt-3 text-[11px] text-slate-400">
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 text-[11px] text-slate-400">
                 <span class="flex items-center gap-1.5">
                     <span class="w-3 h-3 rounded bg-emerald-500 inline-block"></span> Рабочий день
                 </span>
@@ -273,6 +277,8 @@
                 <span class="flex items-center gap-1.5">
                     <span class="w-3 h-3 rounded bg-blue-100 border-2 border-blue-400 inline-block"></span> Сегодня
                 </span>
+                <span>🌴 — отпуск</span>
+                <span>🤒 — больничный</span>
             </div>
         </div>
 
@@ -285,64 +291,71 @@
                 </div>
             </div>
 
-            <div class="space-y-2">
-                {% for wd in range(7) %}
-                {% set tmpl = templates.get(wd, {}) %}
-                {% set is_weekend = wd >= 5 %}
-                <div class="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100/70 transition-colors"
-                     x-data="{ off: {{ 'true' if tmpl.is_off else 'false' }} }">
-                    <div class="w-8 text-center">
-                        <span class="text-xs font-semibold {% if is_weekend %}text-red-400{% else %}text-slate-500{% endif %}">
-                            {{ weekday_names[wd] }}
-                        </span>
-                    </div>
+            <form method="post" action="/schedule/set_template_bulk">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="user_id" value="{{ selected_user_id }}">
+                <input type="hidden" name="year" value="{{ year }}">
+                <input type="hidden" name="month" value="{{ month }}">
 
-                    <form method="post" action="/schedule/set_template" class="flex flex-1 flex-wrap items-center gap-2">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="user_id" value="{{ selected_user_id }}">
-                        <input type="hidden" name="weekday" value="{{ wd }}">
-                        <input type="hidden" name="year" value="{{ year }}">
-                        <input type="hidden" name="month" value="{{ month }}">
-                        <input type="hidden" name="is_off" :value="off ? '1' : '0'">
-
-                        <div class="flex items-center gap-1.5" :class="off ? 'opacity-30 pointer-events-none' : ''">
-                            <input type="time" name="start_time"
-                                   value="{{ tmpl.start if tmpl.start else '09:00' }}"
-                                   class="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-blue-400 w-[5.5rem]">
-                            <span class="text-slate-300 text-xs">—</span>
-                            <input type="time" name="end_time"
-                                   value="{{ tmpl.end if tmpl.end else '18:00' }}"
-                                   class="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-blue-400 w-[5.5rem]">
+                <div class="space-y-2">
+                    {% for wd in range(7) %}
+                    {% set tmpl = templates.get(wd, {}) %}
+                    {% set is_weekend = wd >= 5 %}
+                    <div class="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100/70 transition-colors"
+                         x-data="{ off: {{ 'true' if tmpl.is_off else 'false' }} }">
+                        <div class="w-8 text-center shrink-0">
+                            <span class="text-xs font-semibold {% if is_weekend %}text-red-400{% else %}text-slate-500{% endif %}">
+                                {{ weekday_names[wd] }}
+                            </span>
                         </div>
 
-                        <label class="flex items-center gap-1.5 cursor-pointer shrink-0">
-                            <input type="checkbox" @change="off = $event.target.checked"
-                                   :checked="off"
-                                   class="rounded text-slate-400 border-slate-300 focus:ring-0">
-                            <span class="text-xs text-slate-500">Выходной</span>
-                        </label>
+                        <input type="hidden" name="off_{{ wd }}"
+                               value="{{ '1' if tmpl.is_off else '0' }}"
+                               :value="off ? '1' : '0'">
 
-                        <button type="submit"
-                                class="shrink-0 text-xs bg-white border border-slate-200 hover:border-blue-300 hover:text-blue-600 text-slate-500 rounded-lg px-3 py-1.5 font-medium transition-colors">
-                            Сохранить
-                        </button>
-                    </form>
+                        <div class="flex flex-1 flex-wrap items-center gap-2">
+                            <div class="flex items-center gap-1.5" :class="off ? 'opacity-30 pointer-events-none' : ''">
+                                <input type="time" name="start_{{ wd }}"
+                                       value="{{ tmpl.start if tmpl.start else '09:00' }}"
+                                       class="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-blue-400 w-[5.5rem]">
+                                <span class="text-slate-300 text-xs">—</span>
+                                <input type="time" name="end_{{ wd }}"
+                                       value="{{ tmpl.end if tmpl.end else '18:00' }}"
+                                       class="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-blue-400 w-[5.5rem]">
+                            </div>
 
-                    <!-- Current template status badge (hidden on mobile to save space) -->
-                    {% if tmpl.is_off %}
-                    <span class="hidden sm:inline shrink-0 text-[10px] text-slate-400 bg-slate-200 rounded-full px-2 py-0.5">выходной</span>
-                    {% elif tmpl.start %}
-                    <span class="hidden sm:inline shrink-0 text-[10px] text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5">
-                        {{ tmpl.start[:5] }}–{{ tmpl.end[:5] if tmpl.end else '' }}
-                    </span>
-                    {% else %}
-                    <span class="hidden sm:inline shrink-0 text-[10px] text-slate-300 bg-slate-50 rounded-full px-2 py-0.5">не задан</span>
-                    {% endif %}
+                            <label class="flex items-center gap-1.5 cursor-pointer shrink-0">
+                                <input type="checkbox" @change="off = $event.target.checked"
+                                       :checked="off"
+                                       class="rounded text-slate-400 border-slate-300 focus:ring-0">
+                                <span class="text-xs text-slate-500">Выходной</span>
+                            </label>
+                        </div>
+
+                        <!-- Current template status badge -->
+                        {% if tmpl.is_off %}
+                        <span class="hidden sm:inline shrink-0 text-[10px] text-slate-400 bg-slate-200 rounded-full px-2 py-0.5">выходной</span>
+                        {% elif tmpl.start %}
+                        <span class="hidden sm:inline shrink-0 text-[10px] text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5">
+                            {{ tmpl.start[:5] }}–{{ tmpl.end[:5] if tmpl.end else '' }}
+                        </span>
+                        {% else %}
+                        <span class="hidden sm:inline shrink-0 text-[10px] text-slate-300 bg-slate-50 rounded-full px-2 py-0.5">не задан</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
                 </div>
-                {% endfor %}
-            </div>
 
-            <div class="mt-4 pt-3 border-t border-slate-100">
+                <div class="mt-3">
+                    <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
+                        <span>💾</span>
+                        Сохранить шаблон
+                    </button>
+                </div>
+            </form>
+
+            <div class="mt-3 pt-3 border-t border-slate-100">
                 <form method="post" action="/schedule/fill_month">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="user_id" value="{{ selected_user_id }}">

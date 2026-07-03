@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.384.0"
+CURRENT_VERSION = "1.385.0"
 
 ENTRIES = [
+    {
+        "version": "1.385.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Fix issues displaying employee salary and absence information",
+        ],
+    },
     {
         "version": "1.384.0",
         "date": "3 июля 2026",

@@ -317,6 +317,48 @@ def schedule_fill_month(
     )
 
 
+@router.post("/schedule/set_template_bulk")
+async def schedule_set_template_bulk(request: Request):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    form = await request.form()
+    csrf_token = str(form.get("csrf_token", ""))
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/schedule", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    try:
+        user_id = int(form.get("user_id", 0))
+        year = int(form.get("year", 0))
+        month = int(form.get("month", 0))
+    except (ValueError, TypeError):
+        return RedirectResponse(url="/schedule", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        for wd in range(7):
+            start = str(form.get(f"start_{wd}", "") or "")
+            end = str(form.get(f"end_{wd}", "") or "")
+            is_off = str(form.get(f"off_{wd}", "0"))
+            if is_off == "1":
+                db.set_shift_template(user_id, wd, None, None)
+            else:
+                db.set_shift_template(user_id, wd, start or None, end or None)
+    except Exception as e:
+        logging.error(f"schedule_set_template_bulk error: {e}")
+
+    return _redirect_back(user_id, year, month, anchor="#templates")
+
+
 @router.post("/schedule/set_template")
 def schedule_set_template(
     request: Request,
