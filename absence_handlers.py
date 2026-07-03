@@ -598,6 +598,21 @@ async def abs_approve(callback: CallbackQuery, state: FSMContext):
         await callback.answer('Не найдено', show_alert=True)
         return
     _, uid, atype, sd, ed, *_ = rec
+    # Защита от дублирующего одобрения: проверить пересечения с уже одобренными
+    try:
+        overlaps = await db.get_overlapping_approved_absences(uid, atype, sd, ed,
+                                                              exclude_id=ab_id)
+    except Exception:
+        overlaps = []
+    if overlaps:
+        ov = overlaps[0]
+        await callback.answer(
+            f'⚠️ Уже есть одобренная запись этого типа на пересекающиеся даты '
+            f'(#{ov[0]}: {ov[1][:10]}–{ov[2][:10]}). '
+            f'Сначала отмените её.',
+            show_alert=True
+        )
+        return
     ok = await db.update_absence_status(ab_id, 'approved',
                                          None, callback.from_user.id)
     if ok:

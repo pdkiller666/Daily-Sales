@@ -62,7 +62,12 @@
   'invalid_dates': '⚠️ Дата окончания не может быть раньше даты начала.',
   'csrf_error': '⚠️ Ошибка безопасности. Попробуй снова.',
 } %}
-{% if msg and msg in msg_map %}
+{% set warn_msgs = {'duplicate_approved'} %}
+{% if msg == 'duplicate_approved' %}
+<div class="mb-4 flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-300">
+  <span>⚠️ Уже есть одобренная запись этого типа на пересекающиеся даты. Сначала отмените существующую запись, чтобы одобрить новую.</span>
+</div>
+{% elif msg and msg in msg_map %}
 <div class="mb-4 flex items-start gap-2 p-3 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm text-emerald-700 dark:text-emerald-300">
   <span>{{ msg_map[msg] }}</span>
 </div>

@@ -13470,6 +13470,31 @@ class Database:
         finally:
             conn.close()
 
+    def get_overlapping_approved_absences(self, user_id: int, atype: str,
+                                          start_date: str, end_date: str,
+                                          exclude_id: int = None) -> list:
+        """Вернуть список одобренных записей того же типа для этого сотрудника,
+        которые пересекаются с указанным диапазоном дат.
+        Возвращает строки (id, start_date, end_date).
+        """
+        conn = self.get_connection()
+        try:
+            q = (
+                "SELECT id, start_date, end_date FROM absence_records "
+                "WHERE user_id=? AND type=? AND status='approved' "
+                "  AND start_date <= ? AND end_date >= ?"
+            )
+            params: list = [user_id, atype, end_date, start_date]
+            if exclude_id:
+                q += " AND id != ?"
+                params.append(exclude_id)
+            return conn.execute(q, params).fetchall() or []
+        except Exception as e:
+            logger.error(f"get_overlapping_approved_absences: {e}")
+            return []
+        finally:
+            conn.close()
+
     def count_approved_absences_on_day(self, date_str: str) -> int:
         """Количество уникальных сотрудников с одобренным отсутствием на конкретную дату."""
         conn = self.get_connection()
@@ -13514,24 +13539,42 @@ class Database:
         finally:
             conn.close()
 
-        result: dict = {}
         month_start_d = date(year, month, 1)
         month_end_d = date(year, month, days_in_month)
+
+        # Group raw intervals by (uid, type, status) for merging
+        groups: dict = {}
         for row in rows:
             ab_id, uid, atype, sd, ed, status = row
             try:
-                d_start = max(date.fromisoformat(sd[:10]), month_start_d)
-                d_end = min(date.fromisoformat(ed[:10]), month_end_d)
+                d_start = date.fromisoformat(sd[:10])
+                d_end = date.fromisoformat(ed[:10])
             except Exception:
                 continue
-            cur = d_start
+            groups.setdefault((uid, atype, status), []).append((d_start, d_end, ab_id))
+
+        result: dict = {}
+        # Process pending before approved so approved overwrites shared days
+        for (uid, atype, status), intervals in sorted(
+                groups.items(), key=lambda kv: (kv[0][0], kv[0][2] == 'approved')):
+            intervals.sort(key=lambda x: x[0])
+            # Merge overlapping/adjacent intervals (keep first ab_id in each merged run)
+            merged: list = []
+            for s, e, ab_id in intervals:
+                if merged and s <= merged[-1][1] + timedelta(days=1):
+                    merged[-1] = (merged[-1][0], max(merged[-1][1], e), merged[-1][2])
+                else:
+                    merged.append([s, e, ab_id])
             if uid not in result:
                 result[uid] = {}
-            while cur <= d_end:
-                result[uid][cur.day] = {
-                    'type': atype, 'status': status, 'id': ab_id
-                }
-                cur += timedelta(days=1)
+            for s, e, ab_id in merged:
+                cur = max(s, month_start_d)
+                end_clamped = min(e, month_end_d)
+                while cur <= end_clamped:
+                    result[uid][cur.day] = {
+                        'type': atype, 'status': status, 'id': ab_id
+                    }
+                    cur += timedelta(days=1)
         return result
 
     def get_absent_user_ids_today(self, date_str: str) -> set:

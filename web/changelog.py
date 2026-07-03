@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.370.0"
+CURRENT_VERSION = "1.371.0"
 
 ENTRIES = [
+    {
+        "version": "1.371.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update release notes and version after deployment",
+            "Предотвратить двойной учёт зарплаты при пересекающихся больничных и отгулах",
+            "Защита от двойного одобрения отпусков на пересекающиеся даты",
+        ],
+    },
     {
         "version": "1.370.0",
         "date": "3 июля 2026",

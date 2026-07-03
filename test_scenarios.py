@@ -3534,6 +3534,111 @@ check("abscomm bulk: fallback_used=False (есть история рабочих
 
 _abscomm_conn.close()
 
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ: Двойной учёт при перекрывающихся больничных/отгулах
+# ─────────────────────────────────────────────────────────
+section("Перекрывающиеся больничные: get_worked_days_count и get_absence_days_map без двойного учёта")
+
+_ov_sick_db = make_db("overlap_sick.db")
+_ov_sick_conn = _ov_sick_db.get_connection()
+
+_ov_sick_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) VALUES (1, 900001, 'Антон', 'Болев')"
+)
+_ov_sick_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 1000)")
+
+from datetime import date as _ovsd, timedelta as _ovstd
+_ovs_month_start = _ovsd(2026, 1, 1)
+_ovs_month_end = _ovsd(2026, 1, 31)
+_ovs_d = _ovs_month_start
+_ovs_schedule_days = 0
+while _ovs_d <= _ovs_month_end:
+    _ov_sick_conn.execute(
+        "INSERT INTO work_schedule (user_id, work_date) VALUES (1, ?)",
+        (_ovs_d.isoformat(),)
+    )
+    _ovs_schedule_days += 1
+    _ovs_d += _ovstd(days=1)
+
+# Два перекрывающихся больничных: Jan 5-15 и Jan 10-20 → объединение Jan 5-20 = 16 дней
+_ov_sick_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'sick_leave', '2026-01-05', '2026-01-15', 'approved', 1)"
+)
+_ov_sick_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'sick_leave', '2026-01-10', '2026-01-20', 'approved', 1)"
+)
+_ov_sick_conn.commit()
+
+_ovs_union_days = (_ovsd(2026, 1, 20) - _ovsd(2026, 1, 5)).days + 1  # 16
+_ovs_expected_worked = _ovs_schedule_days - _ovs_union_days            # 31-16=15
+
+_ovs_worked = _ov_sick_db.get_worked_days_count(1, 2026, 1)
+check("overlap sick_leave: get_worked_days_count без двойного вычитания",
+      _ovs_worked == _ovs_expected_worked,
+      f"expected={_ovs_expected_worked}, got={_ovs_worked}")
+
+# get_absence_days_map должна покрывать ровно Jan 5-20 без пропусков
+_ovs_map = _ov_sick_db.get_absence_days_map(2026, 1, user_id=1)
+_ovs_user_map = _ovs_map.get(1, {})
+_ovs_expected_days = set(range(5, 21))
+check("overlap sick_leave: get_absence_days_map покрывает дни 5-20 (16 дней)",
+      _ovs_expected_days <= set(_ovs_user_map.keys()),
+      f"covered={sorted(_ovs_user_map.keys())}")
+check("overlap sick_leave: тип для всех перекрытых дней = sick_leave",
+      all(_ovs_user_map.get(d, {}).get('type') == 'sick_leave' for d in _ovs_expected_days),
+      f"types={set(_ovs_user_map.get(d, {}).get('type') for d in _ovs_expected_days)}")
+
+# Второй пользователь: два перекрывающихся отгула + один отдельный
+_ov_sick_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) VALUES (2, 900002, 'Борис', 'Отгулов')"
+)
+_ov_sick_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (2, 1200)")
+_ovs_d2 = _ovs_month_start
+_ovs_schedule_days2 = 0
+while _ovs_d2 <= _ovs_month_end:
+    _ov_sick_conn.execute(
+        "INSERT INTO work_schedule (user_id, work_date) VALUES (2, ?)",
+        (_ovs_d2.isoformat(),)
+    )
+    _ovs_schedule_days2 += 1
+    _ovs_d2 += _ovstd(days=1)
+
+# Отгул 1: Jan 3-7, Отгул 2: Jan 6-10 → объединение Jan 3-10 = 8 дней
+# Отгул 3: Jan 25-28 (не пересекается) = 4 дня. Итого 12 дней.
+_ov_sick_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (2, 'day_off', '2026-01-03', '2026-01-07', 'approved', 1)"
+)
+_ov_sick_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (2, 'day_off', '2026-01-06', '2026-01-10', 'approved', 1)"
+)
+_ov_sick_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (2, 'day_off', '2026-01-25', '2026-01-28', 'approved', 1)"
+)
+_ov_sick_conn.commit()
+
+_ovs_union2 = ((_ovsd(2026, 1, 10) - _ovsd(2026, 1, 3)).days + 1) + \
+              ((_ovsd(2026, 1, 28) - _ovsd(2026, 1, 25)).days + 1)  # 8+4=12
+_ovs_expected_worked2 = _ovs_schedule_days2 - _ovs_union2            # 31-12=19
+
+_ovs_worked2 = _ov_sick_db.get_worked_days_count(2, 2026, 1)
+check("overlap day_off: get_worked_days_count без двойного вычитания",
+      _ovs_worked2 == _ovs_expected_worked2,
+      f"expected={_ovs_expected_worked2}, got={_ovs_worked2}")
+
+_ovs_map2 = _ov_sick_db.get_absence_days_map(2026, 1, user_id=2)
+_ovs_user_map2 = _ovs_map2.get(2, {})
+_ovs_expected_days2 = set(range(3, 11)) | set(range(25, 29))
+check("overlap day_off: get_absence_days_map покрывает все дни объединения",
+      _ovs_expected_days2 <= set(_ovs_user_map2.keys()),
+      f"covered={sorted(_ovs_user_map2.keys())}")
+
+_ov_sick_conn.close()
+
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)
 total  = len(results)

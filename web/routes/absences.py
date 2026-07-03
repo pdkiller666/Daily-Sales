@@ -672,6 +672,17 @@ def absences_update(
                 )
         status_map = {"approve": "approved", "reject": "rejected", "cancel": "cancelled"}
         new_status = status_map.get(action, "cancelled")
+
+        # Защита от дублирующего одобрения: проверить пересечения с уже одобренными
+        if new_status == "approved":
+            overlaps = db.get_overlapping_approved_absences(uid, atype, sd, ed,
+                                                            exclude_id=absence_id)
+            if overlaps:
+                return RedirectResponse(
+                    url=f"/absences?year={year}&month={month}&msg=duplicate_approved",
+                    status_code=302
+                )
+
         conn2 = db.get_connection()
         try:
             reviewer_uid = conn2.execute(
