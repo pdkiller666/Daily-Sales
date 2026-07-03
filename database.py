@@ -567,6 +567,26 @@ class Database:
             )
         ''')
 
+        # История изменений дневных ставок (для точного расчёта средней ЗП)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS salary_rate_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                rate REAL NOT NULL,
+                effective_from TEXT NOT NULL,
+                effective_to TEXT,
+                changed_by INTEGER,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+        try:
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_srh_user_dates '
+                'ON salary_rate_history(user_id, effective_from, effective_to)'
+            )
+        except Exception as _exc:
+            logger.debug("create_tables: idx_srh_user_dates: %s", _exc)
+
         # Оклады: табель рабочих смен
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS work_schedule (
@@ -940,6 +960,39 @@ class Database:
                     updated_at TEXT DEFAULT (datetime('now'))
                 )
             ''')
+
+        # Миграция: создаём salary_rate_history если отсутствует
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='salary_rate_history'")
+        if not cursor.fetchone():
+            cursor.execute('''
+                CREATE TABLE salary_rate_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    rate REAL NOT NULL,
+                    effective_from TEXT NOT NULL,
+                    effective_to TEXT,
+                    changed_by INTEGER,
+                    created_at TEXT DEFAULT (datetime('now'))
+                )
+            ''')
+            try:
+                cursor.execute(
+                    'CREATE INDEX IF NOT EXISTS idx_srh_user_dates '
+                    'ON salary_rate_history(user_id, effective_from, effective_to)'
+                )
+            except Exception as _exc:
+                logger.debug("create_tables: idx_srh_user_dates migrate: %s", _exc)
+            # Backfill: для всех сотрудников со ставкой > 0 создаём открытую запись истории,
+            # чтобы будущие изменения ставки могли корректно закрыть предыдущий период.
+            try:
+                cursor.execute('''
+                    INSERT OR IGNORE INTO salary_rate_history (user_id, rate, effective_from)
+                    SELECT ss.user_id, ss.daily_rate, '2000-01-01'
+                    FROM salary_settings ss
+                    WHERE ss.daily_rate > 0
+                ''')
+            except Exception as _exc:
+                logger.debug("create_tables: salary_rate_history backfill: %s", _exc)
 
         # Миграция: создаём work_schedule если отсутствует
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='work_schedule'")
@@ -11146,10 +11199,19 @@ class Database:
     # ── Оклады и графики работы ───────────────────────────────────────────────
 
     def set_salary_rate(self, user_id, daily_rate, updated_by=None):
-        """Установить/обновить дневную ставку продавца"""
+        """Установить/обновить дневную ставку продавца с записью в историю."""
+        from datetime import date as _date
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
+            today = _date.today().isoformat()
+
+            # Читаем текущую ставку ДО upsert — нужна для baseline истории
+            prev_row = cursor.execute(
+                'SELECT daily_rate FROM salary_settings WHERE user_id=?', (user_id,)
+            ).fetchone()
+            prev_rate = float(prev_row[0]) if prev_row else None
+
             cursor.execute('''
                 INSERT INTO salary_settings (user_id, daily_rate, updated_by, updated_at)
                 VALUES (?, ?, ?, datetime('now'))
@@ -11158,6 +11220,48 @@ class Database:
                     updated_by = excluded.updated_by,
                     updated_at = datetime('now')
             ''', (user_id, daily_rate, updated_by))
+
+            # Если у сотрудника уже была ставка, но нет ни одной записи в истории —
+            # создаём базовую запись: старая ставка действовала «с начала времён» до сегодня.
+            # Это гарантирует корректный расчёт среднего за период ДО первой фиксации истории.
+            if prev_rate is not None:
+                has_any = cursor.execute(
+                    'SELECT 1 FROM salary_rate_history WHERE user_id=? LIMIT 1', (user_id,)
+                ).fetchone()
+                if not has_any:
+                    cursor.execute(
+                        'INSERT INTO salary_rate_history '
+                        '(user_id, rate, effective_from, effective_to, changed_by) '
+                        'VALUES (?, ?, ?, ?, ?)',
+                        (user_id, prev_rate, '2000-01-01', today, None)
+                    )
+
+            # Закрываем предыдущую открытую запись истории (effective_to=today)
+            cursor.execute(
+                'UPDATE salary_rate_history SET effective_to=? '
+                'WHERE user_id=? AND effective_to IS NULL',
+                (today, user_id)
+            )
+            # Если новая ставка совпадает с только что закрытой (изменили на то же),
+            # повторно открываем её вместо создания дубля.
+            reopen = cursor.execute(
+                'SELECT id FROM salary_rate_history '
+                'WHERE user_id=? AND rate=? AND effective_to=? '
+                'ORDER BY id DESC LIMIT 1',
+                (user_id, daily_rate, today)
+            ).fetchone()
+            if reopen:
+                cursor.execute(
+                    'UPDATE salary_rate_history SET effective_to=NULL WHERE id=?',
+                    (reopen[0],)
+                )
+            else:
+                cursor.execute(
+                    'INSERT INTO salary_rate_history (user_id, rate, effective_from, changed_by) '
+                    'VALUES (?, ?, ?, ?)',
+                    (user_id, daily_rate, today, updated_by)
+                )
+
             conn.commit()
             conn.close()
             return True
@@ -13479,6 +13583,17 @@ class Database:
             ).fetchone()
             rate = float(rate_row[0]) if rate_row else 0.0
 
+            # Загружаем историю ставок, перекрывающую 12-месячный период
+            history_rows = conn.execute(
+                '''SELECT rate, effective_from, effective_to
+                   FROM salary_rate_history
+                   WHERE user_id=?
+                     AND effective_from <= ?
+                     AND (effective_to IS NULL OR effective_to > ?)
+                   ORDER BY effective_from''',
+                (user_id, range_end, range_start)
+            ).fetchall() or []
+
             worked_rows = conn.execute(
                 'SELECT work_date FROM work_schedule WHERE user_id=? '
                 'AND work_date >= ? AND work_date <= ?',
@@ -13536,7 +13651,19 @@ class Database:
                 total_motivation += float(joint_adj_12m or 0)
             except Exception:
                 pass
-            total_earnings = total_worked_days * rate + total_motivation
+
+            # Считаем оклад по историческим ставкам (если история есть)
+            if history_rows:
+                def _rate_for_date(d_str):
+                    for h_rate, h_from, h_to in reversed(history_rows):
+                        if h_from <= d_str and (h_to is None or h_to > d_str):
+                            return h_rate
+                    return rate  # fallback на текущую ставку
+                salary_sum = sum(_rate_for_date(d) for d in worked_dates)
+            else:
+                salary_sum = total_worked_days * rate
+
+            total_earnings = salary_sum + total_motivation
 
             if total_worked_days == 0:
                 return (rate, False)
@@ -13680,6 +13807,19 @@ class Database:
             ).fetchall():
                 rate_by_uid[uid] = float(r or 0)
 
+            # История ставок для всех сотрудников с отпуском в этом месяце
+            history_by_uid: dict = {}
+            for uid, h_rate, h_from, h_to in conn.execute(
+                f'''SELECT user_id, rate, effective_from, effective_to
+                    FROM salary_rate_history
+                    WHERE user_id IN ({vph})
+                      AND effective_from <= ?
+                      AND (effective_to IS NULL OR effective_to > ?)
+                    ORDER BY user_id, effective_from''',
+                (*vac_uids, range_end, range_start)
+            ).fetchall():
+                history_by_uid.setdefault(uid, []).append((h_rate, h_from, h_to))
+
             worked_dates_by_uid: dict = {}
             for uid, wd in conn.execute(
                 f'SELECT user_id, work_date FROM work_schedule '
@@ -13748,8 +13888,20 @@ class Database:
                 rate = rate_by_uid.get(uid, 0.0)
                 worked = worked_dates_by_uid.get(uid, set())
                 paid_abs = paid_abs_dates_by_uid.get(uid, set())
-                net_worked = len(worked - paid_abs)
-                total_earnings = net_worked * rate + se_by_uid.get(uid, 0.0)
+                net_worked_dates = worked - paid_abs
+                net_worked = len(net_worked_dates)
+                # Оклад по историческим ставкам (если история есть)
+                uid_history = history_by_uid.get(uid)
+                if uid_history:
+                    def _bulk_rate_for_date(d_str, _hist=uid_history, _fb=rate):
+                        for h_r, h_f, h_t in reversed(_hist):
+                            if h_f <= d_str and (h_t is None or h_t > d_str):
+                                return h_r
+                        return _fb
+                    salary_sum = sum(_bulk_rate_for_date(d) for d in net_worked_dates)
+                else:
+                    salary_sum = net_worked * rate
+                total_earnings = salary_sum + se_by_uid.get(uid, 0.0)
                 if net_worked == 0:
                     avg_daily = rate
                     fallback = True
