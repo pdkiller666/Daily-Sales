@@ -729,18 +729,29 @@ def get_ai_request_log(
     feature: "str | None" = None,
     tg_id: "int | None" = None,
     limit: int = 200,
+    date_from: "str | None" = None,
+    date_to: "str | None" = None,
 ) -> list:
-    """Возвращает записи ai_request_log за последние N дней.
+    """Возвращает записи ai_request_log за последние N дней или произвольный период.
 
+    Если переданы date_from/date_to — используются они; иначе last N days.
     Если передан tg_id — только записи этого пользователя.
     """
     import datetime as _dt
-    cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=days)).strftime("%Y-%m-%d")
+    if date_from and date_to:
+        cutoff = date_from
+        cutoff_to = date_to + " 23:59:59"
+    else:
+        cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=days)).strftime("%Y-%m-%d")
+        cutoff_to = None
     with _lock:
         try:
             conn = _get_conn()
             wheres = ["created_at >= ?"]
             params: list = [cutoff]
+            if cutoff_to:
+                wheres.append("created_at <= ?")
+                params.append(cutoff_to)
             if feature:
                 wheres.append("feature = ?")
                 params.append(feature)
@@ -807,18 +818,29 @@ def get_ai_digest_log(
     job_type: "str | None" = None,
     org_db: "str | None" = None,
     limit: int = 200,
+    date_from: "str | None" = None,
+    date_to: "str | None" = None,
 ) -> list:
-    """Возвращает записи ai_digest_log за последние N дней.
+    """Возвращает записи ai_digest_log за последние N дней или произвольный период.
 
+    Если переданы date_from/date_to — используются они; иначе last N days.
     Если передан org_db — только записи этой организации.
     """
     import datetime as _dt
-    cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=days)).strftime("%Y-%m-%d")
+    if date_from and date_to:
+        cutoff = date_from
+        cutoff_to = date_to + " 23:59:59"
+    else:
+        cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=days)).strftime("%Y-%m-%d")
+        cutoff_to = None
     with _lock:
         try:
             conn = _get_conn()
             wheres = ["created_at >= ?"]
             params: list = [cutoff]
+            if cutoff_to:
+                wheres.append("created_at <= ?")
+                params.append(cutoff_to)
             if job_type:
                 wheres.append("job_type = ?")
                 params.append(job_type)

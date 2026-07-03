@@ -1108,10 +1108,26 @@ def ai_history_page(request: Request):
     days   = int(request.query_params.get("days", 30))
     if days not in (7, 14, 30):
         days = 30
-    feature = request.query_params.get("feature", "")
-    tab = request.query_params.get("tab", "requests")
+    feature  = request.query_params.get("feature", "")
+    tab      = request.query_params.get("tab", "requests")
     if tab not in ("requests", "digests"):
         tab = "requests"
+    date_from = request.query_params.get("date_from", "").strip()
+    date_to   = request.query_params.get("date_to", "").strip()
+    use_custom = bool(date_from and date_to)
+
+    # Валидация и нормализация дат произвольного периода
+    if use_custom:
+        from datetime import date as _date_cls
+        try:
+            _df = _date_cls.fromisoformat(date_from).isoformat()
+            _dt = _date_cls.fromisoformat(date_to).isoformat()
+            if _df > _dt:
+                _df, _dt = _dt, _df
+            date_from, date_to = _df, _dt
+        except ValueError:
+            use_custom = False
+            date_from = date_to = ""
 
     # Часовой пояс пользователя для корректного отображения времени
     user_tz = "Europe/Moscow"
@@ -1124,7 +1140,10 @@ def ai_history_page(request: Request):
 
     entries = []
     try:
-        rows = get_ai_request_log(days=days, feature=feature or None, tg_id=tg_id, limit=100)
+        rows = get_ai_request_log(
+            days=days, feature=feature or None, tg_id=tg_id, limit=200,
+            date_from=date_from or None, date_to=date_to or None,
+        )
         for r in rows:
             r["feature_label"] = _HISTORY_FEATURE_LABELS.get(r["feature"], r["feature"])
             r["icon"] = _HISTORY_FEATURE_ICONS.get(r["feature"], "🤖")
@@ -1141,7 +1160,10 @@ def ai_history_page(request: Request):
     digest_entries = []
     try:
         if org_db:
-            drows = get_ai_digest_log(days=days, org_db=org_db, limit=50)
+            drows = get_ai_digest_log(
+                days=days, org_db=org_db, limit=100,
+                date_from=date_from or None, date_to=date_to or None,
+            )
             for d in drows:
                 d["job_label"] = _DIGEST_JOB_LABELS.get(d["job_type"], d["job_type"])
                 d["icon"] = _DIGEST_JOB_ICONS.get(d["job_type"], "🤖")
@@ -1169,4 +1191,7 @@ def ai_history_page(request: Request):
         "total":             len(entries),
         "digest_total":      len(digest_entries),
         "user_tz":           user_tz,
+        "date_from":         date_from,
+        "date_to":           date_to,
+        "use_custom":        use_custom,
     })

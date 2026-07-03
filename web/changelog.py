@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.387.0"
+CURRENT_VERSION = "1.388.0"
 
 ENTRIES = [
+    {
+        "version": "1.388.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Add custom date range selection to heatmap reports",
+        ],
+    },
     {
         "version": "1.387.0",
         "date": "3 июля 2026",

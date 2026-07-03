@@ -20,13 +20,13 @@
 
   <!-- Вкладки -->
   <div class="flex gap-1 border-b border-slate-200 dark:border-slate-700">
-    <a href="?tab=requests&days={{ days }}{% if feature %}&feature={{ feature }}{% endif %}"
+    <a href="?tab=requests&days={{ days }}{% if feature %}&feature={{ feature }}{% endif %}{% if use_custom %}&date_from={{ date_from }}&date_to={{ date_to }}{% endif %}"
        class="px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors
          {% if tab == 'requests' %}border-indigo-500 text-indigo-600 dark:text-indigo-400{% else %}border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200{% endif %}">
       🌐 Мои запросы
       {% if total > 0 %}<span class="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{{ total }}</span>{% endif %}
     </a>
-    <a href="?tab=digests&days={{ days }}"
+    <a href="?tab=digests&days={{ days }}{% if use_custom %}&date_from={{ date_from }}&date_to={{ date_to }}{% endif %}"
        class="px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors
          {% if tab == 'digests' %}border-indigo-500 text-indigo-600 dark:text-indigo-400{% else %}border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200{% endif %}">
       📅 Авто-дайджесты
@@ -39,26 +39,52 @@
   ══════════════════════════════════════════════ -->
   {% if tab == 'requests' %}
 
-  <!-- Фильтры -->
-  <form method="get" action="/ai/history" class="flex flex-wrap gap-2 items-center">
+  <!-- Фильтры (Мои запросы) -->
+  <form method="get" action="/ai/history"
+        x-data="{ custom: {{ 'true' if use_custom else 'false' }}, df: '{{ date_from }}', dt: '{{ date_to }}' }"
+        class="flex flex-col gap-2">
     <input type="hidden" name="tab" value="requests">
-    <select name="feature"
-            class="text-sm border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-400 outline-none">
-      <option value="" {% if not feature %}selected{% endif %}>Все функции</option>
-      {% for key, label in feature_labels.items() %}
-      <option value="{{ key }}" {% if feature == key %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-    <select name="days"
-            class="text-sm border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-400 outline-none">
-      <option value="7"  {% if days == 7  %}selected{% endif %}>7 дней</option>
-      <option value="14" {% if days == 14 %}selected{% endif %}>14 дней</option>
-      <option value="30" {% if days == 30 %}selected{% endif %}>30 дней</option>
-    </select>
-    <button type="submit"
-            class="text-sm px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition-colors">
-      Применить
-    </button>
+    <div class="flex flex-wrap gap-2 items-center">
+      <select name="feature"
+              class="text-sm border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-400 outline-none">
+        <option value="" {% if not feature %}selected{% endif %}>Все функции</option>
+        {% for key, label in feature_labels.items() %}
+        <option value="{{ key }}" {% if feature == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <div class="flex gap-1 flex-wrap">
+        {% for d, lbl in [(7,'7 дн.'),(14,'14 дн.'),(30,'30 дн.')] %}
+        <a href="?tab=requests&days={{ d }}{% if feature %}&feature={{ feature }}{% endif %}"
+           class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
+                  {{ 'bg-indigo-600 text-white' if days == d and not use_custom else 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600' }}">
+          {{ lbl }}
+        </a>
+        {% endfor %}
+        <button type="button"
+                class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
+                       {{ 'bg-indigo-600 text-white' if use_custom else 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600' }}"
+                x-on:click="custom = !custom">
+          📅 Период
+        </button>
+      </div>
+    </div>
+    <div x-show="custom" x-cloak class="flex flex-wrap gap-2 items-end">
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500">С</label>
+        <input type="date" name="date_from" x-model="df"
+               class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500">По</label>
+        <input type="date" name="date_to" x-model="dt"
+               class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+      <button type="submit"
+              class="text-sm px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition-colors self-end">
+        Показать
+      </button>
+    </div>
+    <input type="hidden" name="days" x-bind:value="custom ? '' : '{{ days }}'">
   </form>
 
   <!-- Пустое состояние -->
@@ -130,19 +156,43 @@
   ══════════════════════════════════════════════ -->
   {% else %}
 
-  <!-- Фильтр периода -->
-  <form method="get" action="/ai/history" class="flex flex-wrap gap-2 items-center">
+  <!-- Фильтр периода (Дайджесты) -->
+  <form method="get" action="/ai/history"
+        x-data="{ custom: {{ 'true' if use_custom else 'false' }}, df: '{{ date_from }}', dt: '{{ date_to }}' }"
+        class="flex flex-col gap-2">
     <input type="hidden" name="tab" value="digests">
-    <select name="days"
-            class="text-sm border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-400 outline-none">
-      <option value="7"  {% if days == 7  %}selected{% endif %}>7 дней</option>
-      <option value="14" {% if days == 14 %}selected{% endif %}>14 дней</option>
-      <option value="30" {% if days == 30 %}selected{% endif %}>30 дней</option>
-    </select>
-    <button type="submit"
-            class="text-sm px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition-colors">
-      Применить
-    </button>
+    <div class="flex gap-1 flex-wrap items-center">
+      {% for d, lbl in [(7,'7 дн.'),(14,'14 дн.'),(30,'30 дн.')] %}
+      <a href="?tab=digests&days={{ d }}"
+         class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
+                {{ 'bg-indigo-600 text-white' if days == d and not use_custom else 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600' }}">
+        {{ lbl }}
+      </a>
+      {% endfor %}
+      <button type="button"
+              class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
+                     {{ 'bg-indigo-600 text-white' if use_custom else 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600' }}"
+              x-on:click="custom = !custom">
+        📅 Период
+      </button>
+    </div>
+    <div x-show="custom" x-cloak class="flex flex-wrap gap-2 items-end">
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500">С</label>
+        <input type="date" name="date_from" x-model="df"
+               class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500">По</label>
+        <input type="date" name="date_to" x-model="dt"
+               class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+      <button type="submit"
+              class="text-sm px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition-colors self-end">
+        Показать
+      </button>
+    </div>
+    <input type="hidden" name="days" x-bind:value="custom ? '' : '{{ days }}'">
   </form>
 
   {% if not digest_entries %}
