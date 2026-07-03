@@ -1105,7 +1105,10 @@ def ai_history_page(request: Request):
 
     tg_id  = int(user["sub"])
     org_db = user.get("org_db")
-    days   = int(request.query_params.get("days", 30))
+    try:
+        days = int(request.query_params.get("days", 30) or 30)
+    except (ValueError, TypeError):
+        days = 30
     if days not in (7, 14, 30):
         days = 30
     feature  = request.query_params.get("feature", "")
