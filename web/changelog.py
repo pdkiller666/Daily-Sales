@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.376.0"
+CURRENT_VERSION = "1.377.0"
 
 ENTRIES = [
+    {
+        "version": "1.377.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update salary calculation tests and website styling",
+            "Extend saved filter to web cabinet task list so desktop and bot stay in sync",
+            "Add employee payslip page to the web cabinet (/salary/my-slip)",
+        ],
+    },
     {
         "version": "1.376.0",
         "date": "3 июля 2026",

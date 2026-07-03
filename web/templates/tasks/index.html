@@ -244,7 +244,7 @@
 
   <!-- Status filter -->
   <div class="flex gap-2 mb-3 lg:mb-0 overflow-x-auto lg:flex-wrap lg:overflow-visible">
-  {% set statuses = [('', 'Все'), ('new', '🆕 Новые'), ('in_progress', '🔄 В работе'), ('review', '🔍 На проверке'), ('done', '✅ Выполнены'), ('cancelled', '🚫 Отменены')] %}
+  {% set statuses = [('', 'Все'), ('active', '⚡ Активные'), ('new', '🆕 Новые'), ('in_progress', '🔄 В работе'), ('review', '🔍 На проверке'), ('done', '✅ Выполнены'), ('cancelled', '🚫 Отменены')] %}
   {% set _st_on = 'bg-indigo-600 text-white border-indigo-600' %}
   {% set _st_off = 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400' %}
   {% for sv, sl in statuses %}
@@ -274,8 +274,8 @@
   </a>
   {% endfor %}
   {% if q or status_filter or topic_filter or assigned_filter or shop_filter or sort or group %}
-  <a href="/tasks"
-     hx-get="/tasks" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
+  <a href="/tasks?status="
+     hx-get="/tasks?status=" hx-target="#task-list-region" hx-swap="innerHTML" hx-push-url="true"
      class="shrink-0 ml-1 px-2.5 py-1 text-xs rounded-lg border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 bg-white dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950 transition-colors" title="Сбросить все фильтры">
     ✕ Сбросить всё
   </a>

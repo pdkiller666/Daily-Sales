@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}Расчётный листок{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/salary" class="text-slate-500 text-sm hover:text-blue-600 transition-colors">Мой заработок</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Расчётный листок</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">📄 Расчётный листок</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Оклад, отпускные и корректировки</p>
+    </div>
+    <a href="/salary" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 hover:border-blue-300 hover:text-blue-600 transition-colors">
+        ← Заработок
+    </a>
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<!-- Month navigation -->
+<div class="flex items-center justify-between mb-5">
+    <a href="/salary/my-slip?year={{ prev_y }}&month={{ prev_m }}"
+       class="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 hover:border-blue-300 hover:text-blue-600 transition-colors">
+        ← {{ prev_m }}/{{ prev_y }}
+    </a>
+    <div class="text-center">
+        <h2 class="text-lg font-bold text-slate-800">{{ month_name }} {{ year }}</h2>
+        {% if is_future %}<span class="text-xs text-amber-500">будущий период</span>{% endif %}
+    </div>
+    <a href="/salary/my-slip?year={{ next_y }}&month={{ next_m }}"
+       class="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 hover:border-blue-300 hover:text-blue-600 transition-colors">
+        {{ next_m }}/{{ next_y }} →
+    </a>
+</div>
+
+{% if is_future %}
+<div class="mb-5 flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-200">
+    <span class="shrink-0 text-lg">📅</span>
+    <div>
+        <p class="font-semibold">Данные за этот месяц недоступны</p>
+        <p class="mt-0.5 text-blue-700 dark:text-blue-300">Просмотр расчётного листка за будущие месяцы недоступен.</p>
+    </div>
+</div>
+{% else %}
+
+<!-- Header info card -->
+<div class="card p-5 mb-5 flex items-center gap-4">
+    <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-2xl shrink-0">📄</div>
+    <div class="flex-1 min-w-0">
+        <p class="font-semibold text-slate-800">{{ month_name }} {{ year }}</p>
+        <p class="text-sm text-slate-500 mt-0.5">
+            Ставка: <span class="font-medium text-slate-700">
+            {% if daily_rate %}{{ daily_rate|int|fmt_currency }} ₽/смену{% else %}не задана{% endif %}
+            </span>
+        </p>
+    </div>
+    <div class="text-right shrink-0">
+        <p class="text-xs text-slate-400 uppercase tracking-wide font-semibold">К выплате</p>
+        <p class="text-2xl font-bold text-emerald-600 mt-0.5">{{ total|int|fmt_currency }}</p>
+    </div>
+</div>
+
+<!-- Breakdown table -->
+<div class="card overflow-hidden mb-5">
+    <div class="px-5 py-4 border-b border-slate-100">
+        <h2 class="font-semibold text-slate-800">Детализация оклада</h2>
+        <p class="text-xs text-slate-400 mt-0.5">Расчёт за {{ month_name }} {{ year }}</p>
+    </div>
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="bg-slate-50 border-b border-slate-100">
+                <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Начисление</th>
+                <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Расчёт</th>
+                <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Сумма</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+
+            <!-- Shifts -->
+            <tr class="hover:bg-slate-50/60 transition-colors">
+                <td class="px-5 py-4">
+                    <div class="flex items-center gap-2">
+                        <span class="text-lg">📊</span>
+                        <div>
+                            <p class="font-medium text-slate-800">Смены</p>
+                            <p class="text-xs text-slate-400 mt-0.5">{{ worked_days }} смен отработано</p>
+                        </div>
+                    </div>
+                </td>
+                <td class="px-5 py-4 text-right text-slate-500 hidden sm:table-cell">
+                    {% if daily_rate %}
+                    {{ worked_days }} × {{ daily_rate|int|fmt_currency }} ₽
+                    {% else %}—{% endif %}
+                </td>
+                <td class="px-5 py-4 text-right">
+                    <span class="font-semibold text-slate-800">{{ shifts_pay|int|fmt_currency }}</span>
+                </td>
+            </tr>
+
+            <!-- Paid absences (non-vacation) -->
+            {% if paid_absence_days > 0 %}
+            <tr class="hover:bg-slate-50/60 transition-colors">
+                <td class="px-5 py-4">
+                    <div class="flex items-center gap-2">
+                        <span class="text-lg">🏥</span>
+                        <div>
+                            <p class="font-medium text-slate-800">Оплачиваемые отсутствия</p>
+                            <p class="text-xs text-slate-400 mt-0.5">{{ paid_absence_days }} дн. (больничный, отгул и др.)</p>
+                        </div>
+                    </div>
+                </td>
+                <td class="px-5 py-4 text-right text-slate-500 hidden sm:table-cell">
+                    {{ paid_absence_days }} × {{ daily_rate|int|fmt_currency }} ₽
+                </td>
+                <td class="px-5 py-4 text-right">
+                    <span class="font-semibold text-slate-800">{{ abs_pay|int|fmt_currency }}</span>
+                </td>
+            </tr>
+            {% endif %}
+
+            <!-- Vacation pay -->
+            {% if vac_cal_days > 0 %}
+            <tr class="hover:bg-slate-50/60 transition-colors">
+                <td class="px-5 py-4">
+                    <div class="flex items-center gap-2">
+                        <span class="text-lg">🌴</span>
+                        <div>
+                            <p class="font-medium text-slate-800">Отпускные</p>
+                            <p class="text-xs text-slate-400 mt-0.5">
+                                {{ vac_cal_days }} кал. дн. × {{ avg_daily_earnings|int|fmt_currency }} ₽/день
+                                {% if vac_fallback %}<span class="text-amber-500">(по тек. ставке)</span>{% endif %}
+                            </p>
+                        </div>
+                    </div>
+                </td>
+                <td class="px-5 py-4 text-right text-slate-500 hidden sm:table-cell">
+                    {{ vac_cal_days }} × {{ avg_daily_earnings|int|fmt_currency }} ₽
+                    {% if vac_fallback %}
+                    <p class="text-[10px] text-amber-500 mt-0.5">нет истории 12 мес.</p>
+                    {% endif %}
+                </td>
+                <td class="px-5 py-4 text-right">
+                    <span class="font-semibold text-blue-600">{{ vac_pay|int|fmt_currency }}</span>
+                </td>
+            </tr>
+            {% endif %}
+
+        </tbody>
+
+        <!-- Subtotal before adjustments -->
+        {% set base_total = shifts_pay + abs_pay + vac_pay %}
+        <tfoot>
+            {% if adj_rows %}
+            <tr class="bg-slate-50 border-t border-slate-200">
+                <td class="px-5 py-3 font-medium text-slate-600" colspan="2">Итого оклад</td>
+                <td class="px-5 py-3 text-right font-semibold text-slate-700">{{ base_total|int|fmt_currency }}</td>
+            </tr>
+            {% endif %}
+        </tfoot>
+    </table>
+</div>
+
+<!-- Adjustments -->
+{% if adj_rows %}
+<div class="card overflow-hidden mb-5">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+            <h2 class="font-semibold text-slate-800">⚖️ Корректировки</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Бонусы и штрафы за период</p>
+        </div>
+        <span class="text-sm font-bold {{ 'text-emerald-600' if adj_sum > 0 else 'text-red-500' }}">
+            {{ '+' if adj_sum > 0 else '' }}{{ adj_sum|int|fmt_currency }}
+        </span>
+    </div>
+    <div class="divide-y divide-slate-50">
+        {% for adj in adj_rows %}
+        {# adj: id[0] amount[1] comment[2] created_by[3] created_at[4] creator_name[5] #}
+        <div class="flex items-center justify-between px-5 py-3">
+            <div class="flex-1 min-w-0">
+                <p class="text-sm text-slate-700">{{ adj[2] or 'Без комментария' }}</p>
+                <p class="text-xs text-slate-400">{{ adj[4]|fmt_date }}</p>
+            </div>
+            <span class="font-semibold text-sm ml-4 shrink-0 {% if adj[1] >= 0 %}text-emerald-600{% else %}text-red-500{% endif %}">
+                {% if adj[1] >= 0 %}+{% endif %}{{ adj[1]|int|fmt_currency }}
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if not adj_rows and worked_days == 0 and paid_absence_days == 0 and vac_cal_days == 0 %}
+<div class="card p-8 text-center text-slate-400 mb-5">
+    <p class="text-3xl mb-3">📅</p>
+    <p class="text-sm font-medium text-slate-500">Нет данных за этот месяц</p>
+    <p class="text-xs mt-1">Смены и корректировки за выбранный период не найдены</p>
+</div>
+{% endif %}
+
+<!-- Total summary -->
+<div class="card p-5 bg-gradient-to-br from-emerald-50 to-emerald-100/40 border-emerald-100">
+    <div class="flex items-center justify-between">
+        <div>
+            <p class="font-bold text-slate-900 text-base">Итого к выплате</p>
+            <p class="text-xs text-slate-500 mt-1">
+                {% set parts = [] %}
+                {% if shifts_pay %}{% set _ = parts.append(shifts_pay|int|fmt_currency ~ ' (смены)') %}{% endif %}
+                {% if abs_pay %}{% set _ = parts.append(abs_pay|int|fmt_currency ~ ' (отсутствия)') %}{% endif %}
+                {% if vac_pay %}{% set _ = parts.append(vac_pay|int|fmt_currency ~ ' (отпуск)') %}{% endif %}
+                {% if adj_sum > 0 %}{% set _ = parts.append('+' ~ adj_sum|int|fmt_currency ~ ' (корр.)') %}{% elif adj_sum < 0 %}{% set _ = parts.append(adj_sum|int|fmt_currency ~ ' (корр.)') %}{% endif %}
+                {{ parts | join(' + ') }}
+            </p>
+        </div>
+        <span class="text-3xl font-bold text-emerald-600 ml-4 shrink-0">{{ total|int|fmt_currency }}</span>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}
+{% block footer_info %}{{ month_name }} {{ year }}{% endblock %}

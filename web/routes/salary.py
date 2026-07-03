@@ -1038,6 +1038,131 @@ def _get_internal_uid(db, telegram_id: int):
         return None
 
 
+@router.get("/salary/my-slip")
+def salary_my_slip(
+    request: Request,
+    year: int = 0,
+    month: int = 0,
+):
+    """Расчётный листок для сотрудника (не-admin): оклад, отпуск, корректировки — без мотивации/комиссий."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    today = date.today()
+    if not year:
+        year = today.year
+    if not month:
+        month = today.month
+    year  = max(2015, min(year,  2040))
+    month = max(1,    min(month, 12))
+
+    prev_y, prev_m = _adjacent_month(year, month, -1)
+    next_y, next_m = _adjacent_month(year, month, 1)
+
+    ctx: dict = {
+        "request": request,
+        "user": user,
+        "year": year,
+        "month": month,
+        "month_name": MONTH_NAMES.get(month, str(month)),
+        "prev_y": prev_y, "prev_m": prev_m,
+        "next_y": next_y, "next_m": next_m,
+        "is_future": (year, month) > (today.year, today.month),
+        "daily_rate": 0.0,
+        "worked_days": 0,
+        "paid_absence_days": 0,
+        "vac_cal_days": 0,
+        "vac_pay": 0.0,
+        "avg_daily_earnings": 0.0,
+        "vac_fallback": False,
+        "shifts_pay": 0.0,
+        "abs_pay": 0.0,
+        "adj_rows": [],
+        "adj_sum": 0.0,
+        "total": 0.0,
+        "error": None,
+    }
+
+    if ctx["is_future"]:
+        return request.app.state.templates.TemplateResponse(
+            request, "salary/my_slip.html", ctx
+        )
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+
+        conn_u = db.get_connection()
+        try:
+            user_row = conn_u.execute(
+                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn_u.close()
+
+        if not user_row:
+            ctx["error"] = "Пользователь не найден в базе"
+            return request.app.state.templates.TemplateResponse(
+                request, "salary/my_slip.html", ctx
+            )
+
+        user_db_id = user_row[0]
+
+        rate = db.get_salary_rate(user_db_id)
+        worked = db.get_worked_days_count(user_db_id, year, month)
+        non_vac_paid_abs = db.get_paid_absence_days_count(
+            user_db_id, year, month, exclude_vacation=True
+        )
+
+        vac_pay, vac_cal_days, avg_daily_earnings, vac_fallback = 0.0, 0, 0.0, False
+        try:
+            vac_pay, vac_cal_days, avg_daily_earnings, vac_fallback = \
+                db.get_vacation_pay_12m(user_db_id, year, month)
+        except Exception:
+            pass
+
+        adj_rows = []
+        adj_sum = 0.0
+        try:
+            adj_rows = db.get_salary_adjustments(user_db_id, year, month) or []
+            adj_sum = sum(float(r[1]) for r in adj_rows)
+        except Exception:
+            pass
+
+        shifts_pay = worked * rate
+        abs_pay = non_vac_paid_abs * rate
+        total = shifts_pay + abs_pay + vac_pay + adj_sum
+
+        ctx.update({
+            "daily_rate": rate,
+            "worked_days": worked,
+            "paid_absence_days": non_vac_paid_abs,
+            "vac_cal_days": vac_cal_days,
+            "vac_pay": round(vac_pay, 2),
+            "avg_daily_earnings": avg_daily_earnings,
+            "vac_fallback": vac_fallback,
+            "shifts_pay": round(shifts_pay, 2),
+            "abs_pay": round(abs_pay, 2),
+            "adj_rows": adj_rows,
+            "adj_sum": round(adj_sum, 2),
+            "total": round(total, 2),
+        })
+
+    except Exception as exc:
+        logger.error(f"salary_my_slip error: {exc}")
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
+
+    return request.app.state.templates.TemplateResponse(
+        request, "salary/my_slip.html", ctx
+    )
+
+
 @router.post("/salary/adjustment/add")
 def salary_adj_add(
     request: Request,

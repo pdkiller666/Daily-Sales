@@ -15935,7 +15935,9 @@ class Database:
             if topic_id:
                 where.append("t.topic_id = ?")
                 params.append(topic_id)
-            if status:
+            if status == 'active':
+                where.append("t.status NOT IN ('done', 'cancelled')")
+            elif status:
                 where.append("t.status = ?")
                 params.append(status)
             if priority:
@@ -15994,7 +15996,9 @@ class Database:
             if topic_id:
                 where.append("t.topic_id = ?")
                 params.append(topic_id)
-            if status:
+            if status == 'active':
+                where.append("t.status NOT IN ('done', 'cancelled')")
+            elif status:
                 where.append("t.status = ?")
                 params.append(status)
             if priority:

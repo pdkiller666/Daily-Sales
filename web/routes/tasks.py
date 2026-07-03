@@ -327,6 +327,27 @@ def _is_overdue(deadline: str | None, status: str) -> bool:
 
 # ─── LIST ────────────────────────────────────────────────────────────────────
 
+_WEB_STATUS_VALUES = {'', 'active', 'new', 'in_progress', 'review', 'done', 'cancelled'}
+
+_SHARED_PREF_VALUES = {'active', 'done', 'all'}
+
+_WEB_TO_PREF = {
+    '': 'all',
+    'active': 'active',
+    'new': 'active',
+    'in_progress': 'active',
+    'review': 'active',
+    'done': 'done',
+    'cancelled': 'done',
+}
+
+_PREF_TO_WEB = {
+    'active': 'active',
+    'done': 'done',
+    'all': '',
+}
+
+
 @router.get("/tasks")
 def tasks_list(request: Request, status: str = "", topic_id: int = 0,
                assigned_filter: int = 0, shop_filter: str = "", msg: str = "",
@@ -348,6 +369,8 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
     from billing_utils import has_module as _has_module, has_extension as _has_ext
     tasks_pro = _has_module(telegram_id, 'tasks_pro')
     tasks_ai = tasks_pro and _has_ext(telegram_id, 'tasks_ai')
+
+    status_in_url = 'status' in request.query_params
 
     ctx = {
         "request": request, "user": user, "is_admin": is_admin,
@@ -381,6 +404,19 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
             conn.close()
         my_db_id = my_row[0] if my_row else 0
         my_shop = (my_row[1] or "") if my_row else ""
+
+        if my_db_id:
+            try:
+                if not status_in_url:
+                    _raw_pref = db.get_user_task_pref(my_db_id, 'status_filter', 'active')
+                    _canonical = _raw_pref if _raw_pref in _SHARED_PREF_VALUES else 'active'
+                    status = _PREF_TO_WEB.get(_canonical, '')
+                    ctx["status_filter"] = status
+                else:
+                    _pref_val = _WEB_TO_PREF.get(status, 'active')
+                    db.set_user_task_pref(my_db_id, 'status_filter', _pref_val)
+            except Exception:
+                pass
 
         ctx["topics"] = db.get_task_topics()
 
