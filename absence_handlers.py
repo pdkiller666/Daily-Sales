@@ -606,11 +606,28 @@ async def abs_approve(callback: CallbackQuery, state: FSMContext):
         overlaps = []
     if overlaps:
         ov = overlaps[0]
-        await callback.answer(
-            f'⚠️ Уже есть одобренная запись этого типа на пересекающиеся даты '
-            f'(#{ov[0]}: {ov[1][:10]}–{ov[2][:10]}). '
-            f'Сначала отмените её.',
-            show_alert=True
+        ov_id, ov_sd, ov_ed = ov[0], ov[1][:10], ov[2][:10]
+        merge_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text='🔗 Слить',
+                    callback_data=f'abs_mg_{ov_id}_{ab_id}'
+                ),
+                InlineKeyboardButton(
+                    text='Отмена',
+                    callback_data=f'abs_rv_{ab_id}'
+                ),
+            ]
+        ])
+        await callback.answer()
+        await callback.message.edit_text(
+            f'⚠️ <b>Пересечение дат!</b>\n\n'
+            f'Уже есть одобренная запись #{ov_id} '
+            f'({ov_sd}–{ov_ed}) того же типа.\n\n'
+            f'Слить обе в одну запись (диапазон расширится до '
+            f'min/max дат) или отменить действие?',
+            reply_markup=merge_kb,
+            parse_mode='HTML'
         )
         return
     ok = await db.update_absence_status(ab_id, 'approved',
@@ -661,6 +678,59 @@ async def abs_approve(callback: CallbackQuery, state: FSMContext):
                 logger.error(f"abs_approve penalty: {_pe}")
     else:
         await callback.answer('Ошибка', show_alert=True)
+    await abs_pending_list(callback, state)
+
+
+@absence_router.callback_query(F.data.startswith('abs_mg_'))
+async def abs_merge(callback: CallbackQuery, state: FSMContext):
+    """Слить перекрывающиеся отсутствия: abs_mg_{keep_id}_{drop_id}."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer('Нет доступа', show_alert=True)
+        return
+    try:
+        parts = callback.data[7:].split('_', 1)
+        keep_id = int(parts[0])
+        drop_id = int(parts[1])
+    except (IndexError, ValueError):
+        await callback.answer('Неверный формат', show_alert=True)
+        return
+
+    db = await get_db(callback.from_user.id, state)
+
+    keep_rec = await db.get_absence_by_id(keep_id)
+    drop_rec = await db.get_absence_by_id(drop_id)
+    if not keep_rec or not drop_rec:
+        await callback.answer('Запись не найдена', show_alert=True)
+        return
+
+    ok = await db.merge_absences(keep_id, drop_id)
+    if not ok:
+        await callback.answer('Не удалось объединить записи', show_alert=True)
+        return
+
+    new_sd = min(keep_rec[3], drop_rec[3])
+    new_ed = max(keep_rec[4], drop_rec[4])
+    new_days = _days_count(new_sd, new_ed)
+    atype = keep_rec[2]
+    uid = keep_rec[1]
+
+    await callback.answer('🔗 Записи объединены')
+
+    # Уведомить сотрудника
+    try:
+        conn = db._db.get_connection()
+        try:
+            u = conn.execute('SELECT telegram_id FROM users WHERE id=?', (uid,)).fetchone()
+        finally:
+            conn.close()
+        if u and u[0]:
+            await _notify_user(state, u[0],
+                f'🔗 <b>Записи объединены</b>\n\n'
+                f'{_TYPE_LABELS.get(atype, atype)}\n'
+                f'📅 {_fmt_date(new_sd)}–{_fmt_date(new_ed)} ({new_days} дн.)')
+    except Exception as _ne:
+        logger.warning(f"abs_merge notify: {_ne}")
+
     await abs_pending_list(callback, state)
 
 

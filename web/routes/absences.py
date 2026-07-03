@@ -291,7 +291,8 @@ def _build_cal_grid(year: int, month: int):
 
 @router.get("/absences")
 def absences_page(request: Request, year: int = 0, month: int = 0,
-                  user_id: int = 0, msg: str = ""):
+                  user_id: int = 0, msg: str = "",
+                  pending_id: int = 0, overlap_id: int = 0):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -332,6 +333,8 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
         "type_css": TYPE_CSS,
         "csrf_token": get_csrf_token(request),
         "msg": msg, "error": None,
+        "merge_pending_id": pending_id,
+        "merge_overlap_id": overlap_id,
     }
 
     try:
@@ -678,8 +681,11 @@ def absences_update(
             overlaps = db.get_overlapping_approved_absences(uid, atype, sd, ed,
                                                             exclude_id=absence_id)
             if overlaps:
+                ov_id = overlaps[0][0]
                 return RedirectResponse(
-                    url=f"/absences?year={year}&month={month}&msg=duplicate_approved",
+                    url=(f"/absences?year={year}&month={month}"
+                         f"&msg=duplicate_approved"
+                         f"&pending_id={absence_id}&overlap_id={ov_id}"),
                     status_code=302
                 )
 
@@ -756,6 +762,84 @@ def absences_update(
         )
     except Exception as exc:
         logging.error(f"absences_update error: {exc}")
+        return RedirectResponse(
+            url=f"/absences?year={year}&month={month}&msg=error",
+            status_code=302
+        )
+
+
+@router.post("/absences/merge")
+def absences_merge(
+    request: Request,
+    csrf_token: Annotated[str, Form()] = "",
+    keep_id: Annotated[int, Form()] = 0,
+    drop_id: Annotated[int, Form()] = 0,
+    year: Annotated[int, Form()] = 0,
+    month: Annotated[int, Form()] = 0,
+):
+    """Слить перекрывающиеся отсутствия: расширить keep_id, отменить drop_id."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/absences?msg=csrf_error", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/absences?msg=no_access", status_code=302)
+
+    today = date.today()
+    if not year:  year = today.year
+    if not month: month = today.month
+
+    try:
+        telegram_id = int(user["sub"])
+        org_db = user.get("org_db")
+        db = get_web_db(telegram_id, org_db)
+
+        keep_rec = db.get_absence_by_id(keep_id)
+        drop_rec = db.get_absence_by_id(drop_id)
+        if not keep_rec or not drop_rec:
+            return RedirectResponse(
+                url=f"/absences?year={year}&month={month}&msg=not_found",
+                status_code=302
+            )
+
+        ok = db.merge_absences(keep_id, drop_id)
+        if not ok:
+            return RedirectResponse(
+                url=f"/absences?year={year}&month={month}&msg=error",
+                status_code=302
+            )
+
+        # Уведомить сотрудника о слиянии
+        try:
+            uid = keep_rec[1]
+            atype = keep_rec[2]
+            new_sd = min(keep_rec[3], drop_rec[3])
+            new_ed = max(keep_rec[4], drop_rec[4])
+            new_days = _days_count(new_sd, new_ed)
+            conn_tg = db.get_connection()
+            try:
+                tg_row = conn_tg.execute(
+                    "SELECT telegram_id FROM users WHERE id=?", (uid,)
+                ).fetchone()
+            finally:
+                conn_tg.close()
+            if tg_row and tg_row[0]:
+                _send_tg_absence_notify(
+                    tg_row[0], "approved", atype, new_sd, new_ed, None, new_days
+                )
+        except Exception as e:
+            logging.error(f"absences_merge notify: {e}")
+
+        return RedirectResponse(
+            url=f"/absences?year={year}&month={month}&msg=merged",
+            status_code=302
+        )
+    except Exception as exc:
+        logging.error(f"absences_merge error: {exc}")
         return RedirectResponse(
             url=f"/absences?year={year}&month={month}&msg=error",
             status_code=302

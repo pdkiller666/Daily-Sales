@@ -56,6 +56,7 @@
   'approved': '✅ Заявка одобрена.',
   'rejected': '❌ Заявка отклонена.',
   'cancelled': '🚫 Запись отменена.',
+  'merged': '🔗 Записи объединены в одну.',
   'saved': '✅ Настройки сохранены.',
   'limit_exceeded': '⚠️ Лимит дней исчерпан.',
   'missing_dates': '⚠️ Укажите даты начала и окончания.',
@@ -64,8 +65,30 @@
 } %}
 {% set warn_msgs = {'duplicate_approved'} %}
 {% if msg == 'duplicate_approved' %}
-<div class="mb-4 flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-300">
-  <span>⚠️ Уже есть одобренная запись этого типа на пересекающиеся даты. Сначала отмените существующую запись, чтобы одобрить новую.</span>
+<div class="mb-4 p-4 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-300">
+  <p class="font-semibold mb-1">⚠️ Уже есть одобренная запись этого типа на пересекающиеся даты.</p>
+  <p class="mb-3 text-xs">Можно объединить обе записи в одну (диапазон дат расширится), либо отменить действие.</p>
+  {% if merge_pending_id and merge_overlap_id %}
+  <div class="flex gap-2">
+    <form method="post" action="/absences/merge">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="keep_id" value="{{ merge_overlap_id }}">
+      <input type="hidden" name="drop_id" value="{{ merge_pending_id }}">
+      <input type="hidden" name="year" value="{{ year }}">
+      <input type="hidden" name="month" value="{{ month }}">
+      <button type="submit"
+              class="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg transition-colors">
+        🔗 Слить с существующей
+      </button>
+    </form>
+    <a href="/absences?year={{ year }}&month={{ month }}"
+       class="px-3 py-1.5 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900 text-xs font-semibold rounded-lg transition-colors">
+      Отмена
+    </a>
+  </div>
+  {% else %}
+  <p class="text-xs">Сначала отмените существующую запись, чтобы одобрить новую.</p>
+  {% endif %}
 </div>
 {% elif msg and msg in msg_map %}
 <div class="mb-4 flex items-start gap-2 p-3 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm text-emerald-700 dark:text-emerald-300">

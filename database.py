@@ -13495,6 +13495,43 @@ class Database:
         finally:
             conn.close()
 
+    def merge_absences(self, keep_id: int, drop_id: int) -> bool:
+        """Слить два отсутствия в одно: расширить keep_id до объединённого диапазона,
+        отменить drop_id.  Оба должны принадлежать одному пользователю и типу.
+        Возвращает True при успехе.
+        """
+        conn = self.get_connection()
+        try:
+            keep = conn.execute(
+                "SELECT user_id, type, start_date, end_date FROM absence_records WHERE id=?",
+                (keep_id,)
+            ).fetchone()
+            drop = conn.execute(
+                "SELECT user_id, type, start_date, end_date FROM absence_records WHERE id=?",
+                (drop_id,)
+            ).fetchone()
+            if not keep or not drop:
+                return False
+            if keep[0] != drop[0] or keep[1] != drop[1]:
+                return False
+            merged_start = min(keep[2], drop[2])
+            merged_end   = max(keep[3], drop[3])
+            conn.execute(
+                "UPDATE absence_records SET start_date=?, end_date=? WHERE id=?",
+                (merged_start, merged_end, keep_id)
+            )
+            conn.execute(
+                "UPDATE absence_records SET status='cancelled' WHERE id=?",
+                (drop_id,)
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"merge_absences: {e}")
+            return False
+        finally:
+            conn.close()
+
     def count_approved_absences_on_day(self, date_str: str) -> int:
         """Количество уникальных сотрудников с одобренным отсутствием на конкретную дату."""
         conn = self.get_connection()

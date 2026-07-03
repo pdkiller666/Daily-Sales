@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.371.0"
+CURRENT_VERSION = "1.372.0"
 
 ENTRIES = [
+    {
+        "version": "1.372.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update deployment status and release notes with latest changes",
+            "Propose merge instead of blocking on overlapping absence approval",
+        ],
+    },
     {
         "version": "1.371.0",
         "date": "3 июля 2026",
