@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.367.0"
+CURRENT_VERSION = "1.368.0"
 
 ENTRIES = [
+    {
+        "version": "1.368.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update system to display salary rate history and improve pay calculations",
+        ],
+    },
     {
         "version": "1.367.0",
         "date": "3 июля 2026",
