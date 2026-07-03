@@ -87,7 +87,10 @@ def _fmt_task_line(t: dict) -> str:
             dl = f" · {d.strftime('%d.%m')}"
         except Exception:
             pass
-    return f"{status} {title}{dl}"
+    checklist_total = t.get('checklist_total') or 0
+    checklist_done = t.get('checklist_done') or 0
+    cl = f" · {checklist_done}/{checklist_total} ☑" if checklist_total > 0 else ""
+    return f"{status} {title}{dl}{cl}"
 
 
 def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0, tg_id: int = 0,
@@ -306,7 +309,15 @@ async def _show_tasks_list(target, state: FSMContext, page: int = 0,
 
         if status_filter is None:
             _fdata = await state.get_data()
-            status_filter = _fdata.get('tsk_status_filter', 'active')
+            status_filter = _fdata.get('tsk_status_filter')
+            if not status_filter and my_db_id:
+                try:
+                    _db_pref = await db.get_user_task_pref(my_db_id, 'status_filter', 'active')
+                    status_filter = _db_pref if _db_pref in ('active', 'done', 'all') else 'active'
+                except Exception:
+                    status_filter = 'active'
+            if not status_filter:
+                status_filter = 'active'
 
         tasks = await db.get_tasks(is_admin=admin, my_user_id=my_db_id, my_shop=my_shop)
         if status_filter == 'done':
@@ -381,6 +392,15 @@ async def tsk_filter_cb(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     await state.update_data(tsk_status_filter=sf)
+    try:
+        _db = await get_db(callback.from_user.id, state)
+        if _db is not None:
+            _user = await _db.get_user(callback.from_user.id)
+            _uid = _user[0] if _user else 0
+            if _uid:
+                await _db.set_user_task_pref(_uid, 'status_filter', sf)
+    except Exception:
+        pass
     await _show_tasks_list(callback, state, page=0, status_filter=sf)
 
 
@@ -3164,9 +3184,13 @@ async def tsk_cmt_text_msg(message: Message, state: FSMContext, bot: Bot):
         # ── Уведомления участникам ────────────────────────────────────────────
         try:
             conn = _get_sync_db(db).get_connection()
-            notify_ids = set()
+            notify_ids: set[int] = set()
             created_by = task.get('created_by')
             assigned_to = task.get('assigned_to')
+            task_assign_all = task.get('assign_all', False)
+            task_assigned_shop = task.get('assigned_shop') or None
+
+            # Always notify creator and direct assignee
             for uid in (created_by, assigned_to):
                 if uid:
                     row = conn.execute(
@@ -3174,26 +3198,55 @@ async def tsk_cmt_text_msg(message: Message, state: FSMContext, bot: Bot):
                     ).fetchone()
                     if row and row[0] and row[0] != tg_id:
                         notify_ids.add(row[0])
+
+            # Expand recipients for shared tasks
+            if task_assign_all:
+                rows = conn.execute(
+                    "SELECT telegram_id FROM users"
+                    " WHERE telegram_id IS NOT NULL AND telegram_id != ?",
+                    (tg_id,)
+                ).fetchall()
+                for r in rows:
+                    if r[0]:
+                        notify_ids.add(r[0])
+            elif task_assigned_shop:
+                rows = conn.execute(
+                    "SELECT telegram_id FROM users"
+                    " WHERE shop_name = ? AND telegram_id IS NOT NULL AND telegram_id != ?",
+                    (task_assigned_shop, tg_id)
+                ).fetchall()
+                for r in rows:
+                    if r[0]:
+                        notify_ids.add(r[0])
+
             conn.close()
+
+            # Cap at 30 to avoid flooding small-team orgs
+            capped_ids = list(notify_ids)[:30]
+
             notif_text = (
                 f"💬 <b>Новый комментарий</b>\n\n"
                 f"<b>{he(task['title'])}</b>\n\n"
                 f"{he(text)}"
             )
-            for ntg in notify_ids:
+            btn_markup = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="📋 К задаче",
+                    callback_data=f"tsk_view_{task_id}"
+                )
+            ]])
+
+            async def _send_comment_notif(ntg: int) -> None:
                 try:
                     await bot.send_message(
                         ntg, notif_text,
                         parse_mode="HTML",
-                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                            InlineKeyboardButton(
-                                text="📋 К задаче",
-                                callback_data=f"tsk_view_{task_id}"
-                            )
-                        ]])
+                        reply_markup=btn_markup
                     )
                 except Exception:
                     pass
+
+            await asyncio.gather(*[_send_comment_notif(ntg) for ntg in capped_ids])
         except Exception as ne:
             logger.error("tsk_cmt_text_msg notify: %s", ne)
         await clear_state_keep_org(state)

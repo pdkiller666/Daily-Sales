@@ -3413,6 +3413,29 @@ def task_add_comment(
         if _c_assignee and _c_assignee != my_db_id:
             _c_notify.add(_c_assignee)
 
+        # Expand recipients for shared tasks (assign_all or assigned_shop)
+        _task_assign_all = task.get("assign_all", False)
+        _task_assigned_shop = task.get("assigned_shop") or None
+        if _task_assign_all or _task_assigned_shop:
+            try:
+                _exp_conn = db.get_connection()
+                try:
+                    if _task_assign_all:
+                        _exp_rows = _exp_conn.execute(
+                            "SELECT id FROM users WHERE id != ?", (my_db_id,)
+                        ).fetchall()
+                    else:
+                        _exp_rows = _exp_conn.execute(
+                            "SELECT id FROM users WHERE shop_name = ? AND id != ?",
+                            (_task_assigned_shop, my_db_id)
+                        ).fetchall()
+                finally:
+                    _exp_conn.close()
+                for _er in _exp_rows:
+                    _c_notify.add(_er[0])
+            except Exception:
+                pass
+
         # Phase 4.2: также уведомить наблюдателей (watchers)
         try:
             _watcher_ids = db.get_task_watcher_db_ids(task_id)
@@ -3421,6 +3444,9 @@ def task_add_comment(
                     _c_notify.add(_wid)
         except Exception:
             pass
+
+        # Cap at 30 recipients to avoid flooding small-team orgs
+        _c_notify = set(list(_c_notify)[:30])
 
         for _nid in _c_notify:
             _ntg = _get_user_tg_id(db, _nid)

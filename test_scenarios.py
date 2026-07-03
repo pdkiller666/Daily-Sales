@@ -1037,6 +1037,11 @@ check("_calendar_kb read-only: нет slr_tog_ кнопок",
 check("_calendar_kb read-only: навигация my_cal_",
       any("my_cal_" in cb for cb in all_cbs_ro))
 check("_calendar_kb: back_cb = main_menu", "main_menu" in all_cbs_ro)
+kb_ro_slip = _calendar_kb(2026, 5, {"2026-05-01"}, editable=False, back_cb="main_menu",
+                          payslip_cb="my_slip_2026_5")
+all_cbs_ro_slip = [btn.callback_data for row in kb_ro_slip.inline_keyboard for btn in row]
+check("_calendar_kb read-only: кнопка расчётного листка my_slip_",
+      any("my_slip_" in cb for cb in all_cbs_ro_slip))
 
 # Проверяем редактируемый (editable=True)
 kb_ed = _calendar_kb(2026, 5, {"2026-05-03"}, uid=99, editable=True, back_cb="slr_scheds")
@@ -3292,6 +3297,120 @@ check("overlap+rate-history: два пересекающихся отсутст�
       f"vac_pay={_ov_b[0]}, avg*5={round(_ov_b[2] * 5, 2)}")
 
 _ovconn.close()
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ: Комиссия, заработанная в период оплачиваемого отсутствия
+# (Business rule: комиссии включаются в числитель avg_daily
+#  НЕЗАВИСИМО от того, пришлась ли дата продажи на день отсутствия.
+#  Этот день исключён из знаменателя — поведение корректно и намеренно.)
+# ─────────────────────────────────────────────────────────
+section("Комиссия в период оплачиваемого отсутствия не искажает расчёт (intentional include)")
+
+_abscomm_db = make_db("vacation_abscomm.db")
+_abscomm_conn = _abscomm_db.get_connection()
+
+_abscomm_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) "
+    "VALUES (1, 400001, 'Тест', 'Комиссия')"
+)
+_abscomm_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 1000)")
+
+# Ставка: 1000₽/день за весь 12-месячный период (Jul 2025 – Jun 2026)
+_abscomm_conn.execute(
+    "INSERT INTO salary_rate_history (user_id, rate, effective_from, effective_to) "
+    "VALUES (1, 1000, '2025-07-01', NULL)"
+)
+
+# Рабочие дни: все Mon-Fri за Jul 2025 – Jun 2026
+from datetime import date as _acd, timedelta as _actd
+_ac_rs = _acd(2025, 7, 1)
+_ac_re = _acd(2026, 6, 30)
+_ac_worked_days = 0
+_ac_d = _ac_rs
+while _ac_d <= _ac_re:
+    if _ac_d.weekday() < 5:
+        _abscomm_conn.execute(
+            "INSERT INTO work_schedule (user_id, work_date) VALUES (1, ?)",
+            (_ac_d.isoformat(),)
+        )
+        _ac_worked_days += 1
+    _ac_d += _actd(days=1)
+
+# Оплачиваемый больничный: 2026-03-02 – 2026-03-06 (5 кал. дней, 5 рабочих)
+_ac_sick_start = _acd(2026, 3, 2)
+_ac_sick_end   = _acd(2026, 3, 6)
+_abscomm_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'sick_leave', '2026-03-02', '2026-03-06', 'approved', 1)"
+)
+
+# Считаем рабочие дни исключённые из-за больничного
+_ac_sick_excluded = 0
+_ac_d = _ac_sick_start
+while _ac_d <= _ac_sick_end:
+    if _ac_d.weekday() < 5:
+        _ac_sick_excluded += 1
+    _ac_d += _actd(days=1)
+_ac_net_worked = _ac_worked_days - _ac_sick_excluded
+
+# Продажа/комиссия ДАТИРОВАНА на день больничного (2026-03-04, среда)
+# Сценарий: онлайн-заказ принят во время больничного
+_abscomm_conn.execute(
+    "INSERT INTO products (id, name, category, price) VALUES (1, 'Товар', 'Кат', 100)"
+)
+_abscomm_conn.execute(
+    "INSERT INTO sales (id, user_id, product_id, shop_name, quantity_sold, sale_price, sale_date) "
+    "VALUES (1, 1, 1, 'Магазин', 1, 100, '2026-03-04')"
+)
+_ac_commission = 5000.0
+_abscomm_conn.execute(
+    "INSERT INTO seller_earnings (user_id, sale_id, product_id, commission_amount, motivation_type, motivation_value) "
+    "VALUES (1, 1, 1, ?, 'fixed', ?)",
+    (_ac_commission, _ac_commission)
+)
+
+# Отпуск в июле 2026: 7 кал. дней (для get_vacation_pay_12m)
+_abscomm_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'vacation', '2026-07-01', '2026-07-07', 'approved', 1)"
+)
+_abscomm_conn.commit()
+
+# Ожидаемые значения:
+# avg_daily = (оклад + комиссия) / net_worked
+#           = (_ac_net_worked * 1000 + _ac_commission) / _ac_net_worked
+# Комиссия со дня больничного ВКЛЮЧАЕТСЯ в числитель (намеренное бизнес-решение).
+# День больничного уже исключён из знаменателя, поэтому avg_daily немного выше,
+# чем без комиссии — это корректное и задокументированное поведение.
+_ac_expected_avg = (_ac_net_worked * 1000 + _ac_commission) / _ac_net_worked
+_ac_expected_avg_no_comm = _ac_net_worked * 1000 / _ac_net_worked  # = 1000.0
+
+# Single-path
+_ac_avg, _ac_has_hist = _abscomm_db.get_avg_daily_earnings_12m(1, reference_date='2026-07-01')
+check("abscomm single: has_history=True (есть история ставок)",
+      _ac_has_hist, f"has_hist={_ac_has_hist}")
+check("abscomm single: комиссия со дня больничного включена в avg_daily (бизнес-правило)",
+      abs(_ac_avg - _ac_expected_avg) < 0.01,
+      f"expected≈{_ac_expected_avg:.2f}, got={_ac_avg}")
+check("abscomm single: avg_daily выше базовой ставки благодаря комиссии (не занижен и не равен fallback)",
+      _ac_avg > _ac_expected_avg_no_comm,
+      f"avg={_ac_avg}, base_rate={_ac_expected_avg_no_comm}")
+
+# Bulk-path
+_ac_bulk = _abscomm_db.get_vacation_pay_12m_bulk([1], 2026, 7)
+_ac_b = _ac_bulk.get(1, (0.0, 0, 0.0, False))
+check("abscomm bulk: vac_cal_days=7",
+      _ac_b[1] == 7, f"got {_ac_b[1]}")
+check("abscomm bulk: avg_daily совпадает с single-path",
+      abs(_ac_b[2] - _ac_avg) < 0.01,
+      f"bulk_avg={_ac_b[2]}, single={_ac_avg}")
+check("abscomm bulk: vac_pay = avg_daily * 7",
+      abs(_ac_b[0] - round(_ac_avg * 7, 2)) < 0.01,
+      f"vac_pay={_ac_b[0]}, expected={round(_ac_avg * 7, 2)}")
+check("abscomm bulk: fallback_used=False (есть история рабочих дней)",
+      not _ac_b[3], f"fallback={_ac_b[3]}")
+
+_abscomm_conn.close()
 
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)

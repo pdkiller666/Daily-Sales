@@ -1,6 +1,22 @@
-CURRENT_VERSION = "1.366.0"
+CURRENT_VERSION = "1.367.0"
 
 ENTRIES = [
+    {
+        "version": "1.367.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update system to track salary rate changes and improve vacation pay calculations",
+            "Show salary rate history in the bot (no web cabinet needed)",
+            "record admin's internal user_id in salary rate history when changed via bot",
+            "Document and test that commissions during paid absences are intentionally included in vacation pay avg_daily",
+            "Показать расчётный листок самому сотруднику в боте",
+            "Fix salary_payslip_admin: handle None/zero daily_rate in payslip",
+            "Fix joint-bonus salary for employees who sold in multiple shops in a month",
+            "persist task list status filter across bot sessions",
+            "Show checklist progress in the task list (N/M ☑)",
+            "Notify everyone on a shared task when a new comment is posted",
+        ],
+    },
     {
         "version": "1.366.0",
         "date": "3 июля 2026",
