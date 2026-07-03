@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.381.0"
+CURRENT_VERSION = "1.382.0"
 
 ENTRIES = [
+    {
+        "version": "1.382.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update application features and fix absence calendar priority",
+        ],
+    },
     {
         "version": "1.381.0",
         "date": "3 июля 2026",

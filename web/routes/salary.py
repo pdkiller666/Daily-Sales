@@ -509,41 +509,45 @@ def salary_page(
             pass
 
         for row in all_rates:
-            if env_manager.is_super_admin(row[4]):
-                continue
-            uid = row[0]
-            rate = float(row[3] or 0)
-            bk = bulk.get(uid, {'worked': 0, 'adj_sum': 0.0, 'motivation': 0.0})
-            worked = bk['worked']
-            adj_sum = bk['adj_sum']
-            non_vac_paid_abs = paid_abs_bulk.get(uid, 0)
-            vac_info = vac_pay_bulk.get(uid, (0.0, 0, 0.0, False))
-            vac_pay_i, vac_cal_days_i, avg_daily_i, vac_fallback_i = vac_info
-            base = rate * (worked + non_vac_paid_abs) + vac_pay_i
-            motivation = round(float((earnings_bulk.get(uid) or {}).get('total_earnings', 0.0) or 0), 2)
-            contest_rewards = round(contest_bulk.get(row[4], 0.0), 2)
-            total = base + adj_sum + motivation + contest_rewards
-            total_fund += total
+            try:
+                if env_manager.is_super_admin(row[4]):
+                    continue
+                uid = row[0]
+                rate = float(row[3] or 0)
+                bk = bulk.get(uid, {'worked': 0, 'adj_sum': 0.0, 'motivation': 0.0})
+                worked = bk['worked']
+                adj_sum = bk['adj_sum']
+                non_vac_paid_abs = paid_abs_bulk.get(uid, 0)
+                vac_info = vac_pay_bulk.get(uid, (0.0, 0, 0.0, False))
+                vac_pay_i, vac_cal_days_i, avg_daily_i, vac_fallback_i = vac_info
+                base = rate * (worked + non_vac_paid_abs) + vac_pay_i
+                motivation = round(float((earnings_bulk.get(uid) or {}).get('total_earnings', 0.0) or 0), 2)
+                contest_rewards = round(float(contest_bulk.get(row[4], 0.0) or 0), 2)
+                total = base + adj_sum + motivation + contest_rewards
+                total_fund += total
 
-            staff_salary.append({
-                "user_id": uid,
-                "first_name": row[1] or "",
-                "last_name": row[2] or "",
-                "telegram_id": row[4],
-                "daily_rate": rate,
-                "worked_days": worked,
-                "paid_absence_days": non_vac_paid_abs,
-                "vac_cal_days": vac_cal_days_i,
-                "vac_pay": round(vac_pay_i, 2),
-                "avg_daily_earnings": avg_daily_i,
-                "vac_fallback": vac_fallback_i,
-                "base_salary": base,
-                "adj_sum": adj_sum,
-                "motivation": motivation,
-                "contest_rewards": contest_rewards,
-                "total": total,
-                "shop": "",
-            })
+                staff_salary.append({
+                    "user_id": uid,
+                    "first_name": row[1] or "",
+                    "last_name": row[2] or "",
+                    "telegram_id": row[4],
+                    "daily_rate": rate,
+                    "worked_days": worked,
+                    "paid_absence_days": non_vac_paid_abs,
+                    "vac_cal_days": vac_cal_days_i,
+                    "vac_pay": round(vac_pay_i, 2),
+                    "avg_daily_earnings": avg_daily_i,
+                    "vac_fallback": vac_fallback_i,
+                    "base_salary": base,
+                    "adj_sum": adj_sum,
+                    "motivation": motivation,
+                    "contest_rewards": contest_rewards,
+                    "total": total,
+                    "shop": "",
+                })
+            except Exception as _row_exc:
+                import logging as _log2
+                _log2.error(f"salary_page: ошибка при обработке строки {row}: {_row_exc}")
 
         # Absence badges — today if current month, else any approved absence in the period
         is_current_month = (year == today.year and month == today.month)
@@ -573,7 +577,8 @@ def salary_page(
 
         # If a specific user is selected, show their calendar + adjustments + motivation
         if user_id:
-            work_days = db.get_work_schedule(user_id, year, month)
+          try:
+            work_days = db.get_work_schedule(user_id, year, month) or set()
             adj_rows = db.get_salary_adjustments(user_id, year, month) or []
             adj_sum_val = db.get_salary_adjustments_sum(user_id, year, month)
             rate_row = next((s for s in staff_salary if s["user_id"] == user_id), None)
@@ -596,23 +601,27 @@ def salary_page(
             detail_earnings = []
             detail_raw_commission = 0.0
             for erow in detail_earnings_raw:
-                comm = float(erow[0] or 0)
-                detail_raw_commission += comm
-                mtype = erow[1] or "percentage"
-                mval = float(erow[2] or 0)
-                detail_earnings.append({
-                    "date": str(erow[6] or "")[:10],
-                    "product": erow[3] or "—",
-                    "qty": int(erow[4] or 0),
-                    "price": float(erow[5] or 0),
-                    "mtype": mtype,
-                    "mval": mval,
-                    "rate_display": f"{mval:g}%" if mtype == "percentage" else f"{int(mval):,}".replace(",", "\u00a0") + "\u00a0₽/ед.",
-                    "commission": comm,
-                    "shop": erow[7] or "—",
-                    "source": (erow[8] if len(erow) > 8 else "global") or "global",
-                    "source_label": _source_label(erow[8] if len(erow) > 8 else "global"),
-                })
+                try:
+                    comm = float(erow[0] or 0)
+                    detail_raw_commission += comm
+                    mtype = erow[1] or "percentage"
+                    mval = float(erow[2] or 0)
+                    detail_earnings.append({
+                        "date": str(erow[6] or "")[:10],
+                        "product": erow[3] or "—",
+                        "qty": int(erow[4] or 0),
+                        "price": float(erow[5] or 0),
+                        "mtype": mtype,
+                        "mval": mval,
+                        "rate_display": f"{mval:g}%" if mtype == "percentage" else f"{int(mval):,}".replace(",", "\u00a0") + "\u00a0₽/ед.",
+                        "commission": comm,
+                        "shop": erow[7] or "—",
+                        "source": (erow[8] if len(erow) > 8 else "global") or "global",
+                        "source_label": _source_label(erow[8] if len(erow) > 8 else "global"),
+                    })
+                except Exception as _erow_exc:
+                    import logging as _log2
+                    _log2.error(f"salary_page: ошибка erow {erow}: {_erow_exc}")
 
             # Adjusted motivation total (with joint_bonus + plan_coeff) for summary line
             detail_motivation_total = rate_row["motivation"] if rate_row else round(detail_raw_commission, 2)
@@ -702,8 +711,14 @@ def salary_page(
             ctx["detail_contest_details"] = detail_contest_details
             ctx["detail_absences"] = detail_absences
             ctx["rate_history"] = rate_history
+          except Exception as _uid_exc:
+            import traceback as _tb2, logging as _log3
+            _log3.error(f"salary_page user_id block error: {_uid_exc}\n{_tb2.format_exc()}")
 
     except Exception as exc:
+        import traceback as _tb
+        import logging as _log
+        _log.error(f"salary_page outer error: {exc}\n{_tb.format_exc()}")
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
