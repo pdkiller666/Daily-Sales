@@ -69,6 +69,16 @@
     </div>
 </div>
 
+{% if not daily_rate %}
+<div class="mb-5 flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span class="shrink-0 text-lg">⚠️</span>
+    <div>
+        <p class="font-semibold">Ставка не задана</p>
+        <p class="mt-0.5 text-amber-600">Дневная ставка за этот месяц не установлена. Обратитесь к администратору — оклад будет рассчитан после её указания.</p>
+    </div>
+</div>
+{% endif %}
+
 <!-- Breakdown table -->
 <div class="card overflow-hidden mb-5">
     <div class="px-5 py-4 border-b border-slate-100">
@@ -102,7 +112,11 @@
                     {% else %}—{% endif %}
                 </td>
                 <td class="px-5 py-4 text-right">
+                    {% if daily_rate %}
                     <span class="font-semibold text-slate-800">{{ shifts_pay|int|fmt_currency }}</span>
+                    {% else %}
+                    <span class="text-xs text-amber-600 font-medium">ставка не задана</span>
+                    {% endif %}
                 </td>
             </tr>
 
@@ -119,10 +133,16 @@
                     </div>
                 </td>
                 <td class="px-5 py-4 text-right text-slate-500 hidden sm:table-cell">
+                    {% if daily_rate %}
                     {{ paid_absence_days }} × {{ daily_rate|int|fmt_currency }} ₽
+                    {% else %}—{% endif %}
                 </td>
                 <td class="px-5 py-4 text-right">
+                    {% if daily_rate %}
                     <span class="font-semibold text-slate-800">{{ abs_pay|int|fmt_currency }}</span>
+                    {% else %}
+                    <span class="text-xs text-amber-600 font-medium">ставка не задана</span>
+                    {% endif %}
                 </td>
             </tr>
             {% endif %}

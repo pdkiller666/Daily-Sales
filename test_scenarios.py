@@ -898,6 +898,29 @@ check("rate_history bot-path: changed_by_name содержит имя",
 check("rate_history bot-path: rate = 2200",
       abs(latest_entry["rate"] - 2200.0) < 0.01)
 
+# ── История ставки: веб-кабинет (web-путь) ─────────────
+# Веб-роут /salary/rate/history вызывает тот же метод get_salary_rate_history().
+# Проверяем, что возвращаемые dict-ключи соответствуют тому, что шаблоны ожидают
+# (index.html и rate_history_partial.html используют h.changed_by_name).
+web_hist = sldb.get_salary_rate_history(su2, limit=10)
+check("rate_history web-path: метод возвращает список",
+      isinstance(web_hist, list) and len(web_hist) > 0)
+web_entry = web_hist[0]
+# Ключи, которые используют оба шаблона
+check("rate_history web-path: ключ changed_by_name присутствует",
+      "changed_by_name" in web_entry)
+check("rate_history web-path: changed_by_name не None (не будет показан как —)",
+      web_entry["changed_by_name"] is not None)
+# Шаблон: {{ h.changed_by_name or '—' }} — при корректном JOIN покажет имя
+web_display = web_entry["changed_by_name"] or "—"
+check("rate_history web-path: шаблон отобразит имя, а не «—»",
+      web_display != "—")
+check("rate_history web-path: отображаемое имя содержит «Пётр» (admin Пётр Зарплатов)",
+      "Пётр" in web_display)
+# Дополнительные ключи, используемые шаблонами
+check("rate_history web-path: ключи rate/effective_from/effective_to/created_at присутствуют",
+      all(k in web_entry for k in ("rate", "effective_from", "effective_to", "created_at")))
+
 # ── toggle_work_day ────────────────────────────────────
 r_add1 = sldb.toggle_work_day(su1, "2026-05-01", 1)
 r_add2 = sldb.toggle_work_day(su1, "2026-05-02", 1)

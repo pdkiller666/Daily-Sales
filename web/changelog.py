@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.378.0"
+CURRENT_VERSION = "1.379.0"
 
 ENTRIES = [
+    {
+        "version": "1.379.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update application features and fix test expectations for salary calculations",
+            "Fix payslip page when employee has no salary rate set",
+            "Confirm salary history displays admin name correctly in web cabinet",
+        ],
+    },
     {
         "version": "1.378.0",
         "date": "3 июля 2026",
