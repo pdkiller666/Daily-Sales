@@ -1,6 +1,17 @@
-CURRENT_VERSION = "1.375.0"
+CURRENT_VERSION = "1.376.0"
 
 ENTRIES = [
+    {
+        "version": "1.376.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Предупреждение при одобрении отсутствия, если уже есть одобренное отсутствие другого типа на те же даты (в боте и веб-кабинете)",
+            "Update system to correctly handle salary calculations and UI interactions",
+            "Warn admin when approving an absence that overlaps a different-type approved absence",
+            "Prevent payslip from crashing when vacation pay data is unavailable",
+            "Add test confirming rate history stores correct admin name via bot path",
+        ],
+    },
     {
         "version": "1.375.0",
         "date": "3 июля 2026",

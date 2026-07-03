@@ -13495,6 +13495,31 @@ class Database:
         finally:
             conn.close()
 
+    def get_cross_type_overlapping_approved_absences(self, user_id: int, atype: str,
+                                                     start_date: str, end_date: str,
+                                                     exclude_id: int = None) -> list:
+        """Вернуть список одобренных записей ДРУГОГО типа для этого сотрудника,
+        которые пересекаются с указанным диапазоном дат.
+        Возвращает строки (id, type, start_date, end_date).
+        """
+        conn = self.get_connection()
+        try:
+            q = (
+                "SELECT id, type, start_date, end_date FROM absence_records "
+                "WHERE user_id=? AND type!=? AND status='approved' "
+                "  AND start_date <= ? AND end_date >= ?"
+            )
+            params: list = [user_id, atype, end_date, start_date]
+            if exclude_id:
+                q += " AND id != ?"
+                params.append(exclude_id)
+            return conn.execute(q, params).fetchall() or []
+        except Exception as e:
+            logger.error(f"get_cross_type_overlapping_approved_absences: {e}")
+            return []
+        finally:
+            conn.close()
+
     def merge_absences(self, keep_id: int, drop_id: int) -> bool:
         """Слить два отсутствия в одно: расширить keep_id до объединённого диапазона,
         отменить drop_id.  Оба должны принадлежать одному пользователю и типу.

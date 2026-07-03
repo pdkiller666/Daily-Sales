@@ -292,7 +292,8 @@ def _build_cal_grid(year: int, month: int):
 @router.get("/absences")
 def absences_page(request: Request, year: int = 0, month: int = 0,
                   user_id: int = 0, msg: str = "",
-                  pending_id: int = 0, overlap_id: int = 0):
+                  pending_id: int = 0, overlap_id: int = 0,
+                  cross_id: int = 0, cross_atype: str = ""):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -335,6 +336,9 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
         "msg": msg, "error": None,
         "merge_pending_id": pending_id,
         "merge_overlap_id": overlap_id,
+        "cross_type_pending_id": pending_id,
+        "cross_type_cross_id": cross_id,
+        "cross_type_atype": cross_atype,
     }
 
     try:
@@ -509,6 +513,7 @@ def absences_add(
     status: Annotated[str, Form()] = "pending",
     year: Annotated[int, Form()] = 0,
     month: Annotated[int, Form()] = 0,
+    cross_type_confirmed: Annotated[int, Form()] = 0,
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -589,6 +594,18 @@ def absences_add(
                     status_code=302
                 )
 
+        # Предупреждение о пересечении с отсутствием другого типа при прямом одобрении
+        cross_warn_type = ""
+        if is_admin and final_status == 'approved' and not cross_type_confirmed:
+            try:
+                cross_overlaps = db.get_cross_type_overlapping_approved_absences(
+                    target_uid, atype, start_date, end_date
+                )
+                if cross_overlaps:
+                    cross_warn_type = cross_overlaps[0][1]
+            except Exception:
+                pass
+
         ab_id = db.add_absence(
             target_uid, atype, start_date, end_date,
             (comment or "").strip()[:500] or None, target_uid, final_status
@@ -627,6 +644,14 @@ def absences_add(
                 except Exception as e:
                     logging.error(f"absences_add penalty: {e}")
 
+        # Предупреждение о пересечении (после всех side-effects — не блокирует)
+        if cross_warn_type:
+            return RedirectResponse(
+                url=(f"/absences?year={year}&month={month}"
+                     f"&msg=cross_type_add_warned&cross_atype={cross_warn_type}"),
+                status_code=302
+            )
+
         return RedirectResponse(
             url=f"/absences?year={year}&month={month}&msg=added",
             status_code=302
@@ -648,6 +673,7 @@ def absences_update(
     admin_comment: Annotated[str, Form()] = "",
     year: Annotated[int, Form()] = 0,
     month: Annotated[int, Form()] = 0,
+    cross_type_confirmed: Annotated[int, Form()] = 0,
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -708,6 +734,20 @@ def absences_update(
                          f"&pending_id={absence_id}&overlap_id={ov_id}"),
                     status_code=302
                 )
+            # Проверка пересечений с одобренными записями ДРУГОГО типа (нет блокировки)
+            if not cross_type_confirmed:
+                cross_overlaps = db.get_cross_type_overlapping_approved_absences(
+                    uid, atype, sd, ed, exclude_id=absence_id
+                )
+                if cross_overlaps:
+                    ov_id, ov_type = cross_overlaps[0][0], cross_overlaps[0][1]
+                    return RedirectResponse(
+                        url=(f"/absences?year={year}&month={month}"
+                             f"&msg=cross_type_overlap"
+                             f"&pending_id={absence_id}"
+                             f"&cross_id={ov_id}&cross_atype={ov_type}"),
+                        status_code=302
+                    )
 
         conn2 = db.get_connection()
         try:

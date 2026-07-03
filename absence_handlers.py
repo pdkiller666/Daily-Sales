@@ -630,6 +630,40 @@ async def abs_approve(callback: CallbackQuery, state: FSMContext):
             parse_mode='HTML'
         )
         return
+    # Предупреждение о пересечении с отсутствием ДРУГОГО типа (не блокирует)
+    try:
+        cross_overlaps = await db.get_cross_type_overlapping_approved_absences(
+            uid, atype, sd, ed, exclude_id=ab_id
+        )
+    except Exception:
+        cross_overlaps = []
+    if cross_overlaps:
+        ov = cross_overlaps[0]
+        ov_id, ov_type, ov_sd, ov_ed = ov[0], ov[1], ov[2][:10], ov[3][:10]
+        ov_label = _TYPE_LABELS.get(ov_type, ov_type)
+        warn_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text='✅ Одобрить всё равно',
+                    callback_data=f'abs_ok_force_{ab_id}'
+                ),
+                InlineKeyboardButton(
+                    text='Отмена',
+                    callback_data=f'abs_rv_{ab_id}'
+                ),
+            ]
+        ])
+        await callback.answer()
+        await callback.message.edit_text(
+            f'⚠️ <b>Пересечение типов отсутствий!</b>\n\n'
+            f'У сотрудника уже есть одобренная запись «{ov_label}» '
+            f'#{ov_id} ({ov_sd}–{ov_ed}), которая пересекается с этим '
+            f'периодом.\n\n'
+            f'Одобрить всё равно (возможно пересечение нормой) или отменить?',
+            reply_markup=warn_kb,
+            parse_mode='HTML'
+        )
+        return
     ok = await db.update_absence_status(ab_id, 'approved',
                                          None, callback.from_user.id)
     if ok:
@@ -676,6 +710,78 @@ async def abs_approve(callback: CallbackQuery, state: FSMContext):
                     )
             except Exception as _pe:
                 logger.error(f"abs_approve penalty: {_pe}")
+    else:
+        await callback.answer('Ошибка', show_alert=True)
+    await abs_pending_list(callback, state)
+
+
+@absence_router.callback_query(F.data.startswith('abs_ok_force_'))
+async def abs_approve_force(callback: CallbackQuery, state: FSMContext):
+    """Одобрить отсутствие, игнорируя предупреждение о пересечении с другим типом."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer('Нет доступа', show_alert=True)
+        return
+    try:
+        ab_id = int(callback.data[len('abs_ok_force_'):])
+    except (ValueError, IndexError):
+        await callback.answer('Неверный формат', show_alert=True)
+        return
+    db = await get_db(callback.from_user.id, state)
+    rec = await db.get_absence_by_id(ab_id)
+    if not rec:
+        await callback.answer('Не найдено', show_alert=True)
+        return
+    _, uid, atype, sd, ed, *_ = rec
+    # Повторная проверка пересечения того же типа (блокирующая)
+    try:
+        overlaps = await db.get_overlapping_approved_absences(uid, atype, sd, ed,
+                                                              exclude_id=ab_id)
+    except Exception:
+        overlaps = []
+    if overlaps:
+        await callback.answer('Уже есть одобренная запись того же типа', show_alert=True)
+        return
+    ok = await db.update_absence_status(ab_id, 'approved', None, callback.from_user.id)
+    if ok:
+        await callback.answer('✅ Одобрено')
+        days = _days_count(sd, ed)
+        conn = db._db.get_connection()
+        try:
+            u = conn.execute('SELECT telegram_id FROM users WHERE id=?', (uid,)).fetchone()
+        finally:
+            conn.close()
+        if u and u[0]:
+            await _notify_user(state, u[0],
+                f'✅ <b>Заявка одобрена!</b>\n\n'
+                f'{_TYPE_LABELS.get(atype, atype)}\n'
+                f'📅 {_fmt_date(sd)}–{_fmt_date(ed)} ({days} дн.)')
+        try:
+            await _alert_heavy_absence_day(db, sd, ed)
+        except Exception as _hae:
+            logger.warning(f"heavy_absence_alert: {_hae}")
+        if atype == 'absence':
+            try:
+                settings = await db.get_absence_type_settings()
+                s = settings.get('absence', {})
+                pmode = s.get('penalty_mode', 'no_pay')
+                pamt = float(s.get('penalty_amount') or 0)
+                if pmode in ('fine', 'both') and pamt > 0:
+                    adm_conn = db._db.get_connection()
+                    try:
+                        adm_row = adm_conn.execute(
+                            'SELECT id FROM users WHERE telegram_id=?',
+                            (callback.from_user.id,)
+                        ).fetchone()
+                    finally:
+                        adm_conn.close()
+                    reviewer_db_id = adm_row[0] if adm_row else None
+                    d_start = date.fromisoformat(sd[:10])
+                    await db.apply_absence_penalty(
+                        uid, ab_id, d_start.year, d_start.month,
+                        pamt * days, reviewer_db_id
+                    )
+            except Exception as _pe:
+                logger.error(f"abs_approve_force penalty: {_pe}")
     else:
         await callback.answer('Ошибка', show_alert=True)
     await abs_pending_list(callback, state)

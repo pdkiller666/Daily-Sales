@@ -877,6 +877,27 @@ sldb.set_salary_rate(su1, 1800.0, 1)
 check("set_salary_rate UPSERT: новое значение",
       abs(sldb.get_salary_rate(su1) - 1800.0) < 0.01)
 
+# ── История ставки: changed_by через бот-путь ──────────
+# Имитируем изменение ставки через Telegram-бот: updated_by = su1 (internal user_id)
+sldb.set_salary_rate(su2, 2200.0, su1)
+hist_su2 = sldb.get_salary_rate_history(su2)
+check("rate_history bot-path: запись есть",
+      len(hist_su2) > 0)
+# Самая свежая запись должна содержать changed_by = su1 (не NULL)
+latest_entry = hist_su2[0]
+check("rate_history bot-path: changed_by не NULL",
+      latest_entry["changed_by"] is not None)
+check("rate_history bot-path: changed_by равен su1",
+      latest_entry["changed_by"] == su1)
+# changed_by_name должно разрешаться в имя администратора (Пётр Зарплатов)
+check("rate_history bot-path: changed_by_name разрешается",
+      latest_entry["changed_by_name"] is not None and len(latest_entry["changed_by_name"]) > 0)
+check("rate_history bot-path: changed_by_name содержит имя",
+      "Пётр" in (latest_entry["changed_by_name"] or ""))
+# Значение ставки соответствует
+check("rate_history bot-path: rate = 2200",
+      abs(latest_entry["rate"] - 2200.0) < 0.01)
+
 # ── toggle_work_day ────────────────────────────────────
 r_add1 = sldb.toggle_work_day(su1, "2026-05-01", 1)
 r_add2 = sldb.toggle_work_day(su1, "2026-05-02", 1)
@@ -929,7 +950,7 @@ sldb.toggle_work_day(su2, "2026-05-10", 1)
 sldb.toggle_work_day(su2, "2026-05-11", 1)
 sldb.toggle_work_day(su2, "2026-05-12", 1)
 sal2b = sldb.calculate_monthly_salary(su2, 2026, 5)
-check("calculate_monthly_salary u2: 3 × 2000 = 6000", abs(sal2b - 6000.0) < 0.01)
+check("calculate_monthly_salary u2: 3 × 2200 = 6600", abs(sal2b - 6600.0) < 0.01)
 
 # ── get_all_salary_rates ───────────────────────────────
 all_rates = sldb.get_all_salary_rates()
@@ -959,7 +980,7 @@ check("get_team_salary_summary u1: shop=Магазин А",s1[6] == "Магаз�
 
 s2 = next(r for r in summary if r[0] == su2)
 check("get_team_salary_summary u2: worked_days=3", s2[4] == 3)
-check("get_team_salary_summary u2: salary=6000",   abs(s2[5] - 6000.0) < 0.01)
+check("get_team_salary_summary u2: salary=6600",   abs(s2[5] - 6600.0) < 0.01)
 
 # ── Мульти-тенантная изоляция зарплат ─────────────────
 # Две РАЗНЫЕ БД — каждая содержит своих пользователей.
@@ -3535,6 +3556,152 @@ check("abscomm bulk: fallback_used=False (есть история рабочих
 _abscomm_conn.close()
 
 # ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ: Joint-бонус в период оплачиваемого отсутствия (sick_leave)
+# (Business rule: joint-bonus adjustment включается в числитель avg_daily
+#  так же, как индивидуальная комиссия — без фильтра по дням отсутствия.
+#  sick_leave НЕ исключает из joint-пула (только vacation); день больничного
+#  исключён из знаменателя. Поведение симметрично пути индивидуальных комиссий.
+#  Если joint-путь когда-либо получит собственный фильтр paid-absences —
+#  этот тест немедленно поймает расхождение.)
+# ─────────────────────────────────────────────────────────
+section("Joint-бонус в период sick_leave включается в avg_daily (симметрично индивидуальным комиссиям)")
+
+_jbdb = make_db("vacation_jointbonus.db")
+_jbconn = _jbdb.get_connection()
+
+# Два сотрудника в одном магазине
+_jbconn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name, shop_name) "
+    "VALUES (1, 500001, 'Анна', 'Продавец', 'Магазин СЖ')"
+)
+_jbconn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name, shop_name) "
+    "VALUES (2, 500002, 'Борис', 'Напарник', 'Магазин СЖ')"
+)
+_jbconn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 1000)")
+_jbconn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (2, 1000)")
+
+# Ставка Анны: 1000₽/день за весь 12-месячный период (Jul 2025 – Jun 2026)
+_jbconn.execute(
+    "INSERT INTO salary_rate_history (user_id, rate, effective_from, effective_to) "
+    "VALUES (1, 1000, '2025-07-01', NULL)"
+)
+
+# Joint-условие: min_sellers=2, coefficient=0.8
+_jbconn.execute("""
+    INSERT INTO motivation_extra_conditions
+        (shop_name, condition_type, min_sellers, coefficient, calc_mode, is_active)
+    VALUES ('Магазин СЖ', 'multi_seller_coeff', 2, 0.8, 'joint', 1)
+""")
+
+# Рабочие дни Анны: все Mon-Fri за Jul 2025 – Jun 2026
+from datetime import date as _jbd, timedelta as _jbtd
+_jb_rs = _jbd(2025, 7, 1)
+_jb_re = _jbd(2026, 6, 30)
+_jb_worked_days = 0
+_jb_d = _jb_rs
+while _jb_d <= _jb_re:
+    if _jb_d.weekday() < 5:
+        _jbconn.execute(
+            "INSERT INTO work_schedule (user_id, work_date) VALUES (1, ?)",
+            (_jb_d.isoformat(),)
+        )
+        _jb_worked_days += 1
+    _jb_d += _jbtd(days=1)
+
+# Оплачиваемый больничный Анны: 2026-03-10 (вторник — рабочий день, 1 день)
+_jb_sick_date = _jbd(2026, 3, 10)  # weekday() == 1 (Tuesday)
+_jbconn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'sick_leave', '2026-03-10', '2026-03-10', 'approved', 1)"
+)
+
+# Командная продажа 2026-03-10 (день больничного Анны)
+# sick_leave НЕ исключает из joint-пула (только vacation) —
+# Анна остаётся в active_uids, её adjustment включается в числитель avg_daily
+_jbconn.execute(
+    "INSERT INTO products (id, name, category, price) VALUES (1, 'Товар', 'Кат', 100)"
+)
+_jbconn.execute(
+    "INSERT INTO sales (id, user_id, product_id, shop_name, quantity_sold, sale_price, sale_date) "
+    "VALUES (1, 1, 1, 'Магазин СЖ', 1, 100, '2026-03-10')"
+)
+_jb_anna_comm = 200.0
+_jbconn.execute(
+    "INSERT INTO seller_earnings (user_id, sale_id, product_id, commission_amount, motivation_type, motivation_value) "
+    "VALUES (1, 1, 1, ?, 'fixed', ?)",
+    (_jb_anna_comm, _jb_anna_comm)
+)
+_jbconn.execute(
+    "INSERT INTO sales (id, user_id, product_id, shop_name, quantity_sold, sale_price, sale_date) "
+    "VALUES (2, 2, 1, 'Магазин СЖ', 1, 100, '2026-03-10')"
+)
+_jb_boris_comm = 300.0
+_jbconn.execute(
+    "INSERT INTO seller_earnings (user_id, sale_id, product_id, commission_amount, motivation_type, motivation_value) "
+    "VALUES (2, 2, 1, ?, 'fixed', ?)",
+    (_jb_boris_comm, _jb_boris_comm)
+)
+
+# Отпуск Анны в июле 2026: 7 кал. дней (для расчёта отпускных)
+_jbconn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'vacation', '2026-07-01', '2026-07-07', 'approved', 1)"
+)
+_jbconn.commit()
+
+# ── Ожидаемые значения ─────────────────────────────────────────────────────
+# Joint: pool = 200 + 300 = 500, joint_total = 500 × 0.8 = 400
+# adjustment Анны = joint_total - Anna_comm = 400 - 200 = +200
+# (sick_leave ≠ vacation → Анна остаётся в active_uids за этот подинтервал)
+_jb_pool = _jb_anna_comm + _jb_boris_comm          # 500
+_jb_joint_total = round(_jb_pool * 0.8, 2)          # 400
+_jb_expected_adj = _jb_joint_total - _jb_anna_comm  # 200
+
+# Sick-день 2026-03-10 — рабочий день, исключается из знаменателя avg_daily
+_jb_sick_excluded = 1 if _jb_sick_date.weekday() < 5 else 0  # 1
+_jb_net_worked = _jb_worked_days - _jb_sick_excluded
+
+# avg_daily = (net_worked × rate + se_commission + joint_adj) / net_worked
+_jb_total_motivation = _jb_anna_comm + _jb_expected_adj  # 400
+_jb_expected_avg = (_jb_net_worked * 1000 + _jb_total_motivation) / _jb_net_worked
+# Для сравнения: avg без joint_adj (только индивидуальная комиссия)
+_jb_expected_avg_no_joint = (_jb_net_worked * 1000 + _jb_anna_comm) / _jb_net_worked
+
+# ── get_joint_bonus_adjustment ────────────────────────────────────────────────
+_jb_adj = _jbdb.get_joint_bonus_adjustment(1, '2025-07-01', '2026-06-30')
+check("joint-sick: get_joint_bonus_adjustment корректен (sick_leave не исключает из пула)",
+      abs(_jb_adj - _jb_expected_adj) < 0.01,
+      f"expected={_jb_expected_adj}, got={_jb_adj}")
+
+# ── Single-path: get_avg_daily_earnings_12m ───────────────────────────────────
+_jb_avg, _jb_has_hist = _jbdb.get_avg_daily_earnings_12m(1, reference_date='2026-07-01')
+check("joint-sick single: has_history=True (есть история ставок)",
+      _jb_has_hist, f"has_hist={_jb_has_hist}")
+check("joint-sick single: joint_adj включён в avg_daily (симметрично индивидуальной комиссии)",
+      abs(_jb_avg - _jb_expected_avg) < 0.01,
+      f"expected≈{_jb_expected_avg:.4f}, got={_jb_avg}")
+check("joint-sick single: avg_daily выше чем без joint_adj (бонус учтён в числителе)",
+      _jb_avg > _jb_expected_avg_no_joint,
+      f"avg={_jb_avg}, avg_no_joint={_jb_expected_avg_no_joint:.4f}")
+
+# ── Bulk-path: get_vacation_pay_12m_bulk ─────────────────────────────────────
+_jb_bulk = _jbdb.get_vacation_pay_12m_bulk([1], 2026, 7)
+_jb_b = _jb_bulk.get(1, (0.0, 0, 0.0, False))
+check("joint-sick bulk: vac_cal_days=7",
+      _jb_b[1] == 7, f"got {_jb_b[1]}")
+check("joint-sick bulk: avg_daily совпадает с single-path",
+      abs(_jb_b[2] - _jb_avg) < 0.01,
+      f"bulk_avg={_jb_b[2]}, single={_jb_avg}")
+check("joint-sick bulk: vac_pay = avg_daily × 7",
+      abs(_jb_b[0] - round(_jb_avg * 7, 2)) < 0.01,
+      f"vac_pay={_jb_b[0]}, expected={round(_jb_avg * 7, 2)}")
+check("joint-sick bulk: fallback_used=False (есть история ставок)",
+      not _jb_b[3], f"fallback={_jb_b[3]}")
+
+_jbconn.close()
+
+# ─────────────────────────────────────────────────────────
 # СЦЕНАРИЙ: Двойной учёт при перекрывающихся больничных/отгулах
 # ─────────────────────────────────────────────────────────
 section("Перекрывающиеся больничные: get_worked_days_count и get_absence_days_map без двойного учёта")
@@ -4310,6 +4477,221 @@ check("cross-month: keep-запись расширена до Jan 25 – Feb 6",
 check("cross-month: drop-запись имеет статус 'cancelled'",
       _mx_dropped is not None and _mx_dropped[0] == 'cancelled',
       f"got={_mx_dropped[0] if _mx_dropped else 'N/A'}")
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ: Joint-бонус при переводе сотрудника + vacation на границе перевода
+# ─────────────────────────────────────────────────────────
+section("Joint: перевод сотрудника + vacation — vacation-splitting и multi-shop")
+
+# Изолированная БД для этого сценария
+import calendar as _cal_tr
+_tr_yr, _tr_mo = yr_now, mo_now
+_, _tr_last = _cal_tr.monthrange(_tr_yr, _tr_mo)
+
+tr_start = f"{_tr_yr}-{_tr_mo:02d}-01"
+tr_end   = f"{_tr_yr}-{_tr_mo:02d}-{_tr_last:02d}"
+tr_day05 = f"{_tr_yr}-{_tr_mo:02d}-05"   # Alice и Bob продают в Shop A (до отпуска)
+tr_day08 = f"{_tr_yr}-{_tr_mo:02d}-08"   # Bob продаёт в Shop A (в период отпуска Alice)
+tr_day10 = f"{_tr_yr}-{_tr_mo:02d}-10"   # конец отпуска Alice
+tr_day15 = f"{_tr_yr}-{_tr_mo:02d}-15"   # Alice и Carol продают в Shop B (после перевода)
+
+trdb = make_db("transfer_vacation.db")
+
+# Алиса: переведена в Shop B (profile), но имела продажи в Shop A в начале месяца
+# Боб: постоянный в Shop A
+# Кэрол: постоянная в Shop B
+trdb.add_user(920001, "Алиса", "Трансфер", shop_name="Перевод Шоп Б")
+trdb.add_user(920002, "Боб",   "ШопА",     shop_name="Перевод Шоп А")
+trdb.add_user(920003, "Кэрол", "ШопБ",     shop_name="Перевод Шоп Б")
+
+tr_uid_a = trdb.get_user_id(920001)   # Alice
+tr_uid_b = trdb.get_user_id(920002)   # Bob
+tr_uid_c = trdb.get_user_id(920003)   # Carol
+
+tr_pid = trdb.add_product("Товар TR", "Кат", 1000.0)
+trdb.add_inventory("Перевод Шоп А", tr_pid, 500)
+trdb.add_inventory("Перевод Шоп Б", tr_pid, 500)
+trdb.set_product_motivation(tr_pid, "fixed", 100.0, admin_telegram_id=920001)
+
+# Joint-условия: min_sellers=2, coeff=0.8 для обоих магазинов
+trconn = trdb.get_connection()
+trconn.execute("""
+    CREATE TABLE IF NOT EXISTS motivation_extra_conditions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shop_name TEXT,
+        condition_type TEXT,
+        min_sellers INTEGER,
+        coefficient REAL,
+        calc_mode TEXT DEFAULT 'individual',
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+""")
+trconn.execute("""
+    INSERT INTO motivation_extra_conditions
+        (shop_name, condition_type, min_sellers, coefficient, calc_mode, is_active)
+    VALUES (?, 'multi_seller_coeff', 2, 0.8, 'joint', 1)
+""", ("Перевод Шоп А",))
+trconn.execute("""
+    INSERT INTO motivation_extra_conditions
+        (shop_name, condition_type, min_sellers, coefficient, calc_mode, is_active)
+    VALUES (?, 'multi_seller_coeff', 2, 0.8, 'joint', 1)
+""", ("Перевод Шоп Б",))
+
+# Таблица отсутствий
+trconn.execute("""
+    CREATE TABLE IF NOT EXISTS absence_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        is_paid INTEGER,
+        comment TEXT,
+        admin_comment TEXT,
+        created_by INTEGER,
+        reviewed_by INTEGER,
+        created_at TEXT DEFAULT (datetime('now')),
+        reviewed_at TEXT
+    )
+""")
+
+# Продажи (вставляем напрямую, чтобы задать sale_date):
+#   Alice в Shop A, день 5: 5 ед. → 500₽ комиссия (до отпуска)
+#   Bob   в Shop A, день 5: 5 ед. → 500₽ (совпадает с Alice — joint работает)
+#   Bob   в Shop A, день 8: 5 ед. → 500₽ (ВНУТРИ отпуска Alice — должен быть исключён
+#                                            из Alice's joint, но учтён у Bob индивидуально)
+#   Alice в Shop B, день 15: 5 ед. → 500₽ (после перевода)
+#   Carol в Shop B, день 15: 5 ед. → 500₽ (совпадает с Alice — joint в Shop B работает)
+
+def _tr_insert_sale(conn, pid, shop, qty, uid, date_str, comm):
+    conn.execute(
+        "INSERT INTO sales (product_id, shop_name, quantity_sold, sale_price, user_id, sale_date) "
+        "VALUES (?,?,?,?,?,?)",
+        (pid, shop, qty, 1000.0, uid, date_str)
+    )
+    sale_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.execute(
+        "INSERT INTO seller_earnings (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value) "
+        "VALUES (?,?,?,?,?,?)",
+        (sale_id, uid, pid, comm, "fixed", 100.0)
+    )
+
+_tr_insert_sale(trconn, tr_pid, "Перевод Шоп А", 5, tr_uid_a, tr_day05, 500.0)
+_tr_insert_sale(trconn, tr_pid, "Перевод Шоп А", 5, tr_uid_b, tr_day05, 500.0)
+_tr_insert_sale(trconn, tr_pid, "Перевод Шоп А", 5, tr_uid_b, tr_day08, 500.0)
+_tr_insert_sale(trconn, tr_pid, "Перевод Шоп Б", 5, tr_uid_a, tr_day15, 500.0)
+_tr_insert_sale(trconn, tr_pid, "Перевод Шоп Б", 5, tr_uid_c, tr_day15, 500.0)
+
+# Отпуск Алисы: день 6–10 (перекрывает дату продажи Боба день 8)
+trconn.execute("""
+    INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid)
+    VALUES (?, 'vacation', ?, ?, 'approved', 1)
+""", (tr_uid_a,
+      f"{_tr_yr}-{_tr_mo:02d}-06",
+      tr_day10))
+trconn.commit()
+
+# ── Ожидаемые результаты для Алисы ────────────────────────────────────────────
+#
+# Магазин А (Alice добавлена в команду, т.к. продавала там):
+#   [день 1–5]:  active=[Bob, Alice] (2 ≥ 2)
+#                pool = Alice_A(500) + Bob_A(500) = 1000
+#                joint = 1000 × 0.8 = 800
+#                alice_ind = 500
+#                adj += 800 − 500 = +300
+#   [день 6–10]: Alice в отпуске → ПРОПУСКАЕМ (вклад Bob день 8 = не учтён)
+#   [день 11–31]: active=[Bob, Alice]; pool = Alice_A(0) + Bob_A(0) = 0 → adj = 0
+#   Итого Шоп А adj = +300
+#
+# Магазин Б (Alice в профиле):
+#   [день 1–5]:  pool = Alice_B(0) + Carol_B(0) = 0 → adj = 0
+#   [день 6–10]: Alice в отпуске → ПРОПУСКАЕМ
+#   [день 11–31]: active=[Alice, Carol] (2 ≥ 2)
+#                 pool = Alice_B(500) + Carol_B(500) = 1000
+#                 joint = 800; alice_ind = 500; adj += +300
+#   Итого Шоп Б adj = +300
+#
+# Общий adj Алисы = 300 + 300 = +600
+# Общий заработок Алисы = 500 (Shop A) + 500 (Shop B) + 600 (adj) = 1600
+
+tr_adj_a = trdb.get_joint_bonus_adjustment(tr_uid_a, tr_start, tr_end)
+
+check("transfer+vacation: Alice joint adj = +600 (Shop A pre-vac + Shop B post-transfer)",
+      abs(tr_adj_a - 600.0) < 0.01, f"got {tr_adj_a}")
+
+# Убеждаемся, что vacation splitting работает корректно:
+# Shop A adj = +300, а НЕ +700 (что было бы без vacation-splitting,
+# когда Bob's день 8 попал бы в общий пул целого периода):
+#   без сплиттинга: pool_A = Alice(500)+Bob(500+500)=1500, joint=1200, alice_ind=500, adj=700
+# Значит adj=300 (не 700) доказывает, что vacation-исключение из Shop A работает.
+# (Разница по Shop B: +300 в обоих случаях, т.к. нет продаж до/во время отпуска там)
+# Итого без vacation-splitting = 700+300=1000 ≠ 600.
+check("transfer+vacation: vacation-splitting корректно исключает Bobʼs день 8 из Alice adj "
+      "(adj=600, не 1000 — разница Shop A: 300 vs 700)",
+      abs(tr_adj_a - 600.0) < 0.01, f"got {tr_adj_a}")
+
+# ── Bob: per-user get_joint_bonus_adjustment = 0.0 ───────────────────────────
+# Alice перевелась в Shop B (profile). Поэтому при расчёте ДЛЯ БОБ:
+#   team = users WHERE shop_name='Перевод Шоп А' = [bob_id]
+#   (Alice не добавляется: функция расширяет команду только для ЗАПРАШИВАЕМОГО
+#    пользователя, а не для всех коллег)
+# effective_count = 1 < min_sellers=2 → joint не применяется → adj=0.
+# Корректное поведение per-user функции при переводе сотрудника.
+tr_adj_b = trdb.get_joint_bonus_adjustment(tr_uid_b, tr_start, tr_end)
+check("transfer+vacation: Bob per-user joint adj = 0 (Alice переведена, её нет в team Bob)",
+      abs(tr_adj_b - 0.0) < 0.01, f"got {tr_adj_b}")
+
+# ── Carol: adj +300 (только за день 11–31 с Alice в Shop B) ──────────────────
+# [день 1–5]: pool=0; [день 6–10]: Alice vac; [день 11–31]: pool=1000, adj=+300
+tr_adj_c = trdb.get_joint_bonus_adjustment(tr_uid_c, tr_start, tr_end)
+check("transfer+vacation: Carol joint adj = +300 (только за день 11–31 с Alice)",
+      abs(tr_adj_c - 300.0) < 0.01, f"got {tr_adj_c}")
+
+# ── get_seller_total_earnings_bulk согласуется с поштучным расчётом ───────────
+tr_bulk = trdb.get_seller_total_earnings_bulk(
+    [tr_uid_a, tr_uid_b, tr_uid_c], tr_start, tr_end, _tr_yr, _tr_mo
+)
+tr_bulk_a = tr_bulk.get(tr_uid_a, {}).get('total_earnings', 0.0)
+tr_bulk_b = tr_bulk.get(tr_uid_b, {}).get('total_earnings', 0.0)
+tr_bulk_c = tr_bulk.get(tr_uid_c, {}).get('total_earnings', 0.0)
+
+# Alice: 500 (Shop A day5) + 500 (Shop B day15) + 600 (adj) = 1600
+check("transfer+vacation bulk: Alice итого = 1600",
+      abs(tr_bulk_a - 1600.0) < 0.01, f"got {tr_bulk_a}")
+
+# Bob: 500 (day5) + 500 (day8) + 300 (adj) = 1300
+check("transfer+vacation bulk: Bob итого = 1300 (день 8 идёт как индивид. без joint)",
+      abs(tr_bulk_b - 1300.0) < 0.01, f"got {tr_bulk_b}")
+
+# Carol: 500 (day15) + 300 (adj) = 800
+check("transfer+vacation bulk: Carol итого = 800",
+      abs(tr_bulk_c - 800.0) < 0.01, f"got {tr_bulk_c}")
+
+# ── Граничный случай: продажа Alice в Shop A в день отпуска (день 8) ──────────
+# Добавляем продажу Alice в Shop A в день 8 (ВНУТРИ её отпуска)
+# Ожидаем: Alice joint adj НЕ изменился (отпуск исключает этот интервал)
+# Alice_ind за Shop A за период без отпускного интервала = всё равно только день 5
+trconn.execute(
+    "INSERT INTO sales (product_id, shop_name, quantity_sold, sale_price, user_id, sale_date) "
+    "VALUES (?,?,?,?,?,?)",
+    (tr_pid, "Перевод Шоп А", 3, 1000.0, tr_uid_a, tr_day08)
+)
+sale_vac_id = trconn.execute("SELECT last_insert_rowid()").fetchone()[0]
+trconn.execute(
+    "INSERT INTO seller_earnings (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value) "
+    "VALUES (?,?,?,?,?,?)",
+    (sale_vac_id, tr_uid_a, tr_pid, 300.0, "fixed", 100.0)
+)
+trconn.commit()
+
+tr_adj_a_with_vac_sale = trdb.get_joint_bonus_adjustment(tr_uid_a, tr_start, tr_end)
+# Продажа в день отпуска НЕ должна изменить joint adj Алисы,
+# т.к. интервал [день 6–10] пропускается из-за vacation-splitting.
+check("transfer+vacation граница: продажа во время отпуска не меняет joint adj Алисы",
+      abs(tr_adj_a_with_vac_sale - 600.0) < 0.01,
+      f"got {tr_adj_a_with_vac_sale} (expected 600)")
 
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)

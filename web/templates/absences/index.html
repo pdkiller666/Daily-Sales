@@ -64,7 +64,7 @@
   'csrf_error': '⚠️ Ошибка безопасности. Попробуй снова.',
   'no_overlap': '⚠️ Нельзя объединить: записи не пересекаются по датам.',
 } %}
-{% set warn_msgs = {'duplicate_approved'} %}
+{% set warn_msgs = {'duplicate_approved', 'cross_type_overlap', 'cross_type_add_warned'} %}
 {% if msg == 'duplicate_approved' %}
 <div class="mb-4 p-4 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-300">
   <p class="font-semibold mb-1">⚠️ Уже есть одобренная запись этого типа на пересекающиеся даты.</p>
@@ -90,6 +90,45 @@
   {% else %}
   <p class="text-xs">Сначала отмените существующую запись, чтобы одобрить новую.</p>
   {% endif %}
+</div>
+{% elif msg == 'cross_type_overlap' %}
+{% set _ct_labels = {'vacation': 'Отпуск', 'sick': 'Больничный', 'compensatory': 'Отгул', 'absence': 'Прогул', 'other': 'Другое'} %}
+<div class="mb-4 p-4 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-xl text-sm text-orange-700 dark:text-orange-300">
+  <p class="font-semibold mb-1">⚠️ Пересечение с другим типом отсутствия</p>
+  <p class="mb-3 text-xs">
+    У сотрудника уже есть одобренная запись «{{ _ct_labels.get(cross_type_atype, cross_type_atype) }}»
+    (запись #{{ cross_type_cross_id }}), которая пересекается с этим периодом.
+    Пересечение разных типов допустимо, но может некорректно отразиться на зарплате и графике.
+  </p>
+  {% if cross_type_pending_id %}
+  <div class="flex gap-2 flex-wrap">
+    <form method="post" action="/absences/update">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="absence_id" value="{{ cross_type_pending_id }}">
+      <input type="hidden" name="action" value="approve">
+      <input type="hidden" name="year" value="{{ year }}">
+      <input type="hidden" name="month" value="{{ month }}">
+      <input type="hidden" name="cross_type_confirmed" value="1">
+      <button type="submit"
+              class="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold rounded-lg transition-colors">
+        ✅ Одобрить всё равно
+      </button>
+    </form>
+    <a href="/absences?year={{ year }}&month={{ month }}"
+       class="px-3 py-1.5 border border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-900 text-xs font-semibold rounded-lg transition-colors">
+      Отмена
+    </a>
+  </div>
+  {% endif %}
+</div>
+{% elif msg == 'cross_type_add_warned' %}
+{% set _ct_labels = {'vacation': 'Отпуск', 'sick': 'Больничный', 'compensatory': 'Отгул', 'absence': 'Прогул', 'other': 'Другое'} %}
+<div class="mb-4 p-4 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-xl text-sm text-orange-700 dark:text-orange-300">
+  <p class="font-semibold mb-1">⚠️ Запись добавлена, но обнаружено пересечение типов</p>
+  <p class="text-xs">
+    Запись сохранена. У сотрудника уже была одобренная запись «{{ _ct_labels.get(cross_type_atype, cross_type_atype) }}»,
+    которая пересекается с этим периодом. Проверьте корректность записей.
+  </p>
 </div>
 {% elif msg and msg in msg_map %}
 <div class="mb-4 flex items-start gap-2 p-3 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm text-emerald-700 dark:text-emerald-300">

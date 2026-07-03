@@ -616,10 +616,16 @@ async def salary_payslip_admin(callback: CallbackQuery, state: FSMContext):
     daily_rate = await current_db.get_salary_rate(target_uid)
     net_worked_count = await current_db.get_worked_days_count(target_uid, year, month)
     non_vac_paid_abs = await current_db.get_paid_absence_days_count(target_uid, year, month, exclude_vacation=True)
+    _vac_data_ok = True
     try:
         vac_pay, vac_cal_days, avg_daily, _ = await current_db.get_vacation_pay_12m(target_uid, year, month)
-    except Exception:
+    except (TypeError, ValueError):
         vac_pay, vac_cal_days, avg_daily = 0.0, 0, 0.0
+        _vac_data_ok = False
+    except Exception:
+        logger.exception("get_vacation_pay_12m failed for uid=%s %s/%s", target_uid, year, month)
+        vac_pay, vac_cal_days, avg_daily = 0.0, 0, 0.0
+        _vac_data_ok = False
 
     try:
         adj_rows = await current_db.get_salary_adjustments(target_uid, year, month)
@@ -658,7 +664,9 @@ async def salary_payslip_admin(callback: CallbackQuery, state: FSMContext):
                 f"🏥 Оплач. отсутствия: {non_vac_paid_abs} × {format_price(daily_rate)}₽"
                 f" = <b>{format_price(abs_pay)}₽</b>"
             )
-    if vac_cal_days > 0:
+    if not _vac_data_ok:
+        lines.append("🌴 Отпускные: <i>данные недоступны</i>")
+    elif vac_cal_days > 0:
         lines.append(
             f"🌴 Отпускные: {vac_cal_days} кал.дн. × {format_price(avg_daily)}₽/дн."
             f" = <b>{format_price(vac_pay)}₽</b>"
