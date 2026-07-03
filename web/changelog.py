@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.385.0"
+CURRENT_VERSION = "1.386.0"
 
 ENTRIES = [
+    {
+        "version": "1.386.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Improve schedule calendar visuals and bulk shift template saving",
+            "Refine salary calculation display to show precise daily rates",
+        ],
+    },
     {
         "version": "1.385.0",
         "date": "3 июля 2026",
