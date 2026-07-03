@@ -7586,11 +7586,23 @@ class Database:
                            returned_by_user_id, return_date, reason=None):
         """Создать возврат: зафиксировать, восстановить остатки, скорректировать мотивацию продавца.
         Возвращает return_id (int) или None при ошибке.
-        Поднимает ValueError если суммарный возврат превысит количество проданных единиц."""
+        Поднимает ValueError если суммарный возврат превысит количество проданных единиц.
+
+        Атомарность: BEGIN IMMEDIATE берёт write-lock до любых SELECT-ов,
+        исключая race-condition при конкурентных запросах.
+        """
         conn = None
+        _raw = None
+        _prev_isolation = None
         try:
             conn = self.get_connection()
-            cur = conn.cursor()
+            # ── BEGIN IMMEDIATE: берём write-lock до проверки, чтобы
+            #    конкурентный запрос не мог прочитать old already+вставить ──
+            _raw = object.__getattribute__(conn, '_c')
+            _prev_isolation = _raw.isolation_level
+            _raw.isolation_level = None  # autocommit → позволяет явный BEGIN
+            cur = _raw.cursor()
+            cur.execute("BEGIN IMMEDIATE")
 
             # ── Атомарная защита от двойного возврата ───────────────────
             if sale_id is not None:
@@ -7604,6 +7616,8 @@ class Database:
                     )
                     already = int(cur.fetchone()[0])
                     if already + quantity_returned > qty_sold:
+                        cur.execute("ROLLBACK")
+                        _raw.isolation_level = _prev_isolation
                         conn.close()
                         available = max(0, qty_sold - already)
                         raise ValueError(
@@ -7645,16 +7659,22 @@ class Database:
                         VALUES (?, ?, ?, ?, 'return_reversal', 0)
                     ''', (sale_id, seller_user_id, product_id, -earned))
 
-            conn.commit()
+            cur.execute("COMMIT")
+            _raw.isolation_level = _prev_isolation
             conn.close()
             return return_id
         except ValueError:
             raise
         except Exception as e:
             logger.error(f"create_sale_return error: {e}")
+            if _raw and _prev_isolation is not None:
+                try:
+                    _raw.isolation_level = _prev_isolation
+                except Exception:
+                    pass
             if conn:
                 try:
-                    conn.close()
+                    conn.close()  # _PooledConn.close() откатит незакрытую транзакцию
                 except Exception:
                     pass
             return None
