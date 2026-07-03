@@ -152,6 +152,7 @@ def reports_page(
         "date_from": date_from, "date_to": date_to,
         "category": category, "seller_id": seller_id, "seller_name": "",
         "shops": [], "summary": (0, 0, 0, 0),
+        "returns_summary": {"count": 0, "total_qty": 0, "total_amount": 0.0},
         "groups": [], "all_sales": [], "error": None,
         "chart_labels": [], "chart_data": [], "chart_dates": [],
         "prev_revenue": None, "growth_pct": None,
@@ -213,6 +214,18 @@ def reports_page(
         elif not is_admin and "shop_names" in kwargs:
             summary_kwargs["shop_names"] = kwargs["shop_names"]
         ctx["summary"] = db.get_sales_summary(**summary_kwargs) or (0, 0, 0, 0)
+
+        # Returns summary for the same period/scope
+        try:
+            _ret_kw: dict = {"start_date": df, "end_date": dt}
+            if shop:
+                _ret_kw["shop_name"] = shop
+            elif _scoped:
+                _ret_kw["shop_names"] = allowed_shops
+            ctx["returns_summary"] = db.get_returns_summary(**_ret_kw) or {"count": 0, "total_qty": 0, "total_amount": 0.0}
+        except Exception:
+            ctx["returns_summary"] = {"count": 0, "total_qty": 0, "total_amount": 0.0}
+
         try:
             _ly, _lm = int(date_from[:4]), int(date_from[5:7])
         except Exception:

@@ -414,6 +414,10 @@ function toastMgr() {
            class="nav-link {% if request.url.path.startswith('/sales') and not request.url.path.startswith('/sales/') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">💰</span>Продажи
         </a>
+        <a href="/returns"
+           class="nav-link {% if request.url.path.startswith('/returns') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">↩️</span>Возвраты
+        </a>
         <a href="/products"
            class="nav-link {% if request.url.path.startswith('/products') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">📦</span>Товары

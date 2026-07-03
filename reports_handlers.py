@@ -1079,6 +1079,18 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
         except Exception:
             pass
 
+    # Returns summary for the same period/scope
+    _ret_summary = None
+    try:
+        _ret_kw: dict = {"start_date": start_date, "end_date": end_date}
+        if shop_name:
+            _ret_kw["shop_name"] = shop_name
+        elif user_shop_only and _user_shop_for_period:
+            _ret_kw["shop_name"] = _user_shop_for_period
+        _ret_summary = await current_db.get_returns_summary(**_ret_kw)
+    except Exception:
+        _ret_summary = None
+
     # Формируем отчет
     shops_count = len(shops_data)
     shops_suffix = f" ({shops_count} маг.)" if shops_count > 1 else ""
@@ -1092,6 +1104,10 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
     message_text += f"• Продано товаров: {total_quantity} шт.\n"
     message_text += f"• Общая сумма: {format_currency(total_sum)}\n"
     message_text += f"• Заработок: <b>{format_currency(total_earnings_accumulated)}</b>\n"
+    if _ret_summary and _ret_summary.get("count", 0) > 0:
+        message_text += f"• Возвратов: {_ret_summary['count']} докум. ({_ret_summary['total_qty']} ед.) — −{format_currency(_ret_summary['total_amount'])}\n"
+        _net = total_sum - _ret_summary["total_amount"]
+        message_text += f"• Выручка нетто: <b>{format_currency(_net)}</b>\n"
     if shops_count > 1:
         message_text += f"• Магазинов: {shops_count}\n"
     message_text += "\n"

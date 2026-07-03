@@ -135,6 +135,7 @@ def dashboard(request: Request, msg: str = ""):
         "gate_text": gate_text,
         "today_sales": 0, "today_revenue": f"0\u00a0{_csym}",
         "month_sales": 0, "month_revenue": f"0\u00a0{_csym}",
+        "month_returns": {"count": 0, "total_qty": 0, "total_amount": 0.0},
         "user_count": 0, "product_count": 0,
         "chart_labels": [], "chart_data": [], "chart_dates": [],
         "recent_sales": [], "shop_ranking": [],
@@ -183,6 +184,15 @@ def dashboard(request: Request, msg: str = ""):
         ctx["today_revenue"] = _fmt(today_s[2], _csym)
         ctx["month_sales"] = int(month_s[0] or 0)
         ctx["month_revenue"] = _fmt(month_s[2], _csym)
+
+        # ── Returns summary (current month) ────────────────────────────────
+        try:
+            _ret_kw: dict = {"start_date": month_str, "end_date": today_str}
+            if ctx.get("user_shop"):
+                _ret_kw["shop_name"] = ctx["user_shop"]
+            ctx["month_returns"] = db.get_returns_summary(**_ret_kw) or {"count": 0, "total_qty": 0, "total_amount": 0.0}
+        except Exception:
+            ctx["month_returns"] = {"count": 0, "total_qty": 0, "total_amount": 0.0}
 
         # ── Period comparisons ──────────────────────────────────────────────
         try:

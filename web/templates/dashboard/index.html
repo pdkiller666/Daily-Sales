@@ -178,6 +178,30 @@
 
 </div>
 
+<!-- ══ RETURNS STRIP (current month) ══ -->
+{% if month_returns and month_returns.count > 0 %}
+<div class="card p-4 mb-5 flex flex-wrap items-center gap-4">
+    <div class="flex items-center gap-3 min-w-0 flex-1">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base" style="background:linear-gradient(135deg,#fee2e2,#fef2f2)">↩️</div>
+        <div class="min-w-0">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Возвраты за месяц</p>
+            <p class="text-lg font-bold text-red-600 leading-tight">−{{ month_returns.total_amount|int|fmt_currency }}</p>
+        </div>
+    </div>
+    <div class="flex items-center gap-5 shrink-0">
+        <div class="text-center">
+            <p class="text-base font-bold text-slate-800">{{ month_returns.count }}</p>
+            <p class="text-[10px] text-slate-400 uppercase tracking-wide">докум.</p>
+        </div>
+        <div class="text-center">
+            <p class="text-base font-bold text-slate-800">{{ month_returns.total_qty }}</p>
+            <p class="text-[10px] text-slate-400 uppercase tracking-wide">единиц</p>
+        </div>
+        <a href="/returns" class="text-xs text-blue-500 hover:text-blue-700 font-semibold whitespace-nowrap">Подробнее →</a>
+    </div>
+</div>
+{% endif %}
+
 <!-- ══ ROW 2: ACTIVE PLANS ══ -->
 {% if plans_dash %}
 <div class="card p-5 mb-5">
