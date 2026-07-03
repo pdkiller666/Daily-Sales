@@ -269,6 +269,8 @@ Disallow: /tasks/calendar
 Disallow: /tasks/gantt
 Disallow: /tasks/workload
 Disallow: /ai-insights
+Disallow: /returns
+Disallow: /api/returns/
 Disallow: /api/
 Disallow: /payment-proof/
 Disallow: /payment-proof-req/
@@ -874,6 +876,7 @@ def create_web_app() -> FastAPI:
     from web.routes.ai_routes import router as ai_router
     from web.routes.ai_insights import router as ai_insights_router
     from web.routes.security import router as security_router
+    from web.routes.returns import router as returns_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -909,6 +912,7 @@ def create_web_app() -> FastAPI:
     app.include_router(ai_router)
     app.include_router(ai_insights_router)
     app.include_router(security_router)
+    app.include_router(returns_router)
 
     _APK_LOCAL = Path("data/apk/DailySales-latest.apk")
     _APK_MIN_SIZE = 200_000  # 200 KB — реальные TWA APK ~500-600 KB

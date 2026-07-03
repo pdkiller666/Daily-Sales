@@ -133,11 +133,12 @@ def catalog_menu():
     return builder.as_markup()
 
 def edit_sales_hub():
-    """Хаб управления продажами: редактировать + массовое удаление за период"""
+    """Хаб управления продажами: редактировать + массовое удаление + возвраты"""
     builder = InlineKeyboardBuilder()
     builder.add(
         InlineKeyboardButton(text="✏️ Редактировать / удалить", callback_data="edit_sales_start"),
-        InlineKeyboardButton(text="🗑 Удалить за период", callback_data="sales_bulk_delete"),
+        InlineKeyboardButton(text="↩️ Возвраты товара",         callback_data="returns_menu"),
+        InlineKeyboardButton(text="🗑 Удалить за период",        callback_data="sales_bulk_delete"),
         back_button("admin_management"),
     )
     builder.adjust(1)

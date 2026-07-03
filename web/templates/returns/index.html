@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+{% block title %}Возвраты{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/sales" class="text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 text-sm">Продажи</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200 text-sm">Возвраты</span>
+{% endblock %}
+
+{% block content %}
+<div x-data="returnsPage()" @keydown.escape.window="closeModal()">
+
+{% if flash_ok %}
+<div class="mb-4 flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm text-emerald-700 dark:text-emerald-300">
+  ✅ Возврат оформлен
+</div>
+{% endif %}
+{% if flash_err %}
+<div class="mb-4 flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
+  ⚠️ {{ flash_err }}
+</div>
+{% endif %}
+
+<!-- ── Header ── -->
+<div class="flex items-center justify-between mb-5">
+  <div>
+    <h1 class="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100">↩️ Возвраты товара</h1>
+    <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">История возвратов</p>
+  </div>
+  <a href="/sales" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">← К продажам</a>
+</div>
+
+<!-- ── Summary cards ── -->
+<div class="grid grid-cols-3 gap-3 mb-5">
+  <div class="bg-white dark:bg-slate-800 rounded-xl p-3 sm:p-4 border border-slate-200 dark:border-slate-700 text-center">
+    <div class="text-xs text-slate-500 dark:text-slate-400">Возвратов</div>
+    <div class="text-xl font-bold text-slate-800 dark:text-slate-100 mt-1">{{ summary.count or 0 }}</div>
+  </div>
+  <div class="bg-white dark:bg-slate-800 rounded-xl p-3 sm:p-4 border border-slate-200 dark:border-slate-700 text-center">
+    <div class="text-xs text-slate-500 dark:text-slate-400">Единиц</div>
+    <div class="text-xl font-bold text-amber-600 dark:text-amber-400 mt-1">{{ summary.total_qty or 0 }}</div>
+  </div>
+  <div class="bg-white dark:bg-slate-800 rounded-xl p-3 sm:p-4 border border-slate-200 dark:border-slate-700 text-center">
+    <div class="text-xs text-slate-500 dark:text-slate-400">Сумма</div>
+    <div class="text-xl font-bold text-red-600 dark:text-red-400 mt-1">{{ (summary.total_amount or 0) | round(0) | int | fmt_currency }}</div>
+  </div>
+</div>
+
+<!-- ── Фильтры ── -->
+<div class="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 mb-5">
+  <form method="GET" action="/returns" class="flex flex-wrap gap-3 items-end">
+    <div class="flex flex-col gap-1 min-w-[130px]">
+      <label class="text-xs text-slate-500 dark:text-slate-400">Дата с</label>
+      <input type="date" name="date_from" value="{{ date_from }}"
+        class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+    </div>
+    <div class="flex flex-col gap-1 min-w-[130px]">
+      <label class="text-xs text-slate-500 dark:text-slate-400">Дата по</label>
+      <input type="date" name="date_to" value="{{ date_to }}"
+        class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+    </div>
+    {% if shops %}
+    <div class="flex flex-col gap-1 min-w-[150px]">
+      <label class="text-xs text-slate-500 dark:text-slate-400">Магазин</label>
+      <select name="shop"
+        class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <option value="">Все магазины</option>
+        {% for s in shops %}
+        <option value="{{ s }}" {% if s == selected_shop %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <button type="submit"
+      class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+      Применить
+    </button>
+    <a href="/returns"
+      class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+      Сбросить
+    </a>
+  </form>
+</div>
+
+<!-- ── Таблица возвратов ── -->
+<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden mb-5">
+  {% if returns %}
+  <!-- Desktop table -->
+  <div class="hidden sm:block overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
+        <tr>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Товар</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Магазин</th>
+          <th class="px-4 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Кол-во</th>
+          <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Сумма</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Продавец</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Дата</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Причина</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Оформил</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+        {% for r in returns %}
+        {# r: (id[0], sale_id[1], product_name[2], shop_name[3], qty[4], price[5],
+               seller_uid[6], returned_by_uid[7], return_date[8], reason[9], created_at[10],
+               seller_first[11], seller_last[12], admin_first[13], admin_last[14]) #}
+        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+          <td class="px-4 py-3 text-slate-800 dark:text-slate-200 font-medium">{{ r[2] }}</td>
+          <td class="px-4 py-3 text-slate-600 dark:text-slate-400">{{ r[3] }}</td>
+          <td class="px-4 py-3 text-center">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
+              ↩ {{ r[4] }} шт.
+            </span>
+          </td>
+          <td class="px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400">
+            −{{ (r[4] * r[5]) | round(0) | int | fmt_currency }}
+          </td>
+          <td class="px-4 py-3 text-slate-600 dark:text-slate-400 text-xs">
+            {{ (r[11] or '') ~ ' ' ~ (r[12] or '') | trim or '—' }}
+          </td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{{ r[8][:10] if r[8] else '—' }}</td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs max-w-[150px] truncate" title="{{ r[9] or '' }}">
+            {{ r[9] or '—' }}
+          </td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">
+            {{ (r[13] or '') ~ ' ' ~ (r[14] or '') | trim or '—' }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Mobile cards -->
+  <div class="sm:hidden divide-y divide-slate-100 dark:divide-slate-700/50">
+    {% for r in returns %}
+    <div class="p-4">
+      <div class="flex items-start justify-between gap-2 mb-1">
+        <span class="font-semibold text-slate-800 dark:text-slate-100 text-sm">{{ r[2] }}</span>
+        <span class="text-sm font-bold text-red-600 dark:text-red-400 whitespace-nowrap">−{{ (r[4] * r[5]) | round(0) | int | fmt_currency }}</span>
+      </div>
+      <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+        <span>🏪 {{ r[3] }}</span>
+        <span>📦 {{ r[4] }} шт.</span>
+        <span>📅 {{ r[8][:10] if r[8] else '—' }}</span>
+      </div>
+      {% if r[9] %}
+      <div class="mt-1 text-xs text-slate-500 dark:text-slate-400 italic">💬 {{ r[9] }}</div>
+      {% endif %}
+      <div class="mt-1 text-xs text-slate-400 dark:text-slate-500">
+        Продавец: {{ (r[11] or '') ~ ' ' ~ (r[12] or '') | trim or '—' }} ·
+        Оформил: {{ (r[13] or '') ~ ' ' ~ (r[14] or '') | trim or '—' }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <div class="py-16 text-center">
+    <div class="text-4xl mb-3">↩️</div>
+    <div class="text-slate-500 dark:text-slate-400 font-medium">Возвратов не найдено</div>
+    <div class="text-sm text-slate-400 dark:text-slate-500 mt-1">за выбранный период</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Пагинация ── -->
+{% if total_pages > 1 %}
+<div class="flex items-center justify-center gap-2 mb-5">
+  {% if page > 1 %}
+  <a href="/returns?date_from={{ date_from }}&date_to={{ date_to }}&shop={{ selected_shop }}&page={{ page - 1 }}"
+    class="px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+    ← Назад
+  </a>
+  {% endif %}
+  <span class="text-sm text-slate-500 dark:text-slate-400">{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a href="/returns?date_from={{ date_from }}&date_to={{ date_to }}&shop={{ selected_shop }}&page={{ page + 1 }}"
+    class="px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+    Вперёд →
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ── Modal создания возврата (открывается из /sales) ── -->
+{% if is_admin %}
+<div x-show="open" x-cloak
+  class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+  @click.self="closeModal()">
+  <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 dark:border-slate-700">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+      <h2 class="text-base font-bold text-slate-800 dark:text-slate-100">↩️ Оформить возврат</h2>
+      <button @click="closeModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">×</button>
+    </div>
+    <div class="p-5">
+      <div class="mb-4 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-xl text-sm">
+        <div class="font-semibold text-slate-800 dark:text-slate-100" x-text="saleProduct"></div>
+        <div class="text-slate-500 dark:text-slate-400 mt-0.5">
+          Магазин: <span x-text="saleShop"></span> · Продано: <span x-text="saleQty"></span> шт.
+        </div>
+        <div class="text-slate-500 dark:text-slate-400">
+          Цена: <span x-text="salePrice"></span>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+          Количество для возврата <span class="text-red-500">*</span>
+        </label>
+        <input type="number" x-model="retQty" min="1" :max="saleQty"
+          class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          :placeholder="'от 1 до ' + saleQty">
+        <div class="text-xs text-slate-400 dark:text-slate-500 mt-1" x-show="retQty > 0">
+          Сумма возврата: <span x-text="(retQty * salePriceRaw).toLocaleString('ru') + ' ' + currency"></span>
+        </div>
+      </div>
+
+      <div class="mb-5">
+        <label class="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Причина (необязательно)</label>
+        <textarea x-model="retReason" rows="2" maxlength="200"
+          placeholder="Бракованный товар, ошибка, другое…"
+          class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+      </div>
+
+      <div x-show="errMsg" class="mb-3 text-sm text-red-600 dark:text-red-400" x-text="errMsg"></div>
+
+      <div class="flex gap-3">
+        <button @click="closeModal()"
+          class="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+          Отмена
+        </button>
+        <button @click="submitReturn()" :disabled="loading"
+          class="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors disabled:opacity-60">
+          <span x-show="!loading">↩️ Подтвердить возврат</span>
+          <span x-show="loading">Оформляем…</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+</div><!-- x-data -->
+
+<script nonce="{{ csp_nonce }}">
+function returnsPage() {
+  return {
+    open: false,
+    loading: false,
+    saleId: 0,
+    saleProduct: '',
+    saleShop: '',
+    saleQty: 1,
+    salePrice: '',
+    salePriceRaw: 0,
+    currency: '₽',
+    retQty: 1,
+    retReason: '',
+    errMsg: '',
+    csrfToken: '{{ csrf_token | e }}',
+
+    openModal(saleId, product, shop, qty, priceRaw, priceFmt, cur) {
+      this.saleId      = saleId;
+      this.saleProduct = product;
+      this.saleShop    = shop;
+      this.saleQty     = qty;
+      this.salePrice   = priceFmt;
+      this.salePriceRaw = priceRaw;
+      this.currency    = cur || '₽';
+      this.retQty      = 1;
+      this.retReason   = '';
+      this.errMsg      = '';
+      this.open        = true;
+    },
+
+    closeModal() {
+      this.open = false;
+      this.errMsg = '';
+    },
+
+    async submitReturn() {
+      this.errMsg = '';
+      const qty = parseInt(this.retQty);
+      if (!qty || qty < 1 || qty > this.saleQty) {
+        this.errMsg = `Введите количество от 1 до ${this.saleQty}`;
+        return;
+      }
+      this.loading = true;
+      try {
+        const fd = new FormData();
+        fd.append('sale_id', this.saleId);
+        fd.append('quantity_returned', qty);
+        fd.append('reason', this.retReason || '');
+        fd.append('csrf_token', this.csrfToken);
+        const res = await fetch('/api/returns/create', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+          this.open = false;
+          window.location.href = '/returns?ok=1';
+        } else {
+          this.errMsg = data.error || 'Ошибка';
+        }
+      } catch (e) {
+        this.errMsg = 'Ошибка соединения';
+      } finally {
+        this.loading = false;
+      }
+    }
+  }
+}
+
+// Открыть модалку из другой страницы через URL-хэш: /returns#ret-SALEID-PRODUCT-SHOP-QTY-PRICE-CUR
+(function() {
+  const h = window.location.hash;
+  if (h.startsWith('#ret-')) {
+    try {
+      const parts = decodeURIComponent(h.slice(5)).split('|');
+      if (parts.length >= 6) {
+        const comp = document.querySelector('[x-data]').__x;
+        if (comp) comp.$data.openModal(
+          parseInt(parts[0]), parts[1], parts[2],
+          parseInt(parts[3]), parseFloat(parts[4]), parts[4], parts[5] || '₽'
+        );
+      }
+    } catch(e) {}
+  }
+})();
+</script>
+{% endblock %}

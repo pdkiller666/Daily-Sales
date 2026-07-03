@@ -56,6 +56,13 @@ class EditSaleStates(StatesGroup):
     choosing_start_date = State()
     choosing_end_date = State()
 
+class ReturnStates(StatesGroup):
+    choosing_sale  = State()
+    entering_qty   = State()
+    entering_reason = State()
+    confirming     = State()
+    viewing_history = State()
+
 class ReportStates(StatesGroup):
     choosing_start_date = State()
     choosing_end_date = State()

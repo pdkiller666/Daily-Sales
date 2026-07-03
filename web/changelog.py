@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.390.0"
+CURRENT_VERSION = "1.391.0"
 
 ENTRIES = [
+    {
+        "version": "1.391.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Add an APK download button to the mobile menu for Android users",
+        ],
+    },
     {
         "version": "1.390.0",
         "date": "3 июля 2026",

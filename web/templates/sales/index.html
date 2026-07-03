@@ -312,6 +312,58 @@
     </div>
 </div>
 
+<!-- Return modal -->
+{% if is_admin %}
+<div x-show="retOpen" x-cloak class="fixed inset-0 z-[55] flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="closeReturn()"></div>
+    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm z-10" @click.stop>
+        <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700">
+            <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100">↩️ Оформить возврат</h3>
+            <button @click="closeReturn()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">×</button>
+        </div>
+        <div class="px-5 py-4 space-y-4">
+            <div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-xl text-sm">
+                <div class="font-semibold text-slate-800 dark:text-slate-100" x-text="retProduct"></div>
+                <div class="text-slate-500 dark:text-slate-400 mt-0.5 text-xs">
+                    Магазин: <span x-text="retShop"></span> ·
+                    Продано: <span x-text="retMaxQty"></span> шт. ·
+                    Цена: <span x-text="Math.round(retPriceRaw).toLocaleString('ru') + ' ₽'"></span>
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+                    Количество для возврата <span class="text-red-500">*</span>
+                </label>
+                <input type="number" x-model="retQty" min="1" :max="retMaxQty"
+                    class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    :placeholder="'от 1 до ' + retMaxQty">
+                <div class="text-xs text-slate-400 dark:text-slate-500 mt-1" x-show="retQty > 0">
+                    Сумма возврата: <span class="font-medium text-red-500" x-text="'−' + Math.round(retQty * retPriceRaw).toLocaleString('ru') + ' ₽'"></span>
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Причина (необязательно)</label>
+                <textarea x-model="retReason" rows="2" maxlength="200"
+                    placeholder="Бракованный товар, ошибка, другое…"
+                    class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+            </div>
+            <div x-show="retError" class="text-sm text-red-600 dark:text-red-400" x-text="retError"></div>
+            <div class="flex gap-3 pt-1">
+                <button @click="closeReturn()"
+                    class="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                    Отмена
+                </button>
+                <button @click="submitReturn()" :disabled="retLoading"
+                    class="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors disabled:opacity-60">
+                    <span x-show="!retLoading">↩️ Подтвердить</span>
+                    <span x-show="retLoading">Оформляем…</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Barcode scanner modal -->
 <div x-show="scanOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4">
     <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" @click="closeBarcodeScanner()"></div>
@@ -596,6 +648,12 @@
                                     @click="openEdit({{ s[0] }})"
                                     class="text-xs text-blue-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-1.5 py-1 rounded transition-colors"
                                     title="Редактировать">✏️</button>
+                            {% if is_admin %}
+                            <button type="button"
+                                    @click="openReturn({{ s[0] }}, {{ s[7]|tojson }}, {{ s[2]|tojson }}, {{ s[3] }}, {{ s[4] }})"
+                                    class="text-xs text-amber-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 px-1.5 py-1 rounded transition-colors"
+                                    title="Оформить возврат">↩️</button>
+                            {% endif %}
                             <form method="post" action="/sales/{{ s[0] }}/delete"
                                   data-confirm="Удалить продажу? Остатки будут восстановлены.">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -713,6 +771,18 @@ function saleModal() {
         auditOpen: false,
         auditRows: [],
         auditLoading: false,
+
+        // Return modal state
+        retOpen: false,
+        retSaleId: null,
+        retProduct: '',
+        retShop: '',
+        retMaxQty: 1,
+        retPriceRaw: 0,
+        retQty: 1,
+        retReason: '',
+        retLoading: false,
+        retError: '',
 
         // Barcode scanner state
         scanOpen: false,
@@ -1090,6 +1160,54 @@ function saleModal() {
             }
             const video = document.getElementById('barcode-video');
             if (video) { video.srcObject = null; }
+        },
+
+        // ── Return modal ─────────────────────────────────────────────────────
+        openReturn(saleId, product, shop, qty, priceRaw) {
+            this.retSaleId   = saleId;
+            this.retProduct  = product;
+            this.retShop     = shop;
+            this.retMaxQty   = qty;
+            this.retPriceRaw = priceRaw;
+            this.retQty      = 1;
+            this.retReason   = '';
+            this.retError    = '';
+            this.retOpen     = true;
+        },
+
+        closeReturn() {
+            this.retOpen = false;
+            this.retError = '';
+        },
+
+        async submitReturn() {
+            if (this.retLoading) return;
+            this.retError = '';
+            const qty = parseInt(this.retQty);
+            if (!qty || qty < 1 || qty > this.retMaxQty) {
+                this.retError = 'Введите количество от 1 до ' + this.retMaxQty;
+                return;
+            }
+            this.retLoading = true;
+            try {
+                const fd = new FormData();
+                fd.append('sale_id', this.retSaleId);
+                fd.append('quantity_returned', qty);
+                fd.append('reason', this.retReason || '');
+                fd.append('csrf_token', '{{ csrf_token }}');
+                const res = await fetch('/api/returns/create', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.ok) {
+                    this.retOpen = false;
+                    window.location.href = '/returns?ok=1';
+                } else {
+                    this.retError = data.error || 'Ошибка';
+                }
+            } catch(e) {
+                this.retError = 'Ошибка соединения';
+            } finally {
+                this.retLoading = false;
+            }
         },
     };
 }

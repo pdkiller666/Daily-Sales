@@ -26,7 +26,7 @@
         }
     </script>
     <!-- Tailwind: pre-compiled static CSS (replaces the dev-only CDN runtime build) -->
-    <link rel="stylesheet" href="/static/app.css?v=850042370d">
+    <link rel="stylesheet" href="/static/app.css?v=4f6aa7e74c">
     {% block extra_css %}{% endblock %}
     <script defer src="/static/vendor/htmx.min.js?v=faf9d188bd"></script>
     <script defer src="/static/vendor/alpine.min.js?v=faf9d188bd"></script>
@@ -2063,6 +2063,13 @@ function mainApp() {
                     <span class="sht-icon">💰</span>
                     <span class="sht-label">Продажи</span>
                 </a>
+                {% if nm.sales %}
+                <a href="/returns" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/returns') %}sht-active{% endif %}">
+                    <span class="sht-icon">↩️</span>
+                    <span class="sht-label">Возвраты</span>
+                </a>
+                {% endif %}
                 <a href="/products" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/products') %}sht-active{% endif %}">
                     <span class="sht-icon">📦</span>

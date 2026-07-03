@@ -338,6 +338,34 @@ class Database:
         ''')
 
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sale_returns (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_id             INTEGER,
+                product_id          INTEGER NOT NULL,
+                product_name        TEXT NOT NULL,
+                shop_name           TEXT NOT NULL,
+                quantity_returned   INTEGER NOT NULL,
+                return_price        REAL NOT NULL,
+                seller_user_id      INTEGER,
+                returned_by_user_id INTEGER NOT NULL,
+                return_date         TEXT NOT NULL,
+                reason              TEXT,
+                created_at          TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (product_id) REFERENCES products (id),
+                FOREIGN KEY (returned_by_user_id) REFERENCES users (id)
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_sale_returns_date ON sale_returns(return_date DESC)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_sale_returns_shop ON sale_returns(shop_name, return_date DESC)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_sale_returns_seller ON sale_returns(seller_user_id, return_date DESC)'
+        )
+
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS product_history (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 product_id  INTEGER NOT NULL,
@@ -7526,6 +7554,281 @@ class Database:
             if 'conn' in locals():
                 conn.close()
             return False
+
+    # ──────────────────────────────────────────────────────────────────────
+    # ВОЗВРАТЫ ТОВАРА (sale_returns)
+    # ──────────────────────────────────────────────────────────────────────
+
+    def create_sale_return(self, sale_id, product_id, product_name, shop_name,
+                           quantity_returned, return_price, seller_user_id,
+                           returned_by_user_id, return_date, reason=None):
+        """Создать возврат: зафиксировать, восстановить остатки, скорректировать мотивацию продавца.
+        Возвращает return_id (int) или None при ошибке."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cur = conn.cursor()
+
+            # 1. Вставляем запись возврата
+            cur.execute('''
+                INSERT INTO sale_returns
+                    (sale_id, product_id, product_name, shop_name,
+                     quantity_returned, return_price, seller_user_id,
+                     returned_by_user_id, return_date, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (sale_id, product_id, product_name, shop_name,
+                  quantity_returned, return_price, seller_user_id,
+                  returned_by_user_id, return_date, reason))
+            return_id = cur.lastrowid
+
+            # 2. Восстанавливаем остатки
+            cur.execute('''
+                UPDATE inventory SET quantity = quantity + ?, last_updated = ?
+                WHERE shop_name = ? AND product_id = ?
+            ''', (quantity_returned, datetime.now().isoformat(), shop_name, product_id))
+
+            # 3. Если у продавца есть начисленная мотивация по этой продаже —
+            #    добавляем отрицательную корректировку (SUM не сломается)
+            if sale_id and seller_user_id:
+                cur.execute(
+                    'SELECT SUM(commission_amount) FROM seller_earnings WHERE sale_id = ?',
+                    (sale_id,)
+                )
+                row = cur.fetchone()
+                earned = float(row[0] or 0) if row else 0.0
+                if earned > 0:
+                    cur.execute('''
+                        INSERT INTO seller_earnings
+                            (sale_id, user_id, product_id, commission_amount,
+                             motivation_type, motivation_value)
+                        VALUES (?, ?, ?, ?, 'return_reversal', 0)
+                    ''', (sale_id, seller_user_id, product_id, -earned))
+
+            conn.commit()
+            conn.close()
+            return return_id
+        except Exception as e:
+            logger.error(f"create_sale_return error: {e}")
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return None
+
+    def get_returns(self, shop_name=None, shop_names=None, start_date=None,
+                    end_date=None, seller_user_id=None, limit=50, offset=0):
+        """Список возвратов с фильтрами. Возвращает список кортежей:
+        (id, sale_id, product_name, shop_name, qty, price, seller_uid,
+         returned_by_uid, return_date, reason, created_at,
+         seller_first, seller_last, admin_first, admin_last)"""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            conditions = []
+            params = []
+            if shop_name:
+                conditions.append('r.shop_name = ?')
+                params.append(shop_name)
+            elif shop_names:
+                placeholders = ','.join('?' * len(shop_names))
+                conditions.append(f'r.shop_name IN ({placeholders})')
+                params.extend(shop_names)
+            if start_date:
+                conditions.append('r.return_date >= ?')
+                params.append(start_date)
+            if end_date:
+                conditions.append('r.return_date <= ?')
+                params.append(end_date)
+            if seller_user_id:
+                conditions.append('r.seller_user_id = ?')
+                params.append(seller_user_id)
+            where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+            cur.execute(f'''
+                SELECT r.id, r.sale_id, r.product_name, r.shop_name,
+                       r.quantity_returned, r.return_price, r.seller_user_id,
+                       r.returned_by_user_id, r.return_date, r.reason, r.created_at,
+                       su.first_name, su.last_name,
+                       au.first_name, au.last_name
+                FROM sale_returns r
+                LEFT JOIN users su ON r.seller_user_id = su.id
+                LEFT JOIN users au ON r.returned_by_user_id = au.id
+                {where}
+                ORDER BY r.return_date DESC, r.id DESC
+                LIMIT ? OFFSET ?
+            ''', params + [limit, offset])
+            rows = cur.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"get_returns error: {e}")
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return []
+
+    def get_returns_count(self, shop_name=None, shop_names=None,
+                          start_date=None, end_date=None, seller_user_id=None):
+        """Количество записей возвратов (для пагинации)."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            conditions = []
+            params = []
+            if shop_name:
+                conditions.append('shop_name = ?')
+                params.append(shop_name)
+            elif shop_names:
+                placeholders = ','.join('?' * len(shop_names))
+                conditions.append(f'shop_name IN ({placeholders})')
+                params.extend(shop_names)
+            if start_date:
+                conditions.append('return_date >= ?')
+                params.append(start_date)
+            if end_date:
+                conditions.append('return_date <= ?')
+                params.append(end_date)
+            if seller_user_id:
+                conditions.append('seller_user_id = ?')
+                params.append(seller_user_id)
+            where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+            cur.execute(f'SELECT COUNT(*) FROM sale_returns {where}', params)
+            count = cur.fetchone()[0]
+            conn.close()
+            return count
+        except Exception as e:
+            logger.error(f"get_returns_count error: {e}")
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return 0
+
+    def get_return_by_id(self, return_id):
+        """Получить одну запись возврата по id (те же 15 колонок что get_returns)."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT r.id, r.sale_id, r.product_name, r.shop_name,
+                       r.quantity_returned, r.return_price, r.seller_user_id,
+                       r.returned_by_user_id, r.return_date, r.reason, r.created_at,
+                       su.first_name, su.last_name,
+                       au.first_name, au.last_name
+                FROM sale_returns r
+                LEFT JOIN users su ON r.seller_user_id = su.id
+                LEFT JOIN users au ON r.returned_by_user_id = au.id
+                WHERE r.id = ?
+            ''', (return_id,))
+            row = cur.fetchone()
+            conn.close()
+            return row
+        except Exception as e:
+            logger.error(f"get_return_by_id error: {e}")
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return None
+
+    def get_returns_summary(self, shop_name=None, shop_names=None,
+                            start_date=None, end_date=None):
+        """Сводка возвратов: {'count': N, 'total_qty': Q, 'total_amount': A}."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            conditions = []
+            params = []
+            if shop_name:
+                conditions.append('shop_name = ?')
+                params.append(shop_name)
+            elif shop_names:
+                placeholders = ','.join('?' * len(shop_names))
+                conditions.append(f'shop_name IN ({placeholders})')
+                params.extend(shop_names)
+            if start_date:
+                conditions.append('return_date >= ?')
+                params.append(start_date)
+            if end_date:
+                conditions.append('return_date <= ?')
+                params.append(end_date)
+            where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+            cur.execute(f'''
+                SELECT COUNT(*), COALESCE(SUM(quantity_returned), 0),
+                       COALESCE(SUM(quantity_returned * return_price), 0)
+                FROM sale_returns {where}
+            ''', params)
+            row = cur.fetchone()
+            conn.close()
+            return {
+                'count': int(row[0] or 0),
+                'total_qty': int(row[1] or 0),
+                'total_amount': float(row[2] or 0),
+            }
+        except Exception as e:
+            logger.error(f"get_returns_summary error: {e}")
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return {'count': 0, 'total_qty': 0, 'total_amount': 0.0}
+
+    def get_recent_sales_for_return(self, shop_name=None, shop_names=None,
+                                    seller_user_id=None, days=30, limit=50):
+        """Продажи за последние N дней для выбора при возврате (только бот).
+        Возвращает (sale_id, product_name, shop_name, qty, price, sale_date, user_id,
+                    first_name, last_name)."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            from datetime import date, timedelta
+            since = (date.today() - timedelta(days=days)).isoformat()
+            conditions = ["s.sale_date >= ?"]
+            params = [since]
+            if shop_name:
+                conditions.append('s.shop_name = ?')
+                params.append(shop_name)
+            elif shop_names:
+                placeholders = ','.join('?' * len(shop_names))
+                conditions.append(f's.shop_name IN ({placeholders})')
+                params.extend(shop_names)
+            if seller_user_id:
+                conditions.append('s.user_id = ?')
+                params.append(seller_user_id)
+            where = 'WHERE ' + ' AND '.join(conditions)
+            cur.execute(f'''
+                SELECT s.id, p.name, s.shop_name, s.quantity_sold, s.sale_price,
+                       s.sale_date, s.user_id, u.first_name, u.last_name
+                FROM sales s
+                JOIN products p ON s.product_id = p.id
+                JOIN users u ON s.user_id = u.id
+                {where}
+                ORDER BY s.sale_date DESC, s.id DESC
+                LIMIT ?
+            ''', params + [limit])
+            rows = cur.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"get_recent_sales_for_return error: {e}")
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return []
+
+    # ──────────────────────────────────────────────────────────────────────
 
     def update_sale_date(self, sale_id: int, new_date: str, changed_by: int = None) -> bool:
         """Изменить дату продажи. new_date — строка 'YYYY-MM-DD'."""

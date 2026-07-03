@@ -20,6 +20,7 @@ from notif_utils import add_read_btn
 from handlers import router as main_router
 from products_handlers import products_router
 from sales_handlers import sales_router
+from returns_handlers import returns_router
 from reports_handlers import reports_router
 from admin_handlers import admin_router
 from inventory_handlers import inventory_router
@@ -121,6 +122,7 @@ async def global_error_handler(event: ErrorEvent) -> bool:
 dp.include_router(main_router)
 dp.include_router(products_router)
 dp.include_router(sales_router)
+dp.include_router(returns_router)
 dp.include_router(reports_router)
 dp.include_router(admin_router)
 dp.include_router(inventory_router)
