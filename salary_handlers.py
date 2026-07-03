@@ -1164,13 +1164,13 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
 def _my_schedule_text(month_name: str, year: int, daily_rate: float,
                       worked_count: int, salary: float,
                       paid_abs: int = 0, vac_cal_days: int = 0,
-                      avg_daily: float = 0.0) -> str:
+                      avg_daily: float = 0.0, vac_pay: float = 0.0) -> str:
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
     if paid_abs > 0:
         shifts_str = f"📊 Смен: {worked_count} + оплач.: {paid_abs} = {worked_count + paid_abs}"
     else:
         shifts_str = f"📊 Смен отработано: {worked_count}"
-    vac_str = (f"\n🌴 Отпуск: {vac_cal_days} кал.дн. × {format_price(avg_daily)}₽/дн."
+    vac_str = (f"\n🌴 Отпускные: {vac_cal_days} дней × {format_price(avg_daily)}₽/день = {format_price(vac_pay)}₽"
                if vac_cal_days > 0 else "")
     return (
         f"📅 <b>Мой график работы</b>\n"
@@ -1205,7 +1205,7 @@ async def my_schedule(callback: CallbackQuery, state: FSMContext):
         vac_pay, vac_cal_days, avg_daily = 0.0, 0, 0.0
     salary = net_worked_count * daily_rate + non_vac_paid_abs * daily_rate + vac_pay
     text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, net_worked_count, salary,
-                             non_vac_paid_abs, vac_cal_days, avg_daily)
+                             non_vac_paid_abs, vac_cal_days, avg_daily, vac_pay)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
@@ -1231,7 +1231,7 @@ async def my_schedule_nav(callback: CallbackQuery, state: FSMContext):
         vac_pay, vac_cal_days, avg_daily = 0.0, 0, 0.0
     salary = net_worked_count * daily_rate + non_vac_paid_abs * daily_rate + vac_pay
     text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, net_worked_count, salary,
-                             non_vac_paid_abs, vac_cal_days, avg_daily)
+                             non_vac_paid_abs, vac_cal_days, avg_daily, vac_pay)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 

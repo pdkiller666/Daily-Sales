@@ -99,3 +99,4 @@
 - [Kanban quick-move client sync](kanban-quickmove-client.md) — relocateCard/updateColumnCount синкают только badge (не header-ring/WIP-баннер); скрытая кнопка текущей колонки рендерится ПЕРВОЙ → в тестах селектор `:visible`, не `.first`
 - [Deploy requires Chromium](deploy-requires-chromium.md) — deploy.sh шаг 0 гонит smoke с WEB_SMOKE_REQUIRE_BROWSER=1 → жёсткий fail без системного Chromium; на свежем окружении сперва installSystemDependencies(['chromium'])
 - [forceescape kills script blocks](forceescape-in-script.md) — `{{ x | tojson | forceescape }}` в теле <script> рендерит &#34; → SyntaxError → ВЕСЬ блок не выполняется (все функции undefined); forceescape только для HTML-атрибутов, в <script> только | tojson
+- [Bot vacation pay audit](bot-vacation-pay-audit.md) — при добавлении новой формулы ЗП ОБЯЗАТЕЛЬНО проверять salary_handlers.py + dashboard_handlers.py: они используют свои gather-цепочки независимо от web/routes/salary.py

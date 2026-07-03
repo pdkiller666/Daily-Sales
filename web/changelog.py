@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.363.0"
+CURRENT_VERSION = "1.364.0"
 
 ENTRIES = [
+    {
+        "version": "1.364.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update salary calculation to include vacation pay correctly",
+            "Добавить формулу отпускных в Telegram-бот (расчётный листок сотрудника)",
+        ],
+    },
     {
         "version": "1.363.0",
         "date": "2 июля 2026",
