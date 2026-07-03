@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.377.0"
+CURRENT_VERSION = "1.378.0"
 
 ENTRIES = [
+    {
+        "version": "1.378.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update application features and fix test expectations for salary calculations",
+        ],
+    },
     {
         "version": "1.377.0",
         "date": "3 июля 2026",
