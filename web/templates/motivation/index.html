@@ -350,6 +350,7 @@
                         {% if ec[4] %}<span class="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium">Мин. {{ ec[4] }} прод.</span>{% endif %}
                         {% if ec[5] %}<span class="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-semibold">×{{ ec[5] }}</span>{% endif %}
                         {% if ec[12] == 'joint' %}<span class="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded">совместный</span>{% else %}<span class="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">раздельный</span>{% endif %}
+                        {% if ec[13] == 0 %}<span class="bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded">без перевод.</span>{% endif %}
                     </div>
                     {% endif %}
                     {% endfor %}
@@ -364,6 +365,7 @@
                         {% if ec[3] %}<span class="text-blue-600 font-medium">📍 {{ ec[3] }}</span>{% endif %}
                         {% if ec[4] %}<span class="bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-medium">Мин. {{ ec[4] }} прод.</span>{% endif %}
                         {% if ec[5] %}<span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">×{{ ec[5] }}</span>{% endif %}
+                        {% if ec[13] == 0 %}<span class="bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded">без перевод.</span>{% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -389,6 +391,18 @@
                             <p class="text-[10px] text-slate-400 mt-0.5">0 = без ограничений</p>
                         </div>
                     </div>
+                    <label class="flex items-center justify-between gap-4 cursor-pointer group py-1">
+                        <div>
+                            <p class="text-xs font-medium text-slate-700 group-hover:text-slate-900">Учитывать продажи переведённых сотрудников</p>
+                            <p class="text-[10px] text-slate-400 mt-0.5">Выкл — только сотрудники с этим магазином в профиле участвуют в совместном пуле</p>
+                        </div>
+                        <div class="relative shrink-0">
+                            <input type="checkbox" name="include_transferred" value="on" checked
+                                   class="peer sr-only">
+                            <div class="w-9 h-5 bg-slate-200 peer-checked:bg-emerald-500 rounded-full transition-colors duration-200"></div>
+                            <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-4"></div>
+                        </div>
+                    </label>
                     <button type="submit"
                             data-once="⏳ Сохранение…"
                             class="w-full bg-slate-700 text-white font-medium py-2.5 rounded-lg text-sm hover:bg-slate-800 transition-colors">

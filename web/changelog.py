@@ -1,6 +1,20 @@
-CURRENT_VERSION = "1.380.0"
+CURRENT_VERSION = "1.381.0"
 
 ENTRIES = [
+    {
+        "version": "1.381.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update application features and fix absence calendar priority",
+            "Show rate history \"Кто изменил\" on mobile in both salary templates",
+            "Show effective period in bot rate history",
+            "Fix swapped absence-type dot colours in staff and salary calendars",
+            "task-93: Add canonical single-day sick+vacation overlap test to test_scenarios.py",
+            "Document and test mid-month rate change behavior in salary calculations",
+            "Add payslip web cabinet link to bot's employee payslip screen",
+            "Wire include_transferred toggle end-to-end for joint-bonus conditions",
+        ],
+    },
     {
         "version": "1.380.0",
         "date": "3 июля 2026",

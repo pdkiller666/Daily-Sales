@@ -374,6 +374,7 @@ def motivation_set_extra(
     min_sellers: str = Form(default=""),
     coefficient: str = Form(default=""),
     shop_name: str = Form(default=""),
+    include_transferred: str | None = Form(default=None),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -406,13 +407,15 @@ def motivation_set_extra(
 
         db = get_web_db(telegram_id, org_db)
         db.set_extra_condition_for_month(
-            condition_type="global",
+            condition_type="multi_seller_coeff",
+            calc_mode="joint",
             year=today.year,
             month=today.month,
             shop_name=shop_name.strip() or None,
             min_sellers=ms,
             coefficient=coeff,
             user_id=telegram_id,
+            include_transferred=(include_transferred is not None),
         )
     except Exception as exc:
         logger.error(f"motivation_set_extra error: {exc}")

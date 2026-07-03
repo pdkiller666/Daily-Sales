@@ -13,7 +13,7 @@ from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from keyboards import InlineKeyboardBuilder, back_button, home_button
+from keyboards import InlineKeyboardBuilder, back_button, home_button, _get_web_interface_url
 from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
@@ -341,12 +341,20 @@ async def salary_rate_history(callback: CallbackQuery, state: FSMContext):
     if not history:
         text = f"📋 <b>История ставки: {name}</b>\n\n<i>Изменений не найдено.</i>"
     else:
+        def _short_date(d: str | None) -> str:
+            if not d:
+                return "?"
+            parts = (d or "")[:10].split("-")
+            return f"{parts[2]}.{parts[1]}" if len(parts) == 3 else (d or "")[:10]
+
         lines = []
         for entry in history:
-            date_str = (entry["effective_from"] or entry["created_at"] or "")[:10]
+            ef = _short_date(entry["effective_from"] or entry["created_at"])
+            et_raw = entry["effective_to"]
+            period = f"{ef}–{_short_date(et_raw)}" if et_raw else f"{ef}–н.в."
             rate_str = f"{format_price(entry['rate'])}₽/смену"
             who = he(entry["changed_by_name"]) if entry["changed_by_name"] else "—"
-            lines.append(f"📅 <b>{date_str}</b> · {rate_str} · {who}")
+            lines.append(f"📅 <b>{period}</b> · {rate_str} · {who}")
         text = f"📋 <b>История ставки: {name}</b>\n\n" + "\n".join(lines)
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="✏️ Редактировать ставку", callback_data=f"slr_set_{target_uid}"))
@@ -1446,9 +1454,13 @@ async def my_payslip(callback: CallbackQuery, state: FSMContext):
         f"💰 Итого: <b>{format_price(total)}₽</b>",
     ]
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [back_button(f"my_cal_{year}_{month}")]
-    ])
+    kb_rows = []
+    web_base = _get_web_interface_url()
+    if web_base:
+        web_url = f"{web_base.rstrip('/')}/salary/my-slip?year={year}&month={month}"
+        kb_rows.append([InlineKeyboardButton(text="🌐 Открыть в веб-кабинете", url=web_url)])
+    kb_rows.append([back_button(f"my_cal_{year}_{month}")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await callback.message.edit_text("\n".join(lines), reply_markup=kb, parse_mode="HTML")
 
 

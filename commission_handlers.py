@@ -1724,8 +1724,31 @@ async def process_coefficient(message: Message, state: FSMContext):
         coeff_pending_mode=calc_mode,
         coeff_pending_mode_label=mode_label,
     )
-    await state.set_state(MotivationScheduleStates.selecting_extra_month)
     await state.update_data(extra_cond_type='coeff')
+
+    # Для совместного режима — спросить об учёте переведённых сотрудников
+    if calc_mode == 'joint':
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✅ Да, учитывать", callback_data="coeff_incl_yes")
+        builder.button(text="❌ Нет, только штатные", callback_data="coeff_incl_no")
+        builder.button(text="❌ Отмена", callback_data="motivation_extra")
+        builder.adjust(1)
+        await fsm_edit(
+            state, message,
+            f"📉 <b>Коэффициент смены — шаг 5/5</b>\n\n"
+            f"🏪 Магазин: <b>{he(shop_label)}</b>\n"
+            f"👥 Порог: {min_s}+ продавцов\n"
+            f"📊 Режим: {mode_label}\n"
+            f"📉 Коэффициент: ×{coeff}\n\n"
+            "👥 <b>Учитывать продажи переведённых сотрудников в совместном пуле?</b>\n\n"
+            "• <b>Да</b> — сотрудники с продажами в этом магазине участвуют в пуле (стандарт)\n"
+            "• <b>Нет</b> — только сотрудники с этим магазином в профиле",
+            reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
+        return
+
+    # Раздельный режим — сразу к выбору месяца
+    await state.set_state(MotivationScheduleStates.selecting_extra_month)
 
     from datetime import date as _date
     today = _date.today()
@@ -1750,6 +1773,46 @@ async def process_coefficient(message: Message, state: FSMContext):
         f"📉 Коэффициент: ×{coeff}",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
+
+
+@commission_router.callback_query(F.data.in_({"coeff_incl_yes", "coeff_incl_no"}))
+async def coeff_incl_answer(callback: CallbackQuery, state: FSMContext):
+    """Ответ на вопрос об учёте переведённых сотрудников в joint-пуле."""
+    include_xfr = (callback.data == "coeff_incl_yes")
+    await state.update_data(coeff_incl_xfr=include_xfr)
+    await state.set_state(MotivationScheduleStates.selecting_extra_month)
+
+    data = await state.get_data()
+    shop_label = data.get('coeff_shop_label', 'Все магазины')
+    min_s = data.get('coeff_min_sellers', 2)
+    mode_label = data.get('coeff_pending_mode_label', '🤝 Совместный')
+    coeff = data.get('coeff_pending_coeff', '')
+    incl_label = "✅ Да" if include_xfr else "❌ Нет (только штатные)"
+
+    from datetime import date as _date
+    today = _date.today()
+    nxt_year, nxt_month = _next_month(today.year, today.month)
+    cur_label = f"{MONTH_NAMES_RU[today.month]} {today.year}"
+    nxt_label = f"{MONTH_NAMES_RU[nxt_month]} {nxt_year}"
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"📅 Текущий ({cur_label})", callback_data="extra_month_cur")
+    builder.button(text=f"⏭ Следующий ({nxt_label})", callback_data="extra_month_next")
+    builder.button(text="📆 Выбрать месяц", callback_data="extra_month_pick")
+    builder.button(text="🌐 На все время (глобально)", callback_data="extra_month_global")
+    builder.button(text="❌ Отмена", callback_data="motivation_extra")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        f"📅 <b>На какой месяц применить коэффициент?</b>\n\n"
+        f"🏪 Магазин: <b>{he(shop_label)}</b>\n"
+        f"👥 Порог: {min_s}+ продавцов\n"
+        f"📊 Режим: {mode_label}\n"
+        f"📉 Коэффициент: ×{coeff}\n"
+        f"👥 Переведённые: {incl_label}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
 
 
 # ── Фильтр категорий ──────────────────────────────────────
@@ -2068,7 +2131,9 @@ async def view_extra_conditions(callback: CallbackQuery, state: FSMContext):
             shop = c[3] or "Все магазины"
             calc_mode = c[12] if len(c) > 12 else "individual"
             mode_icon = "🤝" if calc_mode == "joint" else "👤"
-            text += f"  • {shop}: {c[4]}+ продавцов → ×{c[5]} {mode_icon}\n"
+            incl_xfr = c[13] if len(c) > 13 else 1
+            xfr_tag = " (без перевод.)" if incl_xfr == 0 else ""
+            text += f"  • {shop}: {c[4]}+ продавцов → ×{c[5]} {mode_icon}{xfr_tag}\n"
         text += "\n"
 
     if filter_list:
@@ -2217,6 +2282,7 @@ async def _save_extra_condition_for_month(callback, state, year, month, is_globa
         calc_mode = data.get('coeff_pending_mode', 'individual')
         mode_label = data.get('coeff_pending_mode_label', '👤 Раздельный')
         desc = data.get('coeff_pending_desc', '')
+        incl_xfr = data.get('coeff_incl_xfr', True)
 
         if is_global:
             cond_id = await current_db.add_extra_condition(
@@ -2226,6 +2292,7 @@ async def _save_extra_condition_for_month(callback, state, year, month, is_globa
                 coefficient=coeff,
                 description=desc,
                 calc_mode=calc_mode,
+                include_transferred=incl_xfr,
             )
             ok = bool(cond_id)
         else:
@@ -2234,6 +2301,7 @@ async def _save_extra_condition_for_month(callback, state, year, month, is_globa
                 shop_name=shop_name, min_sellers=min_s, coefficient=coeff,
                 description=desc, calc_mode=calc_mode,
                 admin_telegram_id=callback.from_user.id,
+                include_transferred=incl_xfr,
             )
 
         today = _date.today()

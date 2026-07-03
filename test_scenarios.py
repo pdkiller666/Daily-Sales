@@ -1005,6 +1005,47 @@ s2 = next(r for r in summary if r[0] == su2)
 check("get_team_salary_summary u2: worked_days=3", s2[4] == 3)
 check("get_team_salary_summary u2: salary=6600",   abs(s2[5] - 6600.0) < 0.01)
 
+# ── Изменение ставки в середине месяца ────────────────
+# Документируем намеренное поведение: calculate_monthly_salary и
+# get_team_salary_summary используют ТЕКУЩУЮ ставку из salary_settings.
+# Изменение ставки в середине месяца мгновенно пересчитывает весь месяц
+# (ретроактивно). Это упрощённое, но намеренное поведение для небольших
+# торговых команд — salary_rate_history хранит историю только для аудита.
+# Если нужна точечная корректировка, менеджер использует salary_adjustments.
+
+# u1 уже имеет ставку 1800, 2 смены в мае → 3600 (убеждаемся в базовой точке)
+sal_before_change = sldb.calculate_monthly_salary(su1, 2026, 5)
+check("mid-month rate: salary перед изменением = 3600 (1800×2)",
+      abs(sal_before_change - 3600.0) < 0.01)
+
+# Меняем ставку u1 в середине мая на 2500 (имитация «менеджер поднял ставку»)
+sldb.set_salary_rate(su1, 2500.0, su1)
+
+# ОЖИДАЕМОЕ ПОВЕДЕНИЕ: весь май пересчитывается по новой ставке
+sal_after_change = sldb.calculate_monthly_salary(su1, 2026, 5)
+check("mid-month rate: calculate_monthly_salary использует новую ставку (2500×2=5000)",
+      abs(sal_after_change - 5000.0) < 0.01)
+
+# get_team_salary_summary тоже отражает новую ставку ретроактивно
+summary_mid = sldb.get_team_salary_summary(2026, 5)
+s1_mid = next(r for r in summary_mid if r[0] == su1)
+check("mid-month rate: team_summary daily_rate = 2500",    abs(s1_mid[3] - 2500.0) < 0.01)
+check("mid-month rate: team_summary base_salary = 5000",   abs(s1_mid[5] - 5000.0) < 0.01)
+
+# salary_rate_history фиксирует обе ставки — для аудита
+rate_hist = sldb.get_salary_rate_history(su1, limit=10)
+hist_rates = [h['rate'] for h in rate_hist]
+check("mid-month rate: history содержит новую запись 2500",  2500.0 in hist_rates)
+check("mid-month rate: history содержит старую запись 1800", 1800.0 in hist_rates)
+check("mid-month rate: первая (новейшая) запись = 2500",
+      abs(rate_hist[0]['rate'] - 2500.0) < 0.01)
+
+# Восстанавливаем ставку u1 = 1800, чтобы последующие тесты не сломались
+sldb.set_salary_rate(su1, 1800.0, su1)
+sal_restored = sldb.calculate_monthly_salary(su1, 2026, 5)
+check("mid-month rate: после восстановления salary снова = 3600",
+      abs(sal_restored - 3600.0) < 0.01)
+
 # ── Мульти-тенантная изоляция зарплат ─────────────────
 # Две РАЗНЫЕ БД — каждая содержит своих пользователей.
 # Автоинкремент в каждой БД независим (оба внутренних ID = 1),
@@ -3924,6 +3965,34 @@ check("single-day overlap: день 15 не пропал из карты",
       15 in _ovx_sd_user,
       f"keys={sorted(_ovx_sd_user.keys())}")
 _ovx_sd_conn.close()
+
+# Single-day exact overlap: approved sick beats approved vacation on the same single day.
+# This covers the other common overlap pair (sick+vacation) explicitly.
+_ovx_sv_db = make_db("overlap_sick_vacation_singleday.db")
+_ovx_sv_conn = _ovx_sv_db.get_connection()
+_ovx_sv_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) VALUES (1, 980020, 'Галя', 'Больная')"
+)
+# approved vacation for single day Jan 20 (must lose to sick)
+_ovx_sv_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'vacation', '2026-01-20', '2026-01-20', 'approved', 1)"
+)
+# approved sick for the same single day Jan 20 (must win over vacation)
+_ovx_sv_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'sick', '2026-01-20', '2026-01-20', 'approved', 1)"
+)
+_ovx_sv_conn.commit()
+_ovx_sv_map = _ovx_sv_db.get_absence_days_map(2026, 1, user_id=1)
+_ovx_sv_user = _ovx_sv_map.get(1, {})
+check("single-day sick+vacation overlap: день 20 показан как sick (не vacation)",
+      _ovx_sv_user.get(20, {}).get('type') == 'sick',
+      f"type on day 20={_ovx_sv_user.get(20, {}).get('type')}")
+check("single-day sick+vacation overlap: день 20 не пропал из карты",
+      20 in _ovx_sv_user,
+      f"keys={sorted(_ovx_sv_user.keys())}")
+_ovx_sv_conn.close()
 
 # Test approved vacation > approved compensatory priority
 _ovx2_db = make_db("overlap_cross_type2.db")

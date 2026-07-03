@@ -652,6 +652,11 @@ class Database:
             cursor.execute("ALTER TABLE motivation_extra_conditions ADD COLUMN calc_mode TEXT DEFAULT 'individual'")
         except Exception as _exc:
             logger.debug("create_tables: подавлено исключение: %s", _exc)
+        # Миграция: учитывать продажи переведённых сотрудников в joint-пуле
+        try:
+            cursor.execute("ALTER TABLE motivation_extra_conditions ADD COLUMN include_transferred INTEGER DEFAULT 1")
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
 
         # Миграция: добавить shift_sale_alerts в notification_settings если отсутствует
         try:
@@ -741,6 +746,11 @@ class Database:
                 month
             )
         ''')
+        # Миграция: учитывать продажи переведённых сотрудников (extra_conditions_schedule)
+        try:
+            cursor.execute("ALTER TABLE extra_conditions_schedule ADD COLUMN include_transferred INTEGER DEFAULT 1")
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
 
         # Архив мотиваций — история изменений
         cursor.execute('''
@@ -8845,7 +8855,8 @@ class Database:
     def set_extra_condition_for_month(self, condition_type, year, month, shop_name=None,
                                        min_sellers=None, coefficient=None, user_id=None,
                                        allowed_categories=None, description=None,
-                                       calc_mode='individual', admin_telegram_id=None):
+                                       calc_mode='individual', admin_telegram_id=None,
+                                       include_transferred=True):
         """Добавить/обновить доп. условие мотивации для конкретного месяца."""
         try:
             import json as _json
@@ -8857,6 +8868,7 @@ class Database:
                 cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (admin_telegram_id,))
                 r = cursor.fetchone()
                 created_by = r[0] if r else None
+            include_transferred_int = 1 if include_transferred else 0
             # Удаляем старые записи того же типа/магазина/пользователя/месяца перед вставкой
             if condition_type == 'category_filter':
                 cursor.execute('''
@@ -8872,10 +8884,12 @@ class Database:
             cursor.execute('''
                 INSERT INTO extra_conditions_schedule
                     (condition_type, description, shop_name, min_sellers, coefficient,
-                     user_id, allowed_categories, calc_mode, year, month, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     user_id, allowed_categories, calc_mode, year, month, created_by,
+                     include_transferred)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (condition_type, description, shop_name, min_sellers, coefficient,
-                  user_id, allowed_str, calc_mode, year, month, created_by))
+                  user_id, allowed_str, calc_mode, year, month, created_by,
+                  include_transferred_int))
             conn.commit()
             conn.close()
             return True
@@ -8897,6 +8911,7 @@ class Database:
                        ecs.is_active, ecs.created_at,
                        u.first_name, u.last_name,
                        COALESCE(ecs.calc_mode, 'individual') as calc_mode,
+                       COALESCE(ecs.include_transferred, 1) as include_transferred,
                        ecs.year, ecs.month
                 FROM extra_conditions_schedule ecs
                 LEFT JOIN users u ON ecs.user_id = u.id
@@ -9819,18 +9834,22 @@ class Database:
 
     def add_extra_condition(self, condition_type, shop_name=None, min_sellers=None,
                             coefficient=None, user_id=None, allowed_categories=None,
-                            description=None, calc_mode='individual'):
+                            description=None, calc_mode='individual',
+                            include_transferred=True):
         """Добавить доп. условие мотивации"""
         try:
             import json as _json
             conn = self.get_connection()
             cursor = conn.cursor()
             allowed_str = _json.dumps(allowed_categories, ensure_ascii=False) if allowed_categories else None
+            include_transferred_int = 1 if include_transferred else 0
             cursor.execute('''
                 INSERT INTO motivation_extra_conditions
-                (condition_type, description, shop_name, min_sellers, coefficient, user_id, allowed_categories, calc_mode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (condition_type, description, shop_name, min_sellers, coefficient, user_id, allowed_str, calc_mode))
+                (condition_type, description, shop_name, min_sellers, coefficient,
+                 user_id, allowed_categories, calc_mode, include_transferred)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (condition_type, description, shop_name, min_sellers, coefficient,
+                  user_id, allowed_str, calc_mode, include_transferred_int))
             new_id = cursor.lastrowid
             conn.commit()
             conn.close()
@@ -10059,7 +10078,8 @@ class Database:
 
             # Активные joint-условия из глобальной таблицы
             cursor.execute("""
-                SELECT shop_name, min_sellers, coefficient
+                SELECT shop_name, min_sellers, coefficient,
+                       COALESCE(include_transferred, 1)
                 FROM motivation_extra_conditions
                 WHERE condition_type = 'multi_seller_coeff' AND calc_mode = 'joint' AND is_active = 1
             """)
@@ -10067,24 +10087,25 @@ class Database:
 
             shop_to_cond = {}
             global_cond  = None
-            for sn, min_s, coeff in joint_conditions:
+            for sn, min_s, coeff, incl_xfr in joint_conditions:
                 if sn is None:
-                    global_cond = (min_s, coeff)
+                    global_cond = (min_s, coeff, bool(incl_xfr))
                 else:
-                    shop_to_cond[sn] = (min_s, coeff)
+                    shop_to_cond[sn] = (min_s, coeff, bool(incl_xfr))
 
             if _period_year is not None and _period_month is not None:
                 cursor.execute("""
-                    SELECT shop_name, min_sellers, coefficient
+                    SELECT shop_name, min_sellers, coefficient,
+                           COALESCE(include_transferred, 1)
                     FROM extra_conditions_schedule
                     WHERE condition_type = 'multi_seller_coeff' AND calc_mode = 'joint'
                       AND is_active = 1 AND year = ? AND month = ?
                 """, (_period_year, _period_month))
-                for sn, min_s, coeff in cursor.fetchall():
+                for sn, min_s, coeff, incl_xfr in cursor.fetchall():
                     if sn is None:
-                        global_cond = (min_s, coeff)
+                        global_cond = (min_s, coeff, bool(incl_xfr))
                     else:
-                        shop_to_cond[sn] = (min_s, coeff)
+                        shop_to_cond[sn] = (min_s, coeff, bool(incl_xfr))
 
             if not shop_to_cond and global_cond is None:
                 conn.close()
@@ -10135,11 +10156,14 @@ class Database:
                     _cond = shop_to_cond.get(_shop) or global_cond
                     if _cond is None:
                         continue
-                    _min_s, _coeff = _cond
+                    _min_s, _coeff, _incl_xfr = _cond
                     cursor.execute('SELECT id FROM users WHERE shop_name=?', (_shop,))
                     _team = [r[0] for r in cursor.fetchall()]
                     if user_id not in _team:
-                        _team.append(user_id)
+                        if _incl_xfr:
+                            _team.append(user_id)
+                        else:
+                            continue
                     if not _team:
                         continue
                     _tph = ','.join('?' * len(_team))
@@ -10170,14 +10194,17 @@ class Database:
                 _cond = shop_to_cond.get(_shop) or global_cond
                 if _cond is None:
                     continue
-                min_sellers, coefficient = _cond
+                min_sellers, coefficient, include_xfr = _cond
 
                 # Состав команды из users.shop_name; если сотрудник перевёлся —
-                # добавляем его явно, т.к. он имел продажи в этом магазине
+                # добавляем его явно только если include_xfr=True
                 cursor.execute('SELECT id FROM users WHERE shop_name = ?', (_shop,))
                 team_uids = [r[0] for r in cursor.fetchall()]
                 if user_id not in team_uids:
-                    team_uids.append(user_id)
+                    if include_xfr:
+                        team_uids.append(user_id)
+                    else:
+                        continue  # transferred seller excluded from this shop's pool
                 if not team_uids:
                     continue
 
@@ -10279,7 +10306,8 @@ class Database:
                        mec.user_id, mec.allowed_categories,
                        mec.is_active, mec.created_at,
                        u.first_name, u.last_name,
-                       COALESCE(mec.calc_mode, 'individual') as calc_mode
+                       COALESCE(mec.calc_mode, 'individual') as calc_mode,
+                       COALESCE(mec.include_transferred, 1) as include_transferred
                 FROM motivation_extra_conditions mec
                 LEFT JOIN users u ON mec.user_id = u.id
                 {where}
@@ -12411,7 +12439,15 @@ class Database:
             return []
 
     def calculate_monthly_salary(self, user_id, year, month):
-        """Рассчитать зарплату за месяц: смены × ставка + корректировки"""
+        """Рассчитать зарплату за месяц: смены × ставка + корректировки.
+
+        Намеренное поведение: используется ТЕКУЩАЯ ставка из salary_settings,
+        а не та, что действовала в начале месяца. Изменение ставки в середине
+        месяца мгновенно пересчитывает весь месяц — это упрощённое поведение,
+        принятое для небольших торговых команд. История ставок хранится в
+        salary_rate_history исключительно для аудита и отображения менеджером.
+        Если нужна точечная корректировка, используйте salary_adjustments.
+        """
         try:
             days = self.get_worked_days_count(user_id, year, month)
             rate = self.get_salary_rate(user_id)
@@ -12426,6 +12462,12 @@ class Database:
         """Сводка зарплат по команде: (user_id, fn, ln, daily_rate, worked_days, base_salary, shop_name, telegram_id, adj_sum)
         worked_days — смены за вычетом дней одобренных оплачиваемых отсутствий,
         чтобы не было двойного счёта при начислении отпускных/больничных.
+
+        Намеренное поведение: daily_rate берётся из текущих salary_settings,
+        аналогично calculate_monthly_salary. Изменение ставки в середине месяца
+        ретроактивно пересчитывает весь месяц для всей команды. История хранится
+        в salary_rate_history только для аудита; точечные корректировки — через
+        salary_adjustments.
         """
         import calendar as _cal
         from datetime import date, timedelta
@@ -12708,29 +12750,31 @@ class Database:
 
             # 4. Joint-бонусы (bulk): условия → пул → вклад каждого пользователя
             joint_conds = conn.execute(
-                "SELECT shop_name, min_sellers, coefficient FROM motivation_extra_conditions "
+                "SELECT shop_name, min_sellers, coefficient, COALESCE(include_transferred, 1) "
+                "FROM motivation_extra_conditions "
                 "WHERE condition_type='multi_seller_coeff' AND calc_mode='joint' AND is_active=1"
             ).fetchall()
 
             shop_to_cond: dict = {}
             global_cond = None
-            for sn, min_s, coeff in joint_conds:
+            for sn, min_s, coeff, incl_xfr in joint_conds:
                 if sn is None:
-                    global_cond = (min_s, coeff)
+                    global_cond = (min_s, coeff, bool(incl_xfr))
                 else:
-                    shop_to_cond[sn] = (min_s, coeff)
+                    shop_to_cond[sn] = (min_s, coeff, bool(incl_xfr))
 
             monthly_conds = conn.execute(
-                "SELECT shop_name, min_sellers, coefficient FROM extra_conditions_schedule "
+                "SELECT shop_name, min_sellers, coefficient, COALESCE(include_transferred, 1) "
+                "FROM extra_conditions_schedule "
                 "WHERE condition_type='multi_seller_coeff' AND calc_mode='joint' "
                 "AND is_active=1 AND year=? AND month=?",
                 (year, month),
             ).fetchall()
-            for sn, min_s, coeff in monthly_conds:
+            for sn, min_s, coeff, incl_xfr in monthly_conds:
                 if sn is None:
-                    global_cond = (min_s, coeff)
+                    global_cond = (min_s, coeff, bool(incl_xfr))
                 else:
-                    shop_to_cond[sn] = (min_s, coeff)
+                    shop_to_cond[sn] = (min_s, coeff, bool(incl_xfr))
 
             if shop_to_cond or global_cond is not None:
                 from datetime import date as _dt_date, timedelta as _td
@@ -12761,6 +12805,7 @@ class Database:
                 # этого магазина, чтобы его продажи участвовали в joint-пуле правильно.
                 # Важно: для нового магазина сначала загружаем ВСЕХ его штатных членов
                 # (по users.shop_name), чтобы пул и min_sellers считались корректно.
+                # Если условие для магазина имеет include_transferred=False — пропускаем.
                 _ext_rows = conn.execute(
                     f'SELECT DISTINCT se.user_id, s.shop_name '
                     f'FROM seller_earnings se JOIN sales s ON se.sale_id=s.id '
@@ -12772,6 +12817,11 @@ class Database:
                 for _ext_uid, _ext_shop in _ext_rows:
                     if not _ext_shop:
                         continue
+                    # Проверяем, разрешено ли включение переведённых для этого магазина
+                    _ext_cond = shop_to_cond.get(_ext_shop) or global_cond
+                    _ext_incl_xfr = _ext_cond[2] if _ext_cond else True
+                    if not _ext_incl_xfr:
+                        continue  # exclude transferred sellers from this shop's pool
                     # Новый магазин (не из профилей отслеживаемых) — загружаем полную команду
                     if _ext_shop not in _fully_loaded_shops:
                         _fully_loaded_shops.add(_ext_shop)
@@ -12829,7 +12879,7 @@ class Database:
                     cond = shop_to_cond.get(shop_sn) or global_cond
                     if cond is None:
                         continue
-                    min_sellers_s, coefficient_s = cond
+                    min_sellers_s, coefficient_s, _incl_xfr_shop = cond
 
                     # Timeline events for this shop
                     events_set: set = {_period_start_d, _period_end_d + _td(days=1)}
