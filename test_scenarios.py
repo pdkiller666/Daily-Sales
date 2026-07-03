@@ -3753,11 +3753,11 @@ while _ovs_d <= _ovs_month_end:
 # Два перекрывающихся больничных: Jan 5-15 и Jan 10-20 → объединение Jan 5-20 = 16 дней
 _ov_sick_conn.execute(
     "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
-    "VALUES (1, 'sick_leave', '2026-01-05', '2026-01-15', 'approved', 1)"
+    "VALUES (1, 'sick', '2026-01-05', '2026-01-15', 'approved', 1)"
 )
 _ov_sick_conn.execute(
     "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
-    "VALUES (1, 'sick_leave', '2026-01-10', '2026-01-20', 'approved', 1)"
+    "VALUES (1, 'sick', '2026-01-10', '2026-01-20', 'approved', 1)"
 )
 _ov_sick_conn.commit()
 
@@ -3765,7 +3765,7 @@ _ovs_union_days = (_ovsd(2026, 1, 20) - _ovsd(2026, 1, 5)).days + 1  # 16
 _ovs_expected_worked = _ovs_schedule_days - _ovs_union_days            # 31-16=15
 
 _ovs_worked = _ov_sick_db.get_worked_days_count(1, 2026, 1)
-check("overlap sick_leave: get_worked_days_count без двойного вычитания",
+check("overlap sick: get_worked_days_count без двойного вычитания",
       _ovs_worked == _ovs_expected_worked,
       f"expected={_ovs_expected_worked}, got={_ovs_worked}")
 
@@ -3773,11 +3773,11 @@ check("overlap sick_leave: get_worked_days_count без двойного выч�
 _ovs_map = _ov_sick_db.get_absence_days_map(2026, 1, user_id=1)
 _ovs_user_map = _ovs_map.get(1, {})
 _ovs_expected_days = set(range(5, 21))
-check("overlap sick_leave: get_absence_days_map покрывает дни 5-20 (16 дней)",
+check("overlap sick: get_absence_days_map покрывает дни 5-20 (16 дней)",
       _ovs_expected_days <= set(_ovs_user_map.keys()),
       f"covered={sorted(_ovs_user_map.keys())}")
-check("overlap sick_leave: тип для всех перекрытых дней = sick_leave",
-      all(_ovs_user_map.get(d, {}).get('type') == 'sick_leave' for d in _ovs_expected_days),
+check("overlap sick: тип для всех перекрытых дней = sick",
+      all(_ovs_user_map.get(d, {}).get('type') == 'sick' for d in _ovs_expected_days),
       f"types={set(_ovs_user_map.get(d, {}).get('type') for d in _ovs_expected_days)}")
 
 # Второй пользователь: два перекрывающихся отгула + один отдельный
@@ -3799,15 +3799,15 @@ while _ovs_d2 <= _ovs_month_end:
 # Отгул 3: Jan 25-28 (не пересекается) = 4 дня. Итого 12 дней.
 _ov_sick_conn.execute(
     "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
-    "VALUES (2, 'day_off', '2026-01-03', '2026-01-07', 'approved', 1)"
+    "VALUES (2, 'compensatory', '2026-01-03', '2026-01-07', 'approved', 1)"
 )
 _ov_sick_conn.execute(
     "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
-    "VALUES (2, 'day_off', '2026-01-06', '2026-01-10', 'approved', 1)"
+    "VALUES (2, 'compensatory', '2026-01-06', '2026-01-10', 'approved', 1)"
 )
 _ov_sick_conn.execute(
     "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
-    "VALUES (2, 'day_off', '2026-01-25', '2026-01-28', 'approved', 1)"
+    "VALUES (2, 'compensatory', '2026-01-25', '2026-01-28', 'approved', 1)"
 )
 _ov_sick_conn.commit()
 
@@ -3816,14 +3816,14 @@ _ovs_union2 = ((_ovsd(2026, 1, 10) - _ovsd(2026, 1, 3)).days + 1) + \
 _ovs_expected_worked2 = _ovs_schedule_days2 - _ovs_union2            # 31-12=19
 
 _ovs_worked2 = _ov_sick_db.get_worked_days_count(2, 2026, 1)
-check("overlap day_off: get_worked_days_count без двойного вычитания",
+check("overlap compensatory: get_worked_days_count без двойного вычитания",
       _ovs_worked2 == _ovs_expected_worked2,
       f"expected={_ovs_expected_worked2}, got={_ovs_worked2}")
 
 _ovs_map2 = _ov_sick_db.get_absence_days_map(2026, 1, user_id=2)
 _ovs_user_map2 = _ovs_map2.get(2, {})
 _ovs_expected_days2 = set(range(3, 11)) | set(range(25, 29))
-check("overlap day_off: get_absence_days_map покрывает все дни объединения",
+check("overlap compensatory: get_absence_days_map покрывает все дни объединения",
       _ovs_expected_days2 <= set(_ovs_user_map2.keys()),
       f"covered={sorted(_ovs_user_map2.keys())}")
 
@@ -3831,9 +3831,11 @@ _ov_sick_conn.close()
 
 # ─────────────────────────────────────────────────────────
 # СЦЕНАРИЙ: Перекрытие разных типов отсутствий — приоритет типа
-# sick_leave Jan 5-15 + day_off Jan 10-12 → дни 10-12 показываются как sick_leave
+# sick (больничный) Jan 5-15 + compensatory (отгул) Jan 10-12
+# → дни 10-12 должны показываться как sick, не compensatory
+# Real DB type values: 'sick', 'vacation', 'compensatory', 'absence', 'other'
 # ─────────────────────────────────────────────────────────
-section("Перекрытие разных типов отсутствий: приоритет sick_leave > day_off")
+section("Перекрытие разных типов отсутствий: приоритет sick > compensatory > vacation")
 
 _ovx_db = make_db("overlap_cross_type.db")
 _ovx_conn = _ovx_db.get_connection()
@@ -3854,17 +3856,17 @@ while _ovx_cur <= _ovx_end:
     )
     _ovx_cur += _ovxtd(days=1)
 
-# approved sick_leave Jan 5-15
+# approved sick Jan 5-15
 _ovx_conn.execute(
     "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
-    "VALUES (1, 'sick_leave', '2026-01-05', '2026-01-15', 'approved', 1)"
+    "VALUES (1, 'sick', '2026-01-05', '2026-01-15', 'approved', 1)"
 )
-# approved day_off Jan 10-12 (overlaps sick_leave)
+# approved compensatory (отгул) Jan 10-12 (overlaps sick, must lose)
 _ovx_conn.execute(
     "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
-    "VALUES (1, 'day_off', '2026-01-10', '2026-01-12', 'approved', 1)"
+    "VALUES (1, 'compensatory', '2026-01-10', '2026-01-12', 'approved', 1)"
 )
-# pending vacation Jan 1-3 (lower priority than approved sick_leave but non-overlapping here)
+# pending vacation Jan 1-3 (lower priority than approved sick but non-overlapping here)
 _ovx_conn.execute(
     "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
     "VALUES (1, 'vacation', '2026-01-01', '2026-01-03', 'pending', 0)"
@@ -3874,16 +3876,16 @@ _ovx_conn.commit()
 _ovx_map = _ovx_db.get_absence_days_map(2026, 1, user_id=1)
 _ovx_user = _ovx_map.get(1, {})
 
-# Days 5-15 must all be sick_leave (day_off on 10-12 must not win)
+# Days 5-15 must all be sick (compensatory on 10-12 must not win)
 _ovx_sick_days = set(range(5, 16))
-check("cross-type: sick_leave дни 5-15 показаны как sick_leave (не day_off)",
-      all(_ovx_user.get(d, {}).get('type') == 'sick_leave' for d in _ovx_sick_days),
+check("cross-type: sick дни 5-15 показаны как sick (не compensatory)",
+      all(_ovx_user.get(d, {}).get('type') == 'sick' for d in _ovx_sick_days),
       f"types={[(d, _ovx_user.get(d, {}).get('type')) for d in sorted(_ovx_sick_days)]}")
 
-# Overlap days 10-12: must show sick_leave, not day_off
+# Overlap days 10-12: must show sick, not compensatory
 _ovx_overlap = {10, 11, 12}
-check("cross-type: перекрытые дни 10-12 показаны как sick_leave (приоритет sick_leave > day_off)",
-      all(_ovx_user.get(d, {}).get('type') == 'sick_leave' for d in _ovx_overlap),
+check("cross-type: перекрытые дни 10-12 показаны как sick (приоритет sick > compensatory)",
+      all(_ovx_user.get(d, {}).get('type') == 'sick' for d in _ovx_overlap),
       f"types on overlap days={([(d, _ovx_user.get(d, {}).get('type')) for d in sorted(_ovx_overlap)])}")
 
 # Pending vacation Jan 1-3 must show as pending/vacation (no approved absence there)
@@ -3895,7 +3897,35 @@ check("cross-type: pending vacation статус = pending",
       all(_ovx_user.get(d, {}).get('status') == 'pending' for d in _ovx_vac_days),
       f"statuses={[(d, _ovx_user.get(d, {}).get('status')) for d in sorted(_ovx_vac_days)]}")
 
-# Test approved vacation > approved day_off priority
+# Single-day exact overlap: sick and compensatory on the same single day (Jan 15)
+# This is the canonical scenario from task-71: sick note + day-off on the exact same day.
+_ovx_sd_db = make_db("overlap_cross_type_singleday.db")
+_ovx_sd_conn = _ovx_sd_db.get_connection()
+_ovx_sd_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) VALUES (1, 980010, 'Вера', 'Однодневная')"
+)
+# approved sick for single day Jan 15
+_ovx_sd_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'sick', '2026-01-15', '2026-01-15', 'approved', 1)"
+)
+# approved compensatory for the same single day Jan 15 (must lose to sick)
+_ovx_sd_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'compensatory', '2026-01-15', '2026-01-15', 'approved', 1)"
+)
+_ovx_sd_conn.commit()
+_ovx_sd_map = _ovx_sd_db.get_absence_days_map(2026, 1, user_id=1)
+_ovx_sd_user = _ovx_sd_map.get(1, {})
+check("single-day overlap: день 15 показан как sick (не compensatory)",
+      _ovx_sd_user.get(15, {}).get('type') == 'sick',
+      f"type on day 15={_ovx_sd_user.get(15, {}).get('type')}")
+check("single-day overlap: день 15 не пропал из карты",
+      15 in _ovx_sd_user,
+      f"keys={sorted(_ovx_sd_user.keys())}")
+_ovx_sd_conn.close()
+
+# Test approved vacation > approved compensatory priority
 _ovx2_db = make_db("overlap_cross_type2.db")
 _ovx2_conn = _ovx2_db.get_connection()
 _ovx2_conn.execute(
@@ -3906,21 +3936,130 @@ _ovx2_conn.execute(
     "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
     "VALUES (1, 'vacation', '2026-01-05', '2026-01-15', 'approved', 1)"
 )
-# approved day_off Jan 10-12 (must lose to vacation)
+# approved compensatory Jan 10-12 (must lose to vacation)
 _ovx2_conn.execute(
     "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
-    "VALUES (1, 'day_off', '2026-01-10', '2026-01-12', 'approved', 1)"
+    "VALUES (1, 'compensatory', '2026-01-10', '2026-01-12', 'approved', 1)"
 )
 _ovx2_conn.commit()
 
 _ovx2_map = _ovx2_db.get_absence_days_map(2026, 1, user_id=1)
 _ovx2_user = _ovx2_map.get(1, {})
-check("cross-type: approved vacation > approved day_off на перекрытых днях 10-12",
+check("cross-type: approved vacation > approved compensatory на перекрытых днях 10-12",
       all(_ovx2_user.get(d, {}).get('type') == 'vacation' for d in {10, 11, 12}),
       f"types={[(d, _ovx2_user.get(d, {}).get('type')) for d in [10, 11, 12]]}")
 
 _ovx_conn.close()
 _ovx2_conn.close()
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ: Разные типы, один целиком внутри другого
+# get_worked_days_count и get_paid_absence_days_bulk
+# ─────────────────────────────────────────────────────────
+section("cross-type overlap: get_worked_days_count и bulk без двойного вычитания")
+
+_cxt_db = make_db("cross_type_worked.db")
+_cxt_conn = _cxt_db.get_connection()
+
+# Два пользователя, весь январь 2026 в графике
+_cxt_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) "
+    "VALUES (1, 991001, 'Света', 'Больная')"
+)
+_cxt_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) "
+    "VALUES (2, 991002, 'Павел', 'Отпускник')"
+)
+_cxt_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 1000)")
+_cxt_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (2, 1200)")
+
+from datetime import date as _cxtd, timedelta as _cxttd
+_cxt_jan_start = _cxtd(2026, 1, 1)
+_cxt_jan_end   = _cxtd(2026, 1, 31)
+_cxt_cur = _cxt_jan_start
+while _cxt_cur <= _cxt_jan_end:
+    _cxt_conn.execute(
+        "INSERT INTO work_schedule (user_id, work_date) VALUES (1, ?)",
+        (_cxt_cur.isoformat(),)
+    )
+    _cxt_conn.execute(
+        "INSERT INTO work_schedule (user_id, work_date) VALUES (2, ?)",
+        (_cxt_cur.isoformat(),)
+    )
+    _cxt_cur += _cxttd(days=1)
+
+# Пользователь 1: sick_leave Jan 5-15 + day_off Jan 10-12 (целиком внутри sick_leave)
+# Объединение = Jan 5-15 = 11 дней; ожидаемые отработанные = 31 - 11 = 20
+_cxt_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'sick_leave', '2026-01-05', '2026-01-15', 'approved', 1)"
+)
+_cxt_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'day_off', '2026-01-10', '2026-01-12', 'approved', 1)"
+)
+
+# Пользователь 2: vacation Jan 5-15 + sick_leave Jan 8-12 (целиком внутри vacation)
+# Объединение = Jan 5-15 = 11 дней; ожидаемые отработанные = 31 - 11 = 20
+_cxt_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (2, 'vacation', '2026-01-05', '2026-01-15', 'approved', 1)"
+)
+_cxt_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (2, 'sick_leave', '2026-01-08', '2026-01-12', 'approved', 1)"
+)
+_cxt_conn.commit()
+_cxt_conn.close()
+
+_cxt_sched_days = 31
+_cxt_union_days = (_cxtd(2026, 1, 15) - _cxtd(2026, 1, 5)).days + 1  # 11
+_cxt_expected_worked = _cxt_sched_days - _cxt_union_days              # 20
+
+# get_worked_days_count — пользователь 1 (sick_leave содержит day_off)
+_cxt_worked1 = _cxt_db.get_worked_days_count(1, 2026, 1)
+check(
+    "cross-type entirely-inside: u1 sick_leave⊇day_off — "
+    "get_worked_days_count без двойного вычитания",
+    _cxt_worked1 == _cxt_expected_worked,
+    f"expected={_cxt_expected_worked}, got={_cxt_worked1}"
+)
+
+# get_worked_days_count — пользователь 2 (vacation содержит sick_leave)
+_cxt_worked2 = _cxt_db.get_worked_days_count(2, 2026, 1)
+check(
+    "cross-type entirely-inside: u2 vacation⊇sick_leave — "
+    "get_worked_days_count без двойного вычитания",
+    _cxt_worked2 == _cxt_expected_worked,
+    f"expected={_cxt_expected_worked}, got={_cxt_worked2}"
+)
+
+# get_paid_absence_days_bulk — оба пользователя одним вызовом
+_cxt_bulk = _cxt_db.get_paid_absence_days_bulk(2026, 1, [1, 2])
+check(
+    "cross-type entirely-inside: bulk u1 sick_leave⊇day_off — "
+    "paid_absence_days = 11 (нет двойного счёта)",
+    _cxt_bulk.get(1, -1) == _cxt_union_days,
+    f"expected={_cxt_union_days}, got={_cxt_bulk.get(1, -1)}"
+)
+check(
+    "cross-type entirely-inside: bulk u2 vacation⊇sick_leave — "
+    "paid_absence_days = 11 (нет двойного счёта)",
+    _cxt_bulk.get(2, -1) == _cxt_union_days,
+    f"expected={_cxt_union_days}, got={_cxt_bulk.get(2, -1)}"
+)
+
+# Согласованность: worked = sched - bulk_paid_absence_days
+check(
+    "cross-type entirely-inside: u1 worked + bulk_paid = sched (консистентность)",
+    _cxt_worked1 + _cxt_bulk.get(1, -1) == _cxt_sched_days,
+    f"worked={_cxt_worked1}, bulk={_cxt_bulk.get(1, -1)}, sched={_cxt_sched_days}"
+)
+check(
+    "cross-type entirely-inside: u2 worked + bulk_paid = sched (консистентность)",
+    _cxt_worked2 + _cxt_bulk.get(2, -1) == _cxt_sched_days,
+    f"worked={_cxt_worked2}, bulk={_cxt_bulk.get(2, -1)}, sched={_cxt_sched_days}"
+)
 
 # ─────────────────────────────────────────────────────────
 # СЦЕНАРИЙ: merge_absences — рабочие дни и зарплата не меняются

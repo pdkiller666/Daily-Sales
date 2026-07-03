@@ -13620,9 +13620,10 @@ class Database:
             groups.setdefault((uid, atype, status), []).append((d_start, d_end, ab_id))
 
         # Priority rule for overlapping days: higher-priority type wins.
-        # approved beats pending; within same status: sick_leave > vacation > day_off > others.
+        # approved beats pending; within same status: sick > vacation > compensatory > others.
+        # Real DB type values: 'sick', 'vacation', 'compensatory', 'absence', 'other'.
         # Process lower-priority groups first so higher-priority ones overwrite shared days.
-        _TYPE_PRIO = {'day_off': 0, 'vacation': 1, 'sick_leave': 2}
+        _TYPE_PRIO = {'compensatory': 0, 'vacation': 1, 'sick': 2}
 
         result: dict = {}
         for (uid, atype, status), intervals in sorted(

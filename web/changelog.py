@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.379.0"
+CURRENT_VERSION = "1.380.0"
 
 ENTRIES = [
+    {
+        "version": "1.380.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update application features and fix test expectations for salary calculations",
+            "Add cross-type absence overlap tests for get_worked_days_count and bulk",
+            "Fix absence-calendar priority: use real DB type names (sick/compensatory) in get_absence_days_map",
+        ],
+    },
     {
         "version": "1.379.0",
         "date": "3 июля 2026",
