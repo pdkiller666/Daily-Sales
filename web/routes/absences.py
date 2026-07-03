@@ -806,6 +806,12 @@ def absences_merge(
                 status_code=302
             )
 
+        if keep_rec[1] != drop_rec[1]:
+            return RedirectResponse(
+                url=f"/absences?year={year}&month={month}&msg=no_access",
+                status_code=302
+            )
+
         ok = db.merge_absences(keep_id, drop_id)
         if not ok:
             return RedirectResponse(

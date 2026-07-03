@@ -3639,6 +3639,211 @@ check("overlap day_off: get_absence_days_map покрывает все дни о
 
 _ov_sick_conn.close()
 
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ: merge_absences — рабочие дни и зарплата не меняются
+# ─────────────────────────────────────────────────────────
+section("merge_absences: отработанные дни и зарплата после слияния")
+
+from datetime import date as _mrgd, timedelta as _mrgtd
+
+_mrg_db = make_db("merge_absences.db")
+_mrg_conn = _mrg_db.get_connection()
+
+# Пользователь с дневной ставкой 2000₽, весь январь 2026 в графике
+_mrg_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) VALUES (1, 700001, 'Мария', 'Слиятова')"
+)
+_mrg_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 2000)")
+_mrg_jan_start = _mrgd(2026, 1, 1)
+_mrg_jan_end   = _mrgd(2026, 1, 31)
+_mrg_cur = _mrg_jan_start
+_mrg_sched_days = 0
+while _mrg_cur <= _mrg_jan_end:
+    _mrg_conn.execute(
+        "INSERT INTO work_schedule (user_id, work_date) VALUES (1, ?)",
+        (_mrg_cur.isoformat(),)
+    )
+    _mrg_sched_days += 1
+    _mrg_cur += _mrgtd(days=1)
+
+# Два перекрывающихся больничных: Jan 5-15 и Jan 10-20 → объединение Jan 5-20 = 16 дней
+_mrg_conn.execute(
+    "INSERT INTO absence_records (id, user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 1, 'sick_leave', '2026-01-05', '2026-01-15', 'approved', 1)"
+)
+_mrg_conn.execute(
+    "INSERT INTO absence_records (id, user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (2, 1, 'sick_leave', '2026-01-10', '2026-01-20', 'approved', 1)"
+)
+_mrg_conn.commit()
+_mrg_conn.close()
+
+# union Jan 5–20 = 16 дней; ожидаемые отработанные = 31 − 16 = 15
+_mrg_union_days = (_mrgd(2026, 1, 20) - _mrgd(2026, 1, 5)).days + 1   # 16
+_mrg_expected_worked = _mrg_sched_days - _mrg_union_days               # 15
+_mrg_expected_salary = _mrg_expected_worked * 2000.0                   # 30000
+
+# Замеры ДО слияния (single-path)
+_mrg_worked_before = _mrg_db.get_worked_days_count(1, 2026, 1)
+_mrg_salary_before = _mrg_db.calculate_monthly_salary(1, 2026, 1)
+_mrg_paid_abs_before = _mrg_db.get_paid_absence_days_count(1, 2026, 1)
+# Bulk-путь зарплаты ДО слияния
+_mrg_bulk_before = _mrg_db.get_paid_absence_days_bulk(2026, 1, [1])
+_mrg_bulk_val_before = _mrg_bulk_before.get(1, -1)
+
+check("merge_absences before: get_worked_days_count корректен (нет двойного вычитания)",
+      _mrg_worked_before == _mrg_expected_worked,
+      f"expected={_mrg_expected_worked}, got={_mrg_worked_before}")
+check("merge_absences before: calculate_monthly_salary корректна",
+      abs(_mrg_salary_before - _mrg_expected_salary) < 0.01,
+      f"expected={_mrg_expected_salary}, got={_mrg_salary_before}")
+check("merge_absences before: get_paid_absence_days_count = 16 (объединение)",
+      _mrg_paid_abs_before == _mrg_union_days,
+      f"expected={_mrg_union_days}, got={_mrg_paid_abs_before}")
+check("merge_absences before: bulk get_paid_absence_days_bulk = 16 (объединение)",
+      _mrg_bulk_val_before == _mrg_union_days,
+      f"expected={_mrg_union_days}, got={_mrg_bulk_val_before}")
+check("merge_absences before: bulk совпадает с single paid_absence_days",
+      _mrg_bulk_val_before == _mrg_paid_abs_before,
+      f"single={_mrg_paid_abs_before}, bulk={_mrg_bulk_val_before}")
+
+# Слияние: keep_id=1 расширяется до Jan 5-20; drop_id=2 → статус 'cancelled'
+_mrg_ok = _mrg_db.merge_absences(keep_id=1, drop_id=2)
+check("merge_absences: возвращает True",
+      _mrg_ok is True, f"got={_mrg_ok}")
+
+# Замеры ПОСЛЕ слияния (single-path)
+_mrg_worked_after = _mrg_db.get_worked_days_count(1, 2026, 1)
+_mrg_salary_after = _mrg_db.calculate_monthly_salary(1, 2026, 1)
+_mrg_paid_abs_after = _mrg_db.get_paid_absence_days_count(1, 2026, 1)
+# Bulk-путь зарплаты ПОСЛЕ слияния
+_mrg_bulk_after = _mrg_db.get_paid_absence_days_bulk(2026, 1, [1])
+_mrg_bulk_val_after = _mrg_bulk_after.get(1, -1)
+
+check("merge_absences after: get_worked_days_count не изменился",
+      _mrg_worked_after == _mrg_worked_before,
+      f"before={_mrg_worked_before}, after={_mrg_worked_after}")
+check("merge_absences after: get_worked_days_count = ожидаемому (нет потерь)",
+      _mrg_worked_after == _mrg_expected_worked,
+      f"expected={_mrg_expected_worked}, got={_mrg_worked_after}")
+check("merge_absences after: calculate_monthly_salary не изменилась",
+      abs(_mrg_salary_after - _mrg_salary_before) < 0.01,
+      f"before={_mrg_salary_before}, after={_mrg_salary_after}")
+check("merge_absences after: get_paid_absence_days_count не изменился",
+      _mrg_paid_abs_after == _mrg_paid_abs_before,
+      f"before={_mrg_paid_abs_before}, after={_mrg_paid_abs_after}")
+check("merge_absences after: bulk get_paid_absence_days_bulk не изменился",
+      _mrg_bulk_val_after == _mrg_bulk_val_before,
+      f"before={_mrg_bulk_val_before}, after={_mrg_bulk_val_after}")
+check("merge_absences after: bulk = 16 (нет двойного счёта, нет потерь)",
+      _mrg_bulk_val_after == _mrg_union_days,
+      f"expected={_mrg_union_days}, got={_mrg_bulk_val_after}")
+check("merge_absences after: bulk совпадает с single paid_absence_days",
+      _mrg_bulk_val_after == _mrg_paid_abs_after,
+      f"single={_mrg_paid_abs_after}, bulk={_mrg_bulk_val_after}")
+
+# Убеждаемся, что объединённая запись правильно расширена
+_mrg_conn2 = _mrg_db.get_connection()
+_mrg_kept = _mrg_conn2.execute(
+    "SELECT start_date, end_date, status FROM absence_records WHERE id=1"
+).fetchone()
+_mrg_dropped = _mrg_conn2.execute(
+    "SELECT status FROM absence_records WHERE id=2"
+).fetchone()
+_mrg_conn2.close()
+
+check("merge_absences: keep-запись расширена до объединённого диапазона (Jan 5-20)",
+      _mrg_kept is not None
+      and _mrg_kept[0] == '2026-01-05'
+      and _mrg_kept[1] == '2026-01-20'
+      and _mrg_kept[2] == 'approved',
+      f"got={_mrg_kept}")
+check("merge_absences: drop-запись имеет статус 'cancelled'",
+      _mrg_dropped is not None and _mrg_dropped[0] == 'cancelled',
+      f"got={_mrg_dropped}")
+
+# ── Vacation: get_vacation_pay_12m корректен до и после слияния ──────────────
+section("merge_absences vacation: get_vacation_pay_12m после слияния")
+
+_mrgv_db = make_db("merge_vacation.db")
+_mrgv_conn = _mrgv_db.get_connection()
+
+_mrgv_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) VALUES (1, 700002, 'Анна', 'Отпускова')"
+)
+_mrgv_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 1500)")
+
+# Рабочий график: весь июль 2026 (31 день)
+_mrgv_cur = _mrgd(2026, 7, 1)
+while _mrgv_cur <= _mrgd(2026, 7, 31):
+    _mrgv_conn.execute(
+        "INSERT INTO work_schedule (user_id, work_date) VALUES (1, ?)",
+        (_mrgv_cur.isoformat(),)
+    )
+    _mrgv_cur += _mrgtd(days=1)
+
+# Два перекрывающихся отпуска: Jul 1-10 и Jul 5-15 → объединение Jul 1-15 = 15 дней
+_mrgv_conn.execute(
+    "INSERT INTO absence_records (id, user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 1, 'vacation', '2026-07-01', '2026-07-10', 'approved', 1)"
+)
+_mrgv_conn.execute(
+    "INSERT INTO absence_records (id, user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (2, 1, 'vacation', '2026-07-05', '2026-07-15', 'approved', 1)"
+)
+# Один месяц истории доходов (даём avg_daily = 1500)
+_mrgv_conn.execute(
+    "INSERT INTO products (id, name, category, price) VALUES (1, 'Товар', 'Кат', 100)"
+)
+_mrgv_conn.execute(
+    "INSERT INTO sales (id, user_id, product_id, shop_name, quantity_sold, sale_price, sale_date) "
+    "VALUES (1, 1, 1, 'Магазин', 1, 100, '2025-07-15')"
+)
+_mrgv_conn.commit()
+_mrgv_conn.close()
+
+_mrgv_union_days = (_mrgd(2026, 7, 15) - _mrgd(2026, 7, 1)).days + 1   # 15
+
+# Замер vacation pay ДО слияния
+_mrgv_vp_before, _mrgv_vcd_before, _, _ = _mrgv_db.get_vacation_pay_12m(1, 2026, 7)
+check("merge vacation before: vac_cal_days = 15 (объединение Jul 1-15)",
+      _mrgv_vcd_before == _mrgv_union_days,
+      f"expected={_mrgv_union_days}, got={_mrgv_vcd_before}")
+
+# bulk-версия совпадает с single
+_mrgv_bulk_before = _mrgv_db.get_vacation_pay_12m_bulk([1], 2026, 7)
+_mrgv_vb_before = _mrgv_bulk_before.get(1, (0.0, 0, 0.0, False))
+check("merge vacation before: bulk совпадает с single (vac_cal_days)",
+      _mrgv_vb_before[1] == _mrgv_vcd_before,
+      f"single={_mrgv_vcd_before}, bulk={_mrgv_vb_before[1]}")
+
+# Слияние
+_mrgv_ok = _mrgv_db.merge_absences(keep_id=1, drop_id=2)
+check("merge vacation: merge_absences вернул True",
+      _mrgv_ok is True, f"got={_mrgv_ok}")
+
+# Замер vacation pay ПОСЛЕ слияния
+_mrgv_vp_after, _mrgv_vcd_after, _, _ = _mrgv_db.get_vacation_pay_12m(1, 2026, 7)
+check("merge vacation after: vac_cal_days не изменился",
+      _mrgv_vcd_after == _mrgv_vcd_before,
+      f"before={_mrgv_vcd_before}, after={_mrgv_vcd_after}")
+check("merge vacation after: vac_cal_days = 15 (нет потерь/двойного счёта)",
+      _mrgv_vcd_after == _mrgv_union_days,
+      f"expected={_mrgv_union_days}, got={_mrgv_vcd_after}")
+check("merge vacation after: vac_pay не изменился",
+      abs(_mrgv_vp_after - _mrgv_vp_before) < 0.01,
+      f"before={_mrgv_vp_before}, after={_mrgv_vp_after}")
+
+# bulk после слияния
+_mrgv_bulk_after = _mrgv_db.get_vacation_pay_12m_bulk([1], 2026, 7)
+_mrgv_vb_after = _mrgv_bulk_after.get(1, (0.0, 0, 0.0, False))
+check("merge vacation after: bulk vac_cal_days = 15",
+      _mrgv_vb_after[1] == _mrgv_union_days,
+      f"expected={_mrgv_union_days}, got={_mrgv_vb_after[1]}")
+check("merge vacation after: bulk vac_pay не изменился",
+      abs(_mrgv_vb_after[0] - _mrgv_vp_before) < 0.01,
+      f"before={_mrgv_vp_before}, bulk_after={_mrgv_vb_after[0]}")
+
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)
 total  = len(results)
