@@ -1339,7 +1339,7 @@ async def my_schedule(callback: CallbackQuery, state: FSMContext):
     text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, net_worked_count, salary,
                              non_vac_paid_abs, vac_cal_days, avg_daily, vac_pay, vac_fallback)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu",
-                      payslip_cb=f"my_slip_{year}_{month}")
+                      payslip_cb=f"my_slip_{year}_{month}" if daily_rate else None)
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
 
@@ -1366,7 +1366,7 @@ async def my_schedule_nav(callback: CallbackQuery, state: FSMContext):
     text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, net_worked_count, salary,
                              non_vac_paid_abs, vac_cal_days, avg_daily, vac_pay, vac_fallback)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu",
-                      payslip_cb=f"my_slip_{year}_{month}")
+                      payslip_cb=f"my_slip_{year}_{month}" if daily_rate else None)
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
 

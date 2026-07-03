@@ -13594,10 +13594,17 @@ class Database:
                 continue
             groups.setdefault((uid, atype, status), []).append((d_start, d_end, ab_id))
 
+        # Priority rule for overlapping days: higher-priority type wins.
+        # approved beats pending; within same status: sick_leave > vacation > day_off > others.
+        # Process lower-priority groups first so higher-priority ones overwrite shared days.
+        _TYPE_PRIO = {'day_off': 0, 'vacation': 1, 'sick_leave': 2}
+
         result: dict = {}
-        # Process pending before approved so approved overwrites shared days
         for (uid, atype, status), intervals in sorted(
-                groups.items(), key=lambda kv: (kv[0][0], kv[0][2] == 'approved')):
+                groups.items(),
+                key=lambda kv: (kv[0][0],
+                                kv[0][2] == 'approved',
+                                _TYPE_PRIO.get(kv[0][1], 0))):
             intervals.sort(key=lambda x: x[0])
             # Merge overlapping/adjacent intervals (keep first ab_id in each merged run)
             merged: list = []

@@ -1,6 +1,16 @@
-CURRENT_VERSION = "1.374.0"
+CURRENT_VERSION = "1.375.0"
 
 ENTRIES = [
+    {
+        "version": "1.375.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Confirm salary summary stays correct when an absence spans two calendar months",
+            "Prevent UI from offering to merge absences that don't actually overlap",
+            "Hide payslip button when employee rate is not set",
+            "Prevent salary from quietly miscounting days when two absences of different types overlap the same day",
+        ],
+    },
     {
         "version": "1.374.0",
         "date": "3 июля 2026",

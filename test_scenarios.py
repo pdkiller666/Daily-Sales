@@ -3640,6 +3640,99 @@ check("overlap day_off: get_absence_days_map покрывает все дни о
 _ov_sick_conn.close()
 
 # ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ: Перекрытие разных типов отсутствий — приоритет типа
+# sick_leave Jan 5-15 + day_off Jan 10-12 → дни 10-12 показываются как sick_leave
+# ─────────────────────────────────────────────────────────
+section("Перекрытие разных типов отсутствий: приоритет sick_leave > day_off")
+
+_ovx_db = make_db("overlap_cross_type.db")
+_ovx_conn = _ovx_db.get_connection()
+
+_ovx_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) VALUES (1, 980001, 'Игорь', 'Конфликтов')"
+)
+_ovx_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 1000)")
+
+from datetime import date as _ovxd, timedelta as _ovxtd
+_ovx_start = _ovxd(2026, 1, 1)
+_ovx_end = _ovxd(2026, 1, 31)
+_ovx_cur = _ovx_start
+while _ovx_cur <= _ovx_end:
+    _ovx_conn.execute(
+        "INSERT INTO work_schedule (user_id, work_date) VALUES (1, ?)",
+        (_ovx_cur.isoformat(),)
+    )
+    _ovx_cur += _ovxtd(days=1)
+
+# approved sick_leave Jan 5-15
+_ovx_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'sick_leave', '2026-01-05', '2026-01-15', 'approved', 1)"
+)
+# approved day_off Jan 10-12 (overlaps sick_leave)
+_ovx_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'day_off', '2026-01-10', '2026-01-12', 'approved', 1)"
+)
+# pending vacation Jan 1-3 (lower priority than approved sick_leave but non-overlapping here)
+_ovx_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'vacation', '2026-01-01', '2026-01-03', 'pending', 0)"
+)
+_ovx_conn.commit()
+
+_ovx_map = _ovx_db.get_absence_days_map(2026, 1, user_id=1)
+_ovx_user = _ovx_map.get(1, {})
+
+# Days 5-15 must all be sick_leave (day_off on 10-12 must not win)
+_ovx_sick_days = set(range(5, 16))
+check("cross-type: sick_leave дни 5-15 показаны как sick_leave (не day_off)",
+      all(_ovx_user.get(d, {}).get('type') == 'sick_leave' for d in _ovx_sick_days),
+      f"types={[(d, _ovx_user.get(d, {}).get('type')) for d in sorted(_ovx_sick_days)]}")
+
+# Overlap days 10-12: must show sick_leave, not day_off
+_ovx_overlap = {10, 11, 12}
+check("cross-type: перекрытые дни 10-12 показаны как sick_leave (приоритет sick_leave > day_off)",
+      all(_ovx_user.get(d, {}).get('type') == 'sick_leave' for d in _ovx_overlap),
+      f"types on overlap days={([(d, _ovx_user.get(d, {}).get('type')) for d in sorted(_ovx_overlap)])}")
+
+# Pending vacation Jan 1-3 must show as pending/vacation (no approved absence there)
+_ovx_vac_days = {1, 2, 3}
+check("cross-type: pending vacation дни 1-3 показаны как vacation/pending",
+      all(_ovx_user.get(d, {}).get('type') == 'vacation' for d in _ovx_vac_days),
+      f"types={[(d, _ovx_user.get(d, {}).get('type')) for d in sorted(_ovx_vac_days)]}")
+check("cross-type: pending vacation статус = pending",
+      all(_ovx_user.get(d, {}).get('status') == 'pending' for d in _ovx_vac_days),
+      f"statuses={[(d, _ovx_user.get(d, {}).get('status')) for d in sorted(_ovx_vac_days)]}")
+
+# Test approved vacation > approved day_off priority
+_ovx2_db = make_db("overlap_cross_type2.db")
+_ovx2_conn = _ovx2_db.get_connection()
+_ovx2_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) VALUES (1, 980002, 'Петя', 'Отпусков')"
+)
+# approved vacation Jan 5-15
+_ovx2_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'vacation', '2026-01-05', '2026-01-15', 'approved', 1)"
+)
+# approved day_off Jan 10-12 (must lose to vacation)
+_ovx2_conn.execute(
+    "INSERT INTO absence_records (user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 'day_off', '2026-01-10', '2026-01-12', 'approved', 1)"
+)
+_ovx2_conn.commit()
+
+_ovx2_map = _ovx2_db.get_absence_days_map(2026, 1, user_id=1)
+_ovx2_user = _ovx2_map.get(1, {})
+check("cross-type: approved vacation > approved day_off на перекрытых днях 10-12",
+      all(_ovx2_user.get(d, {}).get('type') == 'vacation' for d in {10, 11, 12}),
+      f"types={[(d, _ovx2_user.get(d, {}).get('type')) for d in [10, 11, 12]]}")
+
+_ovx_conn.close()
+_ovx2_conn.close()
+
+# ─────────────────────────────────────────────────────────
 # СЦЕНАРИЙ: merge_absences — рабочие дни и зарплата не меняются
 # ─────────────────────────────────────────────────────────
 section("merge_absences: отработанные дни и зарплата после слияния")
@@ -4004,6 +4097,219 @@ check("merge team after: bulk paid_days u1 = 15 (Mar 3-17)",
 check("merge team after: bulk paid_days u2 = 0 (без отсутствий, нет побочного эффекта)",
       _mrgt_bulk_after.get(2, 0) == 0,
       f"expected=0, got={_mrgt_bulk_after.get(2, 0)}")
+
+# ── СЦЕНАРИЙ: merge_absences при отсутствии, пересекающем границу месяца ───────
+section("merge_absences: salary summary при отсутствии через границу месяца")
+
+import calendar as _mxcal
+
+_mx_db = make_db("merge_cross_month.db")
+_mx_conn = _mx_db.get_connection()
+
+# Пользователь 1: ставка 2000₽/день; отсутствия пересекают границу Jan/Feb
+_mx_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) "
+    "VALUES (1, 900001, 'Мария', 'Переходная')"
+)
+_mx_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 2000)")
+
+# Пользователь 2: ставка 1500₽/день; нет отсутствий (эталон, не должен меняться)
+_mx_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) "
+    "VALUES (2, 900002, 'Дмитрий', 'Стабильный')"
+)
+_mx_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (2, 1500)")
+
+# Заполнить график работы: весь январь и весь февраль 2026
+_mx_jan_days = _mxcal.monthrange(2026, 1)[1]   # 31
+_mx_feb_days = _mxcal.monthrange(2026, 2)[1]   # 28
+_mx_cur = _mrgd(2026, 1, 1)
+while _mx_cur <= _mrgd(2026, 2, _mx_feb_days):
+    _mx_conn.execute(
+        "INSERT INTO work_schedule (user_id, work_date) VALUES (1, ?)",
+        (_mx_cur.isoformat(),)
+    )
+    _mx_conn.execute(
+        "INSERT INTO work_schedule (user_id, work_date) VALUES (2, ?)",
+        (_mx_cur.isoformat(),)
+    )
+    _mx_cur += _mrgtd(days=1)
+
+# Два перекрывающихся больничных, пересекающих границу Jan/Feb:
+#   Abs 1: Jan 25 – Feb 3  (10 дней)
+#   Abs 2: Jan 28 – Feb 6  (10 дней)
+#   Объединение: Jan 25 – Feb 6
+_mx_conn.execute(
+    "INSERT INTO absence_records (id, user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 1, 'sick_leave', '2026-01-25', '2026-02-03', 'approved', 1)"
+)
+_mx_conn.execute(
+    "INSERT INTO absence_records (id, user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (2, 1, 'sick_leave', '2026-01-28', '2026-02-06', 'approved', 1)"
+)
+_mx_conn.commit()
+_mx_conn.close()
+
+# Ожидаемые значения ---
+# Январь: объединение Jan 25-31 = 7 дней вычитается
+_mx_jan_absent  = (_mrgd(2026, 1, 31) - _mrgd(2026, 1, 25)).days + 1   # 7
+_mx_jan_worked1 = _mx_jan_days - _mx_jan_absent                          # 24
+_mx_jan_salary1 = _mx_jan_worked1 * 2000.0                               # 48000
+_mx_jan_worked2 = _mx_jan_days                                            # 31
+
+# Февраль: объединение Feb 1-6 = 6 дней вычитается
+_mx_feb_absent  = (_mrgd(2026, 2, 6) - _mrgd(2026, 2, 1)).days + 1      # 6
+_mx_feb_worked1 = _mx_feb_days - _mx_feb_absent                          # 22
+_mx_feb_salary1 = _mx_feb_worked1 * 2000.0                               # 44000
+_mx_feb_worked2 = _mx_feb_days                                            # 28
+
+def _mx_find_user(summary, user_id):
+    for row in summary:
+        if row[0] == user_id:
+            return row
+    return None
+
+# ── Снимок ДО слияния ──────────────────────────────────────────────────────────
+
+_mx_jan_sum_before = _mx_db.get_team_salary_summary(2026, 1)
+_mx_feb_sum_before = _mx_db.get_team_salary_summary(2026, 2)
+
+_mx_jan_u1_before = _mx_find_user(_mx_jan_sum_before, 1)
+_mx_jan_u2_before = _mx_find_user(_mx_jan_sum_before, 2)
+_mx_feb_u1_before = _mx_find_user(_mx_feb_sum_before, 1)
+_mx_feb_u2_before = _mx_find_user(_mx_feb_sum_before, 2)
+
+check("cross-month before Jan: оба пользователя в сводке",
+      _mx_jan_u1_before is not None and _mx_jan_u2_before is not None,
+      f"u1={_mx_jan_u1_before}, u2={_mx_jan_u2_before}")
+check("cross-month before Feb: оба пользователя в сводке",
+      _mx_feb_u1_before is not None and _mx_feb_u2_before is not None,
+      f"u1={_mx_feb_u1_before}, u2={_mx_feb_u2_before}")
+
+check("cross-month before Jan: u1 worked_days = 24 (вычтены Jan 25-31)",
+      _mx_jan_u1_before is not None and _mx_jan_u1_before[4] == _mx_jan_worked1,
+      f"expected={_mx_jan_worked1}, got={_mx_jan_u1_before[4] if _mx_jan_u1_before else 'N/A'}")
+check("cross-month before Jan: u1 base_salary = 48000",
+      _mx_jan_u1_before is not None and abs(_mx_jan_u1_before[5] - _mx_jan_salary1) < 0.01,
+      f"expected={_mx_jan_salary1}, got={_mx_jan_u1_before[5] if _mx_jan_u1_before else 'N/A'}")
+check("cross-month before Jan: u2 worked_days = 31 (без отсутствий)",
+      _mx_jan_u2_before is not None and _mx_jan_u2_before[4] == _mx_jan_worked2,
+      f"expected={_mx_jan_worked2}, got={_mx_jan_u2_before[4] if _mx_jan_u2_before else 'N/A'}")
+
+check("cross-month before Feb: u1 worked_days = 22 (вычтены Feb 1-6)",
+      _mx_feb_u1_before is not None and _mx_feb_u1_before[4] == _mx_feb_worked1,
+      f"expected={_mx_feb_worked1}, got={_mx_feb_u1_before[4] if _mx_feb_u1_before else 'N/A'}")
+check("cross-month before Feb: u1 base_salary = 44000",
+      _mx_feb_u1_before is not None and abs(_mx_feb_u1_before[5] - _mx_feb_salary1) < 0.01,
+      f"expected={_mx_feb_salary1}, got={_mx_feb_u1_before[5] if _mx_feb_u1_before else 'N/A'}")
+check("cross-month before Feb: u2 worked_days = 28 (без отсутствий)",
+      _mx_feb_u2_before is not None and _mx_feb_u2_before[4] == _mx_feb_worked2,
+      f"expected={_mx_feb_worked2}, got={_mx_feb_u2_before[4] if _mx_feb_u2_before else 'N/A'}")
+
+# get_paid_absence_days_bulk ДО слияния
+_mx_jan_bulk_before = _mx_db.get_paid_absence_days_bulk(2026, 1, [1, 2])
+_mx_feb_bulk_before = _mx_db.get_paid_absence_days_bulk(2026, 2, [1, 2])
+
+check("cross-month before: bulk Jan paid_days u1 = 7 (Jan 25-31)",
+      _mx_jan_bulk_before.get(1, -1) == _mx_jan_absent,
+      f"expected={_mx_jan_absent}, got={_mx_jan_bulk_before.get(1, -1)}")
+check("cross-month before: bulk Jan paid_days u2 = 0",
+      _mx_jan_bulk_before.get(2, 0) == 0,
+      f"expected=0, got={_mx_jan_bulk_before.get(2, 0)}")
+check("cross-month before: bulk Feb paid_days u1 = 6 (Feb 1-6)",
+      _mx_feb_bulk_before.get(1, -1) == _mx_feb_absent,
+      f"expected={_mx_feb_absent}, got={_mx_feb_bulk_before.get(1, -1)}")
+check("cross-month before: bulk Feb paid_days u2 = 0",
+      _mx_feb_bulk_before.get(2, 0) == 0,
+      f"expected=0, got={_mx_feb_bulk_before.get(2, 0)}")
+
+# ── Слияние ────────────────────────────────────────────────────────────────────
+
+_mx_merge_ok = _mx_db.merge_absences(keep_id=1, drop_id=2)
+check("cross-month: merge_absences вернул True",
+      _mx_merge_ok is True, f"got={_mx_merge_ok}")
+
+# ── Снимок ПОСЛЕ слияния ───────────────────────────────────────────────────────
+
+_mx_jan_sum_after = _mx_db.get_team_salary_summary(2026, 1)
+_mx_feb_sum_after = _mx_db.get_team_salary_summary(2026, 2)
+
+_mx_jan_u1_after = _mx_find_user(_mx_jan_sum_after, 1)
+_mx_jan_u2_after = _mx_find_user(_mx_jan_sum_after, 2)
+_mx_feb_u1_after = _mx_find_user(_mx_feb_sum_after, 1)
+_mx_feb_u2_after = _mx_find_user(_mx_feb_sum_after, 2)
+
+check("cross-month after Jan: u1 worked_days не изменился",
+      _mx_jan_u1_after is not None and _mx_jan_u1_before is not None
+      and _mx_jan_u1_after[4] == _mx_jan_u1_before[4],
+      f"before={_mx_jan_u1_before[4] if _mx_jan_u1_before else 'N/A'}, after={_mx_jan_u1_after[4] if _mx_jan_u1_after else 'N/A'}")
+check("cross-month after Jan: u1 worked_days = 24 (нет потерь/двойного счёта)",
+      _mx_jan_u1_after is not None and _mx_jan_u1_after[4] == _mx_jan_worked1,
+      f"expected={_mx_jan_worked1}, got={_mx_jan_u1_after[4] if _mx_jan_u1_after else 'N/A'}")
+check("cross-month after Jan: u1 base_salary не изменилась",
+      _mx_jan_u1_after is not None and _mx_jan_u1_before is not None
+      and abs(_mx_jan_u1_after[5] - _mx_jan_u1_before[5]) < 0.01,
+      f"before={_mx_jan_u1_before[5] if _mx_jan_u1_before else 'N/A'}, after={_mx_jan_u1_after[5] if _mx_jan_u1_after else 'N/A'}")
+check("cross-month after Jan: u2 worked_days не изменился (нет побочного эффекта)",
+      _mx_jan_u2_after is not None and _mx_jan_u2_before is not None
+      and _mx_jan_u2_after[4] == _mx_jan_u2_before[4],
+      f"before={_mx_jan_u2_before[4] if _mx_jan_u2_before else 'N/A'}, after={_mx_jan_u2_after[4] if _mx_jan_u2_after else 'N/A'}")
+
+check("cross-month after Feb: u1 worked_days не изменился",
+      _mx_feb_u1_after is not None and _mx_feb_u1_before is not None
+      and _mx_feb_u1_after[4] == _mx_feb_u1_before[4],
+      f"before={_mx_feb_u1_before[4] if _mx_feb_u1_before else 'N/A'}, after={_mx_feb_u1_after[4] if _mx_feb_u1_after else 'N/A'}")
+check("cross-month after Feb: u1 worked_days = 22 (нет потерь/двойного счёта)",
+      _mx_feb_u1_after is not None and _mx_feb_u1_after[4] == _mx_feb_worked1,
+      f"expected={_mx_feb_worked1}, got={_mx_feb_u1_after[4] if _mx_feb_u1_after else 'N/A'}")
+check("cross-month after Feb: u1 base_salary не изменилась",
+      _mx_feb_u1_after is not None and _mx_feb_u1_before is not None
+      and abs(_mx_feb_u1_after[5] - _mx_feb_u1_before[5]) < 0.01,
+      f"before={_mx_feb_u1_before[5] if _mx_feb_u1_before else 'N/A'}, after={_mx_feb_u1_after[5] if _mx_feb_u1_after else 'N/A'}")
+check("cross-month after Feb: u2 worked_days не изменился (нет побочного эффекта)",
+      _mx_feb_u2_after is not None and _mx_feb_u2_before is not None
+      and _mx_feb_u2_after[4] == _mx_feb_u2_before[4],
+      f"before={_mx_feb_u2_before[4] if _mx_feb_u2_before else 'N/A'}, after={_mx_feb_u2_after[4] if _mx_feb_u2_after else 'N/A'}")
+
+# get_paid_absence_days_bulk ПОСЛЕ слияния
+_mx_jan_bulk_after = _mx_db.get_paid_absence_days_bulk(2026, 1, [1, 2])
+_mx_feb_bulk_after = _mx_db.get_paid_absence_days_bulk(2026, 2, [1, 2])
+
+check("cross-month after: bulk Jan paid_days u1 не изменился",
+      _mx_jan_bulk_after.get(1, -1) == _mx_jan_bulk_before.get(1, -1),
+      f"before={_mx_jan_bulk_before.get(1, -1)}, after={_mx_jan_bulk_after.get(1, -1)}")
+check("cross-month after: bulk Jan paid_days u1 = 7 (Jan 25-31)",
+      _mx_jan_bulk_after.get(1, -1) == _mx_jan_absent,
+      f"expected={_mx_jan_absent}, got={_mx_jan_bulk_after.get(1, -1)}")
+check("cross-month after: bulk Feb paid_days u1 не изменился",
+      _mx_feb_bulk_after.get(1, -1) == _mx_feb_bulk_before.get(1, -1),
+      f"before={_mx_feb_bulk_before.get(1, -1)}, after={_mx_feb_bulk_after.get(1, -1)}")
+check("cross-month after: bulk Feb paid_days u1 = 6 (Feb 1-6)",
+      _mx_feb_bulk_after.get(1, -1) == _mx_feb_absent,
+      f"expected={_mx_feb_absent}, got={_mx_feb_bulk_after.get(1, -1)}")
+check("cross-month after: bulk Jan paid_days u2 = 0 (нет побочного эффекта)",
+      _mx_jan_bulk_after.get(2, 0) == 0,
+      f"expected=0, got={_mx_jan_bulk_after.get(2, 0)}")
+check("cross-month after: bulk Feb paid_days u2 = 0 (нет побочного эффекта)",
+      _mx_feb_bulk_after.get(2, 0) == 0,
+      f"expected=0, got={_mx_feb_bulk_after.get(2, 0)}")
+
+# Проверить, что merged-запись охватывает полный объединённый диапазон Jan 25 – Feb 6
+_mx_conn2 = _mx_db.get_connection()
+_mx_kept = _mx_conn2.execute(
+    "SELECT start_date, end_date FROM absence_records WHERE id=1"
+).fetchone()
+_mx_dropped = _mx_conn2.execute(
+    "SELECT status FROM absence_records WHERE id=2"
+).fetchone()
+_mx_conn2.close()
+check("cross-month: keep-запись расширена до Jan 25 – Feb 6",
+      _mx_kept is not None
+      and _mx_kept[0] == '2026-01-25' and _mx_kept[1] == '2026-02-06',
+      f"got start={_mx_kept[0] if _mx_kept else 'N/A'}, end={_mx_kept[1] if _mx_kept else 'N/A'}")
+check("cross-month: drop-запись имеет статус 'cancelled'",
+      _mx_dropped is not None and _mx_dropped[0] == 'cancelled',
+      f"got={_mx_dropped[0] if _mx_dropped else 'N/A'}")
 
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)

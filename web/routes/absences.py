@@ -340,6 +340,26 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
     try:
         db = get_web_db(telegram_id, org_db)
 
+        # Validate that the two records to merge actually overlap before
+        # showing the merge button.  If they don't, hide the button so the
+        # user never gets a silent failure.
+        if pending_id and overlap_id:
+            _p = db.get_absence_by_id(pending_id)
+            _o = db.get_absence_by_id(overlap_id)
+            _overlap_ok = (
+                _p and _o
+                and _p[1] == _o[1]           # same user_id (col 1)
+                and _p[2] == _o[2]           # same type    (col 2)
+                and not (_p[3] > _o[4] or _o[3] > _p[4])  # date ranges touch/overlap
+            )
+            if not _overlap_ok:
+                pending_id = 0
+                overlap_id = 0
+                ctx["merge_pending_id"] = 0
+                ctx["merge_overlap_id"] = 0
+                if not ctx.get("msg"):
+                    ctx["msg"] = "no_overlap"
+
         if is_admin:
             # Список сотрудников для выбора
             conn = db.get_connection()
@@ -809,6 +829,15 @@ def absences_merge(
         if keep_rec[1] != drop_rec[1]:
             return RedirectResponse(
                 url=f"/absences?year={year}&month={month}&msg=no_access",
+                status_code=302
+            )
+
+        # Explicit overlap check so the user gets a clear message instead of a
+        # silent no-op when the two records don't actually touch.
+        # keep_rec/drop_rec columns: id[0] user_id[1] type[2] start_date[3] end_date[4]
+        if keep_rec[3] > drop_rec[4] or drop_rec[3] > keep_rec[4]:
+            return RedirectResponse(
+                url=f"/absences?year={year}&month={month}&msg=no_overlap",
                 status_code=302
             )
 
