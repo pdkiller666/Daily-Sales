@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.382.0"
+CURRENT_VERSION = "1.383.0"
 
 ENTRIES = [
+    {
+        "version": "1.383.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Improve salary page stability by handling individual data errors gracefully",
+        ],
+    },
     {
         "version": "1.382.0",
         "date": "3 июля 2026",
