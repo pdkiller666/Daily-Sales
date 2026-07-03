@@ -49,25 +49,32 @@ html.dark .hm-label, html.dark .hm-header { color: #64748b; }
 
 <!-- Filters -->
 <div class="card p-4 mb-5">
-    <form method="get" action="/reports/heatmap">
+    <form method="get" action="/reports/heatmap"
+          x-data="{ custom: {{ 'true' if period == 'custom' else 'false' }}, df: '{{ date_from_input or date_from }}', dt: '{{ date_to_input or date_to }}' }">
         <div class="flex flex-wrap gap-3 items-end">
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium text-slate-500">Период</label>
-                <div class="flex gap-1">
+                <div class="flex gap-1 flex-wrap">
                     {% for p, lbl in [('today','Сегодня'),('week','7 дней'),('month','Месяц'),('prev_month','Пред. месяц')] %}
                     <a href="/reports/heatmap?period={{ p }}&shop={{ shop }}"
                        class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
-                              {{ 'bg-blue-600 text-white' if period == p else 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                              {{ 'bg-blue-600 text-white' if period == p else 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300' }}">
                         {{ lbl }}
                     </a>
                     {% endfor %}
+                    <button type="button"
+                            class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
+                                   {{ 'bg-blue-600 text-white' if period == 'custom' else 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300' }}"
+                            x-on:click="custom = !custom">
+                        📅 Период
+                    </button>
                 </div>
             </div>
             {% if shops %}
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium text-slate-500">Магазин</label>
                 <select name="shop" data-autosubmit
-                        class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[140px]">
+                        class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[140px]">
                     <option value="">Все магазины</option>
                     {% for s in shops %}
                     <option value="{{ s }}" {% if s == shop %}selected{% endif %}>{{ s }}</option>
@@ -78,8 +85,26 @@ html.dark .hm-label, html.dark .hm-header { color: #64748b; }
             {% if shop %}
             <a href="/reports/heatmap" class="self-end px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors">× Сбросить</a>
             {% endif %}
-            <input type="hidden" name="period" value="{{ period }}">
         </div>
+
+        <!-- Custom date range — shown when "Период" toggled -->
+        <div x-show="custom" x-cloak class="mt-3 flex flex-wrap gap-2 items-end">
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-slate-500">С</label>
+                <input type="date" name="date_from" x-model="df"
+                       class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-slate-500">По</label>
+                <input type="date" name="date_to" x-model="dt"
+                       class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button type="submit"
+                    class="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors self-end">
+                Показать
+            </button>
+        </div>
+        <input type="hidden" name="period" x-bind:value="custom ? 'custom' : '{{ period }}'">
     </form>
 </div>
 

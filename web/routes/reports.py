@@ -519,6 +519,8 @@ def reports_heatmap(
     request: Request,
     period: str = "month",
     shop: str = "",
+    date_from: str = "",
+    date_to: str = "",
 ):
     from web.auth import get_session_user
     from web.deps import get_web_db
@@ -539,16 +541,27 @@ def reports_heatmap(
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         "period": period, "shop": shop,
         "shops": [], "heatmap": {}, "max_revenue": 1,
-        "date_from": "", "date_to": "", "error": None,
+        "date_from": "", "date_to": "",
+        "date_from_input": date_from, "date_to_input": date_to,
+        "error": None,
     }
     try:
         db = get_web_db(telegram_id, org_db)
         from timezone_utils import get_current_user_time
         from zoneinfo import ZoneInfo
-        from datetime import datetime as _dt
+        from datetime import datetime as _dt, date as _date
         tz = db.get_user_timezone(telegram_id)
         today = get_current_user_time(tz).date()
-        df, dt = _period_dates(period, today)
+        if period == "custom" and date_from and date_to:
+            try:
+                df = _date.fromisoformat(date_from).isoformat()
+                dt = _date.fromisoformat(date_to).isoformat()
+                if df > dt:
+                    df, dt = dt, df
+            except ValueError:
+                df, dt = _period_dates("month", today)
+        else:
+            df, dt = _period_dates(period, today)
         ctx["date_from"], ctx["date_to"] = df, dt
         ctx["shops"] = db.get_all_shops() or []
 

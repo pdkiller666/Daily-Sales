@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.386.0"
+CURRENT_VERSION = "1.387.0"
 
 ENTRIES = [
+    {
+        "version": "1.387.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Make AI requests dashboard card clickable to history page",
+        ],
+    },
     {
         "version": "1.386.0",
         "date": "3 июля 2026",
