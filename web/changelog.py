@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.373.0"
+CURRENT_VERSION = "1.374.0"
 
 ENTRIES = [
+    {
+        "version": "1.374.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Update deployment status and implement new absence merging logic",
+            "Prevent merge_absences() from silently widening absences when records don't overlap",
+            "Confirm team salary summary doesn't double-count days after absences are merged",
+        ],
+    },
     {
         "version": "1.373.0",
         "date": "3 июля 2026",

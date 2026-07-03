@@ -13514,6 +13514,10 @@ class Database:
                 return False
             if keep[0] != drop[0] or keep[1] != drop[1]:
                 return False
+            # Reject merge when records do not overlap (or touch).
+            # Overlap condition: start_A <= end_B AND start_B <= end_A
+            if keep[2] > drop[3] or drop[2] > keep[3]:
+                return False
             merged_start = min(keep[2], drop[2])
             merged_end   = max(keep[3], drop[3])
             conn.execute(

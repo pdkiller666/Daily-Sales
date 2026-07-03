@@ -3762,6 +3762,50 @@ check("merge_absences: drop-запись имеет статус 'cancelled'",
       _mrg_dropped is not None and _mrg_dropped[0] == 'cancelled',
       f"got={_mrg_dropped}")
 
+# ── merge_absences: отклонение несмежных/непересекающихся записей ─────────────
+section("merge_absences: отклонение несмежных записей (Jan 1-5 и Jan 20-25)")
+
+_mrg_gap_db = make_db("merge_gap.db")
+_mrg_gap_conn = _mrg_gap_db.get_connection()
+_mrg_gap_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) VALUES (1, 900001, 'Тест', 'Пробел')"
+)
+_mrg_gap_conn.execute(
+    "INSERT INTO absence_records (id, user_id, type, start_date, end_date, status) "
+    "VALUES (1, 1, 'vacation', '2026-01-01', '2026-01-05', 'approved')"
+)
+_mrg_gap_conn.execute(
+    "INSERT INTO absence_records (id, user_id, type, start_date, end_date, status) "
+    "VALUES (2, 1, 'vacation', '2026-01-20', '2026-01-25', 'approved')"
+)
+_mrg_gap_conn.commit()
+_mrg_gap_conn.close()
+
+_mrg_gap_result = _mrg_gap_db.merge_absences(keep_id=1, drop_id=2)
+check("merge_absences: возвращает False для непересекающихся записей (Jan 1-5 vs Jan 20-25)",
+      _mrg_gap_result is False,
+      f"got={_mrg_gap_result}")
+
+# Убедимся, что записи остались нетронутыми
+_mrg_gap_conn2 = _mrg_gap_db.get_connection()
+_mrg_gap_keep = _mrg_gap_conn2.execute(
+    "SELECT start_date, end_date, status FROM absence_records WHERE id=1"
+).fetchone()
+_mrg_gap_drop = _mrg_gap_conn2.execute(
+    "SELECT start_date, end_date, status FROM absence_records WHERE id=2"
+).fetchone()
+_mrg_gap_conn2.close()
+
+check("merge_absences: keep-запись не изменилась после отклонения",
+      _mrg_gap_keep is not None
+      and _mrg_gap_keep[0] == '2026-01-01'
+      and _mrg_gap_keep[1] == '2026-01-05'
+      and _mrg_gap_keep[2] == 'approved',
+      f"got={_mrg_gap_keep}")
+check("merge_absences: drop-запись не отменена после отклонения",
+      _mrg_gap_drop is not None and _mrg_gap_drop[2] == 'approved',
+      f"got={_mrg_gap_drop}")
+
 # ── Vacation: get_vacation_pay_12m корректен до и после слияния ──────────────
 section("merge_absences vacation: get_vacation_pay_12m после слияния")
 
@@ -3843,6 +3887,123 @@ check("merge vacation after: bulk vac_cal_days = 15",
 check("merge vacation after: bulk vac_pay не изменился",
       abs(_mrgv_vb_after[0] - _mrgv_vp_before) < 0.01,
       f"before={_mrgv_vp_before}, bulk_after={_mrgv_vb_after[0]}")
+
+# ── СЦЕНАРИЙ: merge_absences → get_team_salary_summary не двоит дни ───────────
+section("merge_absences: get_team_salary_summary — нет двойного счёта после слияния")
+
+_mrgt_db = make_db("merge_team_salary.db")
+_mrgt_conn = _mrgt_db.get_connection()
+
+# Пользователь 1: ставка 3000₽/день, весь март 2026 в графике
+_mrgt_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) "
+    "VALUES (1, 800001, 'Ольга', 'Командная')"
+)
+_mrgt_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (1, 3000)")
+
+# Пользователь 2: ставка 2000₽/день, весь март, без отсутствий (эталон)
+_mrgt_conn.execute(
+    "INSERT INTO users (id, telegram_id, first_name, last_name) "
+    "VALUES (2, 800002, 'Иван', 'Присутствующий')"
+)
+_mrgt_conn.execute("INSERT INTO salary_settings (user_id, daily_rate) VALUES (2, 2000)")
+
+import calendar as _mrgt_cal
+_mrgt_year, _mrgt_month = 2026, 3
+_mrgt_days_in_month = _mrgt_cal.monthrange(_mrgt_year, _mrgt_month)[1]  # 31
+_mrgt_cur = _mrgd(_mrgt_year, _mrgt_month, 1)
+while _mrgt_cur <= _mrgd(_mrgt_year, _mrgt_month, _mrgt_days_in_month):
+    _mrgt_conn.execute("INSERT INTO work_schedule (user_id, work_date) VALUES (1, ?)", (_mrgt_cur.isoformat(),))
+    _mrgt_conn.execute("INSERT INTO work_schedule (user_id, work_date) VALUES (2, ?)", (_mrgt_cur.isoformat(),))
+    _mrgt_cur += _mrgtd(days=1)
+
+# Два перекрывающихся больничных для user 1: Mar 3-12 и Mar 8-17 → объединение Mar 3-17 = 15 дней
+_mrgt_conn.execute(
+    "INSERT INTO absence_records (id, user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (1, 1, 'sick_leave', '2026-03-03', '2026-03-12', 'approved', 1)"
+)
+_mrgt_conn.execute(
+    "INSERT INTO absence_records (id, user_id, type, start_date, end_date, status, is_paid) "
+    "VALUES (2, 1, 'sick_leave', '2026-03-08', '2026-03-17', 'approved', 1)"
+)
+_mrgt_conn.commit()
+_mrgt_conn.close()
+
+_mrgt_union_days = (_mrgd(2026, 3, 17) - _mrgd(2026, 3, 3)).days + 1   # 15
+_mrgt_expected_worked_u1 = _mrgt_days_in_month - _mrgt_union_days       # 16
+_mrgt_expected_salary_u1 = _mrgt_expected_worked_u1 * 3000.0            # 48000
+_mrgt_expected_worked_u2 = _mrgt_days_in_month                          # 31
+
+def _mrgt_find_user(summary, user_id):
+    for row in summary:
+        if row[0] == user_id:
+            return row
+    return None
+
+# Снимок ДО слияния
+_mrgt_summary_before = _mrgt_db.get_team_salary_summary(_mrgt_year, _mrgt_month)
+_mrgt_u1_before = _mrgt_find_user(_mrgt_summary_before, 1)
+_mrgt_u2_before = _mrgt_find_user(_mrgt_summary_before, 2)
+
+check("merge team before: summary содержит обоих пользователей",
+      _mrgt_u1_before is not None and _mrgt_u2_before is not None,
+      f"u1={_mrgt_u1_before}, u2={_mrgt_u2_before}")
+check("merge team before: u1 worked_days = 16 (нет двойного вычитания)",
+      _mrgt_u1_before is not None and _mrgt_u1_before[4] == _mrgt_expected_worked_u1,
+      f"expected={_mrgt_expected_worked_u1}, got={_mrgt_u1_before[4] if _mrgt_u1_before else 'N/A'}")
+check("merge team before: u1 base_salary = 48000",
+      _mrgt_u1_before is not None and abs(_mrgt_u1_before[5] - _mrgt_expected_salary_u1) < 0.01,
+      f"expected={_mrgt_expected_salary_u1}, got={_mrgt_u1_before[5] if _mrgt_u1_before else 'N/A'}")
+check("merge team before: u2 worked_days = 31 (без отсутствий)",
+      _mrgt_u2_before is not None and _mrgt_u2_before[4] == _mrgt_expected_worked_u2,
+      f"expected={_mrgt_expected_worked_u2}, got={_mrgt_u2_before[4] if _mrgt_u2_before else 'N/A'}")
+
+# get_paid_absence_days_bulk ДО слияния
+_mrgt_bulk_before = _mrgt_db.get_paid_absence_days_bulk(_mrgt_year, _mrgt_month, [1, 2])
+check("merge team before: bulk paid_days u1 = 15 (объединение Mar 3-17)",
+      _mrgt_bulk_before.get(1, -1) == _mrgt_union_days,
+      f"expected={_mrgt_union_days}, got={_mrgt_bulk_before.get(1, -1)}")
+check("merge team before: bulk paid_days u2 = 0 (без отсутствий)",
+      _mrgt_bulk_before.get(2, 0) == 0,
+      f"expected=0, got={_mrgt_bulk_before.get(2, 0)}")
+
+# Слияние
+_mrgt_ok = _mrgt_db.merge_absences(keep_id=1, drop_id=2)
+check("merge team: merge_absences вернул True",
+      _mrgt_ok is True, f"got={_mrgt_ok}")
+
+# Снимок ПОСЛЕ слияния
+_mrgt_summary_after = _mrgt_db.get_team_salary_summary(_mrgt_year, _mrgt_month)
+_mrgt_u1_after = _mrgt_find_user(_mrgt_summary_after, 1)
+_mrgt_u2_after = _mrgt_find_user(_mrgt_summary_after, 2)
+
+check("merge team after: u1 worked_days не изменился",
+      _mrgt_u1_after is not None and _mrgt_u1_before is not None
+      and _mrgt_u1_after[4] == _mrgt_u1_before[4],
+      f"before={_mrgt_u1_before[4] if _mrgt_u1_before else 'N/A'}, after={_mrgt_u1_after[4] if _mrgt_u1_after else 'N/A'}")
+check("merge team after: u1 worked_days = 16 (нет потерь/двойного счёта)",
+      _mrgt_u1_after is not None and _mrgt_u1_after[4] == _mrgt_expected_worked_u1,
+      f"expected={_mrgt_expected_worked_u1}, got={_mrgt_u1_after[4] if _mrgt_u1_after else 'N/A'}")
+check("merge team after: u1 base_salary не изменилась",
+      _mrgt_u1_after is not None and _mrgt_u1_before is not None
+      and abs(_mrgt_u1_after[5] - _mrgt_u1_before[5]) < 0.01,
+      f"before={_mrgt_u1_before[5] if _mrgt_u1_before else 'N/A'}, after={_mrgt_u1_after[5] if _mrgt_u1_after else 'N/A'}")
+check("merge team after: u2 worked_days не изменился (нет побочного эффекта)",
+      _mrgt_u2_after is not None and _mrgt_u2_before is not None
+      and _mrgt_u2_after[4] == _mrgt_u2_before[4],
+      f"before={_mrgt_u2_before[4] if _mrgt_u2_before else 'N/A'}, after={_mrgt_u2_after[4] if _mrgt_u2_after else 'N/A'}")
+
+# get_paid_absence_days_bulk ПОСЛЕ слияния
+_mrgt_bulk_after = _mrgt_db.get_paid_absence_days_bulk(_mrgt_year, _mrgt_month, [1, 2])
+check("merge team after: bulk paid_days u1 не изменился",
+      _mrgt_bulk_after.get(1, -1) == _mrgt_bulk_before.get(1, -1),
+      f"before={_mrgt_bulk_before.get(1, -1)}, after={_mrgt_bulk_after.get(1, -1)}")
+check("merge team after: bulk paid_days u1 = 15 (Mar 3-17)",
+      _mrgt_bulk_after.get(1, -1) == _mrgt_union_days,
+      f"expected={_mrgt_union_days}, got={_mrgt_bulk_after.get(1, -1)}")
+check("merge team after: bulk paid_days u2 = 0 (без отсутствий, нет побочного эффекта)",
+      _mrgt_bulk_after.get(2, 0) == 0,
+      f"expected=0, got={_mrgt_bulk_after.get(2, 0)}")
 
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)
