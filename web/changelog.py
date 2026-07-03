@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.389.0"
+CURRENT_VERSION = "1.390.0"
 
 ENTRIES = [
+    {
+        "version": "1.390.0",
+        "date": "3 июля 2026",
+        "items": [
+            "Add custom date range filtering to AI history page",
+        ],
+    },
     {
         "version": "1.389.0",
         "date": "3 июля 2026",
