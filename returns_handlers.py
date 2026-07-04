@@ -350,6 +350,33 @@ async def return_confirm_ok(callback: CallbackQuery, state: FSMContext):
                 f"📦 Количество: {qty} шт.\n"
                 f"💰 Сумма: {format_currency(qty * price)}\n"
                 f"📦 Остатки восстановлены.")
+
+        # Уведомляем продавца, если возврат оформляет другой пользователь
+        seller_internal_uid = data.get("ret_seller_user_id")
+        if seller_internal_uid and seller_internal_uid != returned_by_uid:
+            try:
+                conn2 = current_db.get_connection()
+                cur2  = conn2.cursor()
+                cur2.execute("SELECT telegram_id FROM users WHERE id = ?", (seller_internal_uid,))
+                srow = cur2.fetchone()
+                conn2.close()
+                seller_tg_id = srow[0] if srow else None
+                # synthetic_tg_id < 0 — email-only пользователь, Telegram недоступен
+                if seller_tg_id and seller_tg_id > 0:
+                    reason_note = f"\n💬 Причина: {he(data.get('ret_reason'))}" if data.get("ret_reason") else ""
+                    await callback.bot.send_message(
+                        chat_id=seller_tg_id,
+                        text=(f"↩️ <b>Оформлен возврат по вашей продаже</b>\n\n"
+                              f"🏷 Товар: <b>{he(pname)}</b>\n"
+                              f"🏪 Магазин: {he(shop)}\n"
+                              f"📦 Количество: {qty} шт.\n"
+                              f"💰 Сумма: {format_currency(qty * price)}\n"
+                              f"📅 Дата: {return_date}{reason_note}\n\n"
+                              f"ℹ️ Это отразится в вашем расчётном листке."),
+                        parse_mode="HTML",
+                    )
+            except Exception as e:
+                logger.warning(f"return: не удалось отправить уведомление продавцу: {e}")
     else:
         text = "❌ Ошибка при оформлении возврата. Попробуйте ещё раз."
 

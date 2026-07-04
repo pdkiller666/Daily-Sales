@@ -364,6 +364,9 @@ class Database:
         cursor.execute(
             'CREATE INDEX IF NOT EXISTS idx_sale_returns_seller ON sale_returns(seller_user_id, return_date DESC)'
         )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_sale_returns_sale_id ON sale_returns(sale_id)'
+        )
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS product_history (
