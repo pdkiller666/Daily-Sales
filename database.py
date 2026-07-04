@@ -7643,6 +7643,12 @@ class Database:
                 UPDATE inventory SET quantity = quantity + ?, last_updated = ?
                 WHERE shop_name = ? AND product_id = ?
             ''', (quantity_returned, datetime.now().isoformat(), shop_name, product_id))
+            if cur.rowcount == 0:
+                logger.warning(
+                    f"create_sale_return: inventory не обновлён — "
+                    f"нет строки для shop_name={shop_name!r}, product_id={product_id} "
+                    f"(возврат будет записан, остатки в inventory отсутствуют)"
+                )
 
             # 3. Если у продавца есть начисленная мотивация по этой продаже —
             #    добавляем отрицательную строку пропорционально доле возврата.

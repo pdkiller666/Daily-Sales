@@ -110,6 +110,9 @@ async def _show_return_sale_list(msg, state: FSMContext, sales: list, page: int)
 
 @returns_router.callback_query(F.data.regexp(r'^ret_pg_\d+$'))
 async def return_sale_page(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
     await callback.answer()
     page = int(callback.data.replace("ret_pg_", ""))
     data = await state.get_data()
@@ -120,6 +123,9 @@ async def return_sale_page(callback: CallbackQuery, state: FSMContext):
 
 @returns_router.callback_query(F.data.regexp(r'^ret_sale_'))
 async def return_sale_selected(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
     await callback.answer()
     sale_id_str = resolve_cb_name(callback.data, "ret_sale_")
     try:
@@ -140,6 +146,15 @@ async def return_sale_selected(callback: CallbackQuery, state: FSMContext):
 
     # Получаем product_id из оригинальной продажи + уже возвращённое кол-во
     orig = await current_db.get_sale_by_id(sale_id)
+    if not orig:
+        await callback.message.edit_text(
+            "⚠️ <b>Не удалось загрузить данные продажи</b>\n\n"
+            "Попробуйте выбрать другую продажу.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("returns_menu")]]),
+            parse_mode="HTML",
+        )
+        return
+
     already_returned = await current_db.get_already_returned_qty(sale_id)
     available_qty = max(0, sale[3] - already_returned)
 
@@ -189,6 +204,8 @@ async def return_sale_selected(callback: CallbackQuery, state: FSMContext):
 
 @returns_router.message(ReturnStates.entering_qty)
 async def return_enter_qty(message: Message, state: FSMContext):
+    if not is_any_admin(message.from_user.id):
+        return
     data = await state.get_data()
     max_qty = data.get("ret_max_qty", 1)
     try:
@@ -222,6 +239,9 @@ async def return_enter_qty(message: Message, state: FSMContext):
 
 @returns_router.callback_query(F.data == "return_skip_reason")
 async def return_skip_reason(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
     await callback.answer()
     await state.update_data(ret_reason=None)
     await _show_return_confirm(callback.message, state)
@@ -230,6 +250,8 @@ async def return_skip_reason(callback: CallbackQuery, state: FSMContext):
 
 @returns_router.message(ReturnStates.entering_reason)
 async def return_enter_reason(message: Message, state: FSMContext):
+    if not is_any_admin(message.from_user.id):
+        return
     reason = (message.text or "").strip()[:200]
     await state.update_data(ret_reason=reason or None)
     await _show_return_confirm(message, state)

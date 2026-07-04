@@ -3,6 +3,7 @@ import logging
 from datetime import date, timedelta
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse, JSONResponse
+from timezone_utils import get_current_user_time, DEFAULT_TZ
 
 router = APIRouter()
 _RR = RedirectResponse
@@ -144,9 +145,14 @@ def api_returns_create(
 
         # sale: (id[0], product_id[1], shop_name[2], quantity_sold[3], sale_price[4],
         #        user_id[5], sale_date[6], product_name[7], first_name[8], last_name[9])
-        max_qty = sale[3]
-        if quantity_returned < 1 or quantity_returned > max_qty:
-            return JSONResponse({"ok": False, "error": f"Количество должно быть от 1 до {max_qty}"}, status_code=400)
+
+        # Учитываем уже возвращённые единицы — нельзя вернуть больше, чем осталось
+        already_returned = db.get_already_returned_qty(sale_id)
+        available_qty = max(0, sale[3] - already_returned)
+        if quantity_returned < 1 or quantity_returned > available_qty:
+            if available_qty == 0:
+                return JSONResponse({"ok": False, "error": "По этой продаже уже возвращены все единицы"}, status_code=409)
+            return JSONResponse({"ok": False, "error": f"Доступно для возврата: {available_qty} шт. (уже возвращено: {already_returned})"}, status_code=400)
 
         # Проверка прав на магазин
         is_admin = True  # уже проверено выше
@@ -158,7 +164,12 @@ def api_returns_create(
         if not returned_by_uid:
             return JSONResponse({"ok": False, "error": "Пользователь не найден"}, status_code=404)
 
-        return_date = date.today().isoformat()
+        # Дата в таймзоне пользователя (на Amvera сервер UTC, user может быть UTC+N)
+        try:
+            user_tz = db.get_user_timezone(telegram_id) or DEFAULT_TZ
+        except Exception:
+            user_tz = DEFAULT_TZ
+        return_date = get_current_user_time(user_tz).date().isoformat()
         try:
             return_id = db.create_sale_return(
                 sale_id             = sale_id,
