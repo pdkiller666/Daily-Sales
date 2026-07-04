@@ -67,8 +67,8 @@
 <!-- Edit sale modal -->
 <div x-show="editOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="editOpen = false"></div>
-    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm z-10" @click.stop>
-        <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700">
+    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm z-10 max-h-[90vh] overflow-hidden flex flex-col" @click.stop>
+        <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
             <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100">Редактировать продажу</h3>
             <button @click="editOpen = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -76,8 +76,8 @@
                 </svg>
             </button>
         </div>
-        <div x-show="editError" class="mx-5 mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300" x-text="editError"></div>
-        <div class="p-5 space-y-4">
+        <div x-show="editError" class="mx-5 mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300 shrink-0" x-text="editError"></div>
+        <div class="p-5 space-y-4 overflow-y-auto">
             <div>
                 <p class="text-xs text-slate-400 dark:text-slate-500 mb-1">Товар</p>
                 <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate" x-text="editProductName"></p>
@@ -172,8 +172,8 @@
 <!-- Sale creation modal -->
 <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="open = false"></div>
-    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md z-10" @click.stop>
-        <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700">
+    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md z-10 max-h-[90vh] overflow-hidden flex flex-col" @click.stop>
+        <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
             <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100">Записать продажу</h3>
             <button @click="open = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -181,7 +181,7 @@
                 </svg>
             </button>
         </div>
-        <form method="post" action="/sales/create" class="p-5 space-y-4">
+        <form method="post" action="/sales/create" class="p-5 space-y-4 overflow-y-auto">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
             <input type="hidden" name="cross_shop" :value="crossShop ? '1' : '0'">
