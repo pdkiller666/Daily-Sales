@@ -7706,7 +7706,7 @@ class Database:
             return None
 
     def get_returns(self, shop_name=None, shop_names=None, start_date=None,
-                    end_date=None, seller_user_id=None, limit=50, offset=0):
+                    end_date=None, seller_user_id=None, sale_id=None, limit=50, offset=0):
         """Список возвратов с фильтрами. Возвращает список кортежей:
         (id, sale_id, product_name, shop_name, qty, price, seller_uid,
          returned_by_uid, return_date, reason, created_at,
@@ -7733,6 +7733,9 @@ class Database:
             if seller_user_id:
                 conditions.append('r.seller_user_id = ?')
                 params.append(seller_user_id)
+            if sale_id:
+                conditions.append('r.sale_id = ?')
+                params.append(sale_id)
             where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
             cur.execute(f'''
                 SELECT r.id, r.sale_id, r.product_name, r.shop_name,
@@ -7760,7 +7763,7 @@ class Database:
             return []
 
     def get_returns_count(self, shop_name=None, shop_names=None,
-                          start_date=None, end_date=None, seller_user_id=None):
+                          start_date=None, end_date=None, seller_user_id=None, sale_id=None):
         """Количество записей возвратов (для пагинации)."""
         conn = None
         try:
@@ -7784,6 +7787,9 @@ class Database:
             if seller_user_id:
                 conditions.append('seller_user_id = ?')
                 params.append(seller_user_id)
+            if sale_id:
+                conditions.append('sale_id = ?')
+                params.append(sale_id)
             where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
             cur.execute(f'SELECT COUNT(*) FROM sale_returns {where}', params)
             count = cur.fetchone()[0]

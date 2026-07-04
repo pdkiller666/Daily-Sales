@@ -108,6 +108,7 @@ def returns_page(
     date_to: str = "",
     shop: str = "",
     page: int = 1,
+    sale_id: int = 0,
 ):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
@@ -120,8 +121,9 @@ def returns_page(
     org_db = user.get("org_db")
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
-    # Дефолтный период — 30 дней
-    if not date_from and not date_to:
+    # Дефолтный период — 30 дней. Если пришли по фильтру конкретной продажи
+    # (sale_id) — не сужаем диапазон датами, продажа могла быть давно.
+    if not date_from and not date_to and not sale_id:
         date_to   = date.today().isoformat()
         date_from = (date.today() - timedelta(days=30)).isoformat()
 
@@ -133,6 +135,7 @@ def returns_page(
         "csrf_token": get_csrf_token(request),
         "flash_ok": request.query_params.get("ok") == "1",
         "flash_err": request.query_params.get("error", ""),
+        "sale_id_filter": sale_id or None,
     }
 
     try:
@@ -143,9 +146,10 @@ def returns_page(
         offset = (page - 1) * PAGE_SIZE
 
         rows  = db.get_returns(shop_name=shop_filter, start_date=date_from or None,
-                               end_date=date_to or None, limit=PAGE_SIZE, offset=offset)
+                               end_date=date_to or None, sale_id=sale_id or None,
+                               limit=PAGE_SIZE, offset=offset)
         total = db.get_returns_count(shop_name=shop_filter, start_date=date_from or None,
-                                     end_date=date_to or None)
+                                     end_date=date_to or None, sale_id=sale_id or None)
         summary = db.get_returns_summary(shop_name=shop_filter,
                                          start_date=date_from or None, end_date=date_to or None)
 

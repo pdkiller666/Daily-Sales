@@ -32,6 +32,13 @@
   <a href="/sales" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">← К продажам</a>
 </div>
 
+{% if sale_id_filter %}
+<div class="mb-5 flex items-center justify-between gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-sm text-blue-700 dark:text-blue-300">
+  <span>🔍 Показаны возвраты только по продаже #{{ sale_id_filter }}</span>
+  <a href="/returns" class="text-blue-600 dark:text-blue-400 font-medium hover:underline whitespace-nowrap">Сбросить фильтр</a>
+</div>
+{% endif %}
+
 <!-- ── Summary cards ── -->
 <div class="grid grid-cols-3 gap-3 mb-5">
   <div class="bg-white dark:bg-slate-800 rounded-xl p-3 sm:p-4 border border-slate-200 dark:border-slate-700 text-center">

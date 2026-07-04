@@ -100,3 +100,4 @@
 - [Deploy requires Chromium](deploy-requires-chromium.md) — deploy.sh шаг 0 гонит smoke с WEB_SMOKE_REQUIRE_BROWSER=1 → жёсткий fail без системного Chromium; на свежем окружении сперва installSystemDependencies(['chromium'])
 - [forceescape kills script blocks](forceescape-in-script.md) — `{{ x | tojson | forceescape }}` в теле <script> рендерит &#34; → SyntaxError → ВЕСЬ блок не выполняется (все функции undefined); forceescape только для HTML-атрибутов, в <script> только | tojson
 - [Bot vacation pay audit](bot-vacation-pay-audit.md) — при добавлении новой формулы ЗП ОБЯЗАТЕЛЬНО проверять salary_handlers.py + dashboard_handlers.py: они используют свои gather-цепочки независимо от web/routes/salary.py
+- [NULL sale_price defensive math](null-price-defensive-math.md) — qty*price crashes on legacy NULL price rows across multiple files; always `(price or 0)`; also: Starlette TemplateResponse needs request as 1st arg (old 2-arg form 500s at render)
