@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.397.0"
+CURRENT_VERSION = "1.398.0"
 
 ENTRIES = [
+    {
+        "version": "1.398.0",
+        "date": "4 июля 2026",
+        "items": [
+            "Improve sale forms to ensure they fit and scroll on smaller screens",
+        ],
+    },
     {
         "version": "1.397.0",
         "date": "4 июля 2026",

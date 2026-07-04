@@ -65,9 +65,10 @@
 {% endif %}
 
 <!-- Edit sale modal -->
-<div x-show="editOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
-    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="editOpen = false"></div>
-    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm z-10 max-h-[90vh] overflow-hidden flex flex-col" @click.stop>
+<template x-teleport="body">
+<div x-show="editOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto p-4 flex items-start justify-center sm:items-center">
+    <div class="fixed inset-0 bg-black/40 backdrop-blur-sm" @click="editOpen = false"></div>
+    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm z-10 my-8 sm:my-0 max-h-[85dvh] overflow-hidden flex flex-col" @click.stop>
         <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
             <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100">Редактировать продажу</h3>
             <button @click="editOpen = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
@@ -168,11 +169,13 @@
         </div>
     </div>
 </div>
+</template>
 
 <!-- Sale creation modal -->
-<div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
-    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="open = false"></div>
-    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md z-10 max-h-[90vh] overflow-hidden flex flex-col" @click.stop>
+<template x-teleport="body">
+<div x-show="open" x-cloak class="fixed inset-0 z-50 overflow-y-auto p-4 flex items-start justify-center sm:items-center">
+    <div class="fixed inset-0 bg-black/40 backdrop-blur-sm" @click="open = false"></div>
+    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md z-10 my-8 sm:my-0 max-h-[85dvh] overflow-hidden flex flex-col" @click.stop>
         <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
             <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100">Записать продажу</h3>
             <button @click="open = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
@@ -311,12 +314,14 @@
         </form>
     </div>
 </div>
+</template>
 
 <!-- Return modal -->
 {% if is_admin %}
-<div x-show="retOpen" x-cloak class="fixed inset-0 z-[55] flex items-center justify-center p-4">
-    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="closeReturn()"></div>
-    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm z-10" @click.stop>
+<template x-teleport="body">
+<div x-show="retOpen" x-cloak class="fixed inset-0 z-[55] overflow-y-auto p-4 flex items-start justify-center sm:items-center">
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="closeReturn()"></div>
+    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm z-10 my-8 sm:my-0 max-h-[85dvh] overflow-y-auto" @click.stop>
         <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700">
             <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100">↩️ Оформить возврат</h3>
             <button @click="closeReturn()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">×</button>
@@ -362,12 +367,14 @@
         </div>
     </div>
 </div>
+</template>
 {% endif %}
 
 <!-- Barcode scanner modal -->
-<div x-show="scanOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4">
-    <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" @click="closeBarcodeScanner()"></div>
-    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm z-10 overflow-hidden" @click.stop>
+<template x-teleport="body">
+<div x-show="scanOpen" x-cloak class="fixed inset-0 z-[60] overflow-y-auto p-4 flex items-start justify-center sm:items-center">
+    <div class="fixed inset-0 bg-black/70 backdrop-blur-sm" @click="closeBarcodeScanner()"></div>
+    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm z-10 my-8 sm:my-0 max-h-[85dvh] overflow-y-auto" @click.stop>
         <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-700">
             <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100">📷 Сканировать штрих-код</h3>
             <button @click="closeBarcodeScanner()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
@@ -419,6 +426,7 @@
         </div>
     </div>
 </div>
+</template>
 
 <!-- Filter form -->
 <div class="card p-4 mb-5">
