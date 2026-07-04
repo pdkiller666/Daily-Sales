@@ -181,7 +181,7 @@ async def return_sale_selected(callback: CallbackQuery, state: FSMContext):
     )
 
     seller = f"{sale[7] or ''} {sale[8] or ''}".strip() or "—"
-    total = sale[3] * sale[4]
+    total = sale[3] * (sale[4] or 0)
     already_note = f"\n⚠️ Уже возвращено: {already_returned} шт." if already_returned > 0 else ""
     await fsm_edit(state, callback.message,
         f"↩️ <b>Возврат продажи</b>\n\n"

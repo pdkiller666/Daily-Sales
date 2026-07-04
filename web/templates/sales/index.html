@@ -590,9 +590,12 @@
                 {#
                   s.* → id[0] product_id[1] shop_name[2] quantity_sold[3] sale_price[4]
                          user_id[5] sale_date[6]
-                  then  product_name[7] category[8] first_name[9] last_name[10]
+                  then  product_name[7] category[8] first_name[9] last_name[10] returned_qty[11]
                 #}
-                <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-700/30 transition-colors" data-sale-id="{{ s[0] }}">
+                {% set _ret_qty = s[11] if s|length > 11 else 0 %}
+                {% set _is_full_return = _ret_qty > 0 and _ret_qty >= s[3] %}
+                {% set _is_partial_return = _ret_qty > 0 and _ret_qty < s[3] %}
+                <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-700/30 transition-colors {% if _is_full_return %}opacity-70{% endif %}" data-sale-id="{{ s[0] }}">
                     <td class="px-3 sm:px-5 py-3 text-xs text-slate-400 dark:text-slate-500 hidden sm:table-cell">{{ page_offset + loop.index }}</td>
                     <td class="px-3 py-2.5">
                         {% if s[1] %}
@@ -601,11 +604,25 @@
                                 <span class="truncate">{{ s[7] }}</span>
                                 <span class="text-slate-300 group-hover:text-blue-500 shrink-0 transition-colors">→</span>
                             </p>
-                            <p class="text-xs text-slate-400 dark:text-slate-500">{{ s[8] or '—' }}</p>
+                            <p class="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1 flex-wrap">
+                                <span>{{ s[8] or '—' }}</span>
+                                {% if _is_full_return %}
+                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">↩️ Возврат</span>
+                                {% elif _is_partial_return %}
+                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">↩️ Частично ({{ _ret_qty }} из {{ s[3] }})</span>
+                                {% endif %}
+                            </p>
                         </a>
                         {% else %}
                         <p class="font-medium text-slate-800 dark:text-slate-100 max-w-[160px] sm:max-w-[200px] truncate text-sm" title="{{ s[7] }}">{{ s[7] }}</p>
-                        <p class="text-xs text-slate-400 dark:text-slate-500">{{ s[8] or '—' }}</p>
+                        <p class="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1 flex-wrap">
+                            <span>{{ s[8] or '—' }}</span>
+                            {% if _is_full_return %}
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">↩️ Возврат</span>
+                            {% elif _is_partial_return %}
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">↩️ Частично ({{ _ret_qty }} из {{ s[3] }})</span>
+                            {% endif %}
+                        </p>
                         {% endif %}
                         <!-- Mobile: date badge + time + shop + seller -->
                         <div class="sm:hidden mt-1 flex items-center flex-wrap gap-1.5">
@@ -630,9 +647,9 @@
                         {% endif %}
                     </td>
                     <td class="px-3 py-2.5 text-right font-medium text-slate-700 dark:text-slate-200 text-xs sm:text-sm" data-field="qty">{{ s[3] }}&thinsp;шт.</td>
-                    <td class="px-3 py-2.5 text-right text-slate-500 dark:text-slate-400 hidden sm:table-cell" data-field="price">{{ s[4]|int|fmt_currency }}</td>
+                    <td class="px-3 py-2.5 text-right text-slate-500 dark:text-slate-400 hidden sm:table-cell" data-field="price">{{ (s[4] or 0)|int|fmt_currency }}</td>
                     <td class="px-3 py-2.5 text-right font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap text-xs sm:text-sm" data-field="total">
-                        {{ (s[3] * s[4])|int|fmt_currency }}
+                        {{ (s[3] * (s[4] or 0))|int|fmt_currency }}
                     </td>
                     <td class="px-3 py-2.5 hidden md:table-cell text-xs">
                         {% if s[5] and s[9] %}

@@ -157,7 +157,7 @@ def returns_page(
         logging.error(f"returns_page error: {e}")
         ctx["flash_err"] = "Ошибка загрузки данных"
 
-    return request.app.state.templates.TemplateResponse("returns/index.html", ctx)
+    return request.app.state.templates.TemplateResponse(request, "returns/index.html", ctx)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -226,7 +226,7 @@ def api_returns_create(
                 product_name        = sale[7],
                 shop_name           = sale[2],
                 quantity_returned   = quantity_returned,
-                return_price        = sale[4],
+                return_price        = sale[4] or 0,
                 seller_user_id      = sale[5],
                 returned_by_user_id = returned_by_uid,
                 return_date         = return_date,
@@ -235,7 +235,7 @@ def api_returns_create(
         except ValueError as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=409)
         if return_id:
-            amount = quantity_returned * sale[4]
+            amount = quantity_returned * (sale[4] or 0)
             return JSONResponse({
                 "ok": True,
                 "return_id": return_id,

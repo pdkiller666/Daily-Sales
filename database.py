@@ -6598,10 +6598,17 @@ class Database:
         cursor = conn.cursor()
 
         query = '''
-            SELECT s.*, p.name as product_name, p.category, u.first_name, u.last_name
+            SELECT s.*, p.name as product_name, p.category, u.first_name, u.last_name,
+                   COALESCE(r.returned_qty, 0) as returned_qty
             FROM sales s
             JOIN products p ON s.product_id = p.id
             JOIN users u ON s.user_id = u.id
+            LEFT JOIN (
+                SELECT sale_id, SUM(quantity_returned) as returned_qty
+                FROM sale_returns
+                WHERE sale_id IS NOT NULL
+                GROUP BY sale_id
+            ) r ON r.sale_id = s.id
             WHERE 1=1
         '''
         params = []
