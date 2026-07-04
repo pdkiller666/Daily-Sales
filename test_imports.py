@@ -61,6 +61,7 @@ MODULES = [
     'addon_handlers',
     'absence_handlers',
     'tasks_handlers',
+    'returns_handlers',
     'pdf_utils',
     'web.sale_events',
     'web.ai_utils',

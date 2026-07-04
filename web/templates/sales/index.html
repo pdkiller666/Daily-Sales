@@ -650,7 +650,7 @@
                                     title="Редактировать">✏️</button>
                             {% if is_admin %}
                             <button type="button"
-                                    @click="openReturn({{ s[0] }}, {{ s[7]|tojson }}, {{ s[2]|tojson }}, {{ s[3] }}, {{ s[4] }})"
+                                    @click="openReturn({{ s[0] }}, {{ s[7]|tojson|forceescape }}, {{ s[2]|tojson|forceescape }}, {{ s[3] }}, {{ s[4] }})"
                                     class="text-xs text-amber-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 px-1.5 py-1 rounded transition-colors"
                                     title="Оформить возврат">↩️</button>
                             {% endif %}

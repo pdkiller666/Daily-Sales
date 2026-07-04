@@ -10,27 +10,77 @@ _RR = RedirectResponse
 PAGE_SIZE = 20
 
 
-def _get_allowed_shops(db, telegram_id: int, is_admin: bool):
-    """Список магазинов, доступных пользователю."""
+def _get_all_shops(db):
+    """Все магазины организации (без учёта scope)."""
     try:
         conn = db.get_connection()
         try:
             cur = conn.cursor()
-            if is_admin:
-                cur.execute("SELECT DISTINCT shop_name FROM inventory ORDER BY shop_name")
+            cur.execute("SELECT DISTINCT shop_name FROM inventory ORDER BY shop_name")
+            shops = [r[0] for r in cur.fetchall()]
+            if not shops:
+                cur.execute("SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL")
                 shops = [r[0] for r in cur.fetchall()]
-                if not shops:
-                    cur.execute("SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL")
-                    shops = [r[0] for r in cur.fetchall()]
-            else:
-                cur.execute("SELECT shop_name FROM users WHERE telegram_id = ?", (telegram_id,))
-                row = cur.fetchone()
-                shops = [row[0]] if row and row[0] else []
         finally:
             conn.close()
         return shops
     except Exception:
         return []
+
+
+def _get_allowed_shops(db, telegram_id: int, is_admin: bool):
+    """Список магазинов, доступных пользователю с учётом scope.
+
+    Owner/admin без ограничения scope видят все магазины организации.
+    Scoped-admin (admin с scope_type='shop'/'city'/'network') видит только
+    магазины в пределах своего scope — та же модель, что и в web/routes/sales.py.
+    Не-админы видят только свой магазин.
+    """
+    from db_utils import get_user_org_scope
+
+    all_shops = _get_all_shops(db)
+
+    if not is_admin:
+        try:
+            conn = db.get_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT shop_name FROM users WHERE telegram_id = ?", (telegram_id,))
+                row = cur.fetchone()
+            finally:
+                conn.close()
+            return [row[0]] if row and row[0] else []
+        except Exception:
+            return []
+
+    try:
+        scope_type, scope_values = get_user_org_scope(telegram_id)
+        if not scope_type or scope_type == "all":
+            return all_shops
+        if scope_type == "shop":
+            filtered = [s for s in all_shops if s in scope_values]
+            if filtered:
+                return filtered
+        elif scope_type in ("city", "network", "trade_network"):
+            col = "city" if scope_type == "city" else "trade_network"
+            assert col in ("city", "trade_network"), f"Unexpected col: {col}"
+            conn = db.get_connection()
+            try:
+                cur = conn.cursor()
+                placeholders = ",".join("?" * len(scope_values))
+                cur.execute(
+                    f"SELECT DISTINCT shop_name FROM users WHERE {col} IN ({placeholders}) AND shop_name IS NOT NULL",
+                    scope_values,
+                )
+                allowed = {row[0] for row in cur.fetchall()}
+            finally:
+                conn.close()
+            filtered = [s for s in all_shops if s in allowed]
+            if filtered:
+                return filtered
+    except Exception:
+        pass
+    return all_shops
 
 
 def _get_internal_uid(db, telegram_id: int):
@@ -154,8 +204,7 @@ def api_returns_create(
                 return JSONResponse({"ok": False, "error": "По этой продаже уже возвращены все единицы"}, status_code=409)
             return JSONResponse({"ok": False, "error": f"Доступно для возврата: {available_qty} шт. (уже возвращено: {already_returned})"}, status_code=400)
 
-        # Проверка прав на магазин
-        is_admin = True  # уже проверено выше
+        # Проверка прав на магазин — учитываем scope (scoped-admin видит не все магазины)
         allowed = _get_allowed_shops(db, telegram_id, is_admin=True)
         if sale[2] not in allowed:
             return JSONResponse({"ok": False, "error": "Нет доступа к этому магазину"}, status_code=403)

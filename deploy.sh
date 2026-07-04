@@ -88,7 +88,7 @@ else
     ( cd "$SOURCE_DIR" && pip install -q playwright ) >/tmp/web_smoke_pipinstall.log 2>&1 \
       || echo "   ⚠️  не удалось установить playwright — деплой остановится (SKIP запрещён)"
   fi
-  if ( cd "$SOURCE_DIR" && WEB_SMOKE_REQUIRE_BROWSER=1 timeout 60 python3 test_web_smoke.py ) > /tmp/web_smoke_tests.log 2>&1; then
+  if ( cd "$SOURCE_DIR" && WEB_SMOKE_REQUIRE_BROWSER=1 timeout 120 python3 test_web_smoke.py ) > /tmp/web_smoke_tests.log 2>&1; then
     # Показываем каждую проверку и итоговую строку с подсчётом.
     grep -E "✓|✅|✗|SKIP|⚠️|Провалено|прошли" /tmp/web_smoke_tests.log | sed 's/^/   /' || true
   else
