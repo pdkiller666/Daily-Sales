@@ -427,7 +427,18 @@ def sales_export_xlsx(
 
         # id[0] pid[1] shop[2] qty[3] price[4] uid[5] date[6]
         # product_name[7] category[8] first_name[9] last_name[10]
-        sales = db.get_sales_report(**kwargs) or []
+        sales = list(db.get_sales_report(**kwargs) or [])
+        # Merge POS service sales (same column layout, s[8]='Услуга')
+        try:
+            from billing_utils import has_module as _hm_xls
+            if _hm_xls(telegram_id, "services"):
+                _svc_kw = {k: v for k, v in kwargs.items()
+                           if k in ("start_date", "end_date", "shop_name", "shop_names", "user_id")}
+                _svc_rows = db.get_service_sales_report(**_svc_kw) or []
+                if _svc_rows:
+                    sales = sales + list(_svc_rows)
+        except Exception:
+            pass
 
         wb = openpyxl.Workbook()
         ws = wb.active

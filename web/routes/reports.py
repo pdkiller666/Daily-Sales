@@ -271,6 +271,30 @@ def reports_page(
                 d = (s[6] or "")[:10]
                 if d:
                     daily_rev[d] += float((s[3] or 0) * (s[4] or 0))
+            # Add POS service revenue per day
+            try:
+                from billing_utils import has_module as _hm_chart
+                if _hm_chart(telegram_id, "services"):
+                    _conn_c = db.get_connection()
+                    try:
+                        _qc = ("SELECT date(start_time), COALESCE(SUM(price),0)"
+                               " FROM appointments WHERE source='pos_sale'"
+                               " AND date(start_time) BETWEEN ? AND ?")
+                        _pc = [df, dt]
+                        if shop:
+                            _qc += " AND shop_name=?"
+                            _pc.append(shop)
+                        elif _scoped and allowed_shops:
+                            _qc += f" AND shop_name IN ({','.join('?'*len(allowed_shops))})"
+                            _pc.extend(allowed_shops)
+                        _qc += " GROUP BY date(start_time)"
+                        for _cr in _conn_c.execute(_qc, _pc).fetchall():
+                            if _cr[0]:
+                                daily_rev[_cr[0]] += float(_cr[1] or 0)
+                    finally:
+                        _conn_c.close()
+            except Exception:
+                pass
             sorted_days = sorted(daily_rev.keys())
             # Fill date gaps for contiguous range
             if sorted_days:
@@ -384,6 +408,28 @@ def reports_export_xlsx(
         ) or (0, 0, 0, 0)
         groups = _aggregate(all_sales, group_by)
 
+        # Fetch service revenue for Excel summary
+        _svc_cnt_xls, _svc_rev_xls = 0, 0.0
+        try:
+            from billing_utils import has_module as _hm_xl
+            if _hm_xl(telegram_id, "services"):
+                _cx = db.get_connection()
+                try:
+                    _qx = ("SELECT COUNT(*), COALESCE(SUM(price),0) FROM appointments"
+                           " WHERE source='pos_sale' AND date(start_time) BETWEEN ? AND ?")
+                    _px = [df, dt]
+                    if shop:
+                        _qx += " AND shop_name=?"
+                        _px.append(shop)
+                    _rx = _cx.execute(_qx, _px).fetchone()
+                    if _rx:
+                        _svc_cnt_xls = int(_rx[0] or 0)
+                        _svc_rev_xls = float(_rx[1] or 0)
+                finally:
+                    _cx.close()
+        except Exception:
+            pass
+
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
@@ -400,14 +446,22 @@ def reports_export_xlsx(
         # ── Лист 1: Сводка ────────────────────────────────────────────────────
         ws1 = wb.active
         ws1.title = "Сводка"
+        _prod_rev = round(float(summary[2] or 0), 2)
+        _total_rev = round(_prod_rev + _svc_rev_xls, 2)
         meta_rows = [
             ("Период", f"{date_from} — {date_to}"),
             ("Магазин", shop or "Все"),
-            ("Кол-во продаж", summary[0] or 0),
-            ("Общее кол-во ед.", summary[1] or 0),
-            ("Выручка (₽)", round(float(summary[2] or 0), 2)),
-            ("Средний чек (₽)", round(float(summary[3] or 0), 2)),
+            ("Продаж товаров", summary[0] or 0),
+            ("Кол-во ед. товаров", summary[1] or 0),
+            ("Выручка товары (₽)", _prod_rev),
+            ("Средний чек товары (₽)", round(float(summary[3] or 0), 2)),
         ]
+        if _svc_cnt_xls:
+            meta_rows += [
+                ("Оказано услуг", _svc_cnt_xls),
+                ("Выручка услуги (₽)", round(_svc_rev_xls, 2)),
+                ("Общая выручка (₽)", _total_rev),
+            ]
         ws1.append(["Показатель", "Значение"])
         for cell in ws1[1]:
             cell.fill = hdr_fill

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.428.0"
+CURRENT_VERSION = "1.429.0"
 
 ENTRIES = [
+    {
+        "version": "1.429.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Add services to sales journal and reports",
+        ],
+    },
     {
         "version": "1.428.0",
         "date": "7 июля 2026",

@@ -6978,7 +6978,7 @@ class Database:
 
     def get_daily_chart_data(self, start_date: str, end_date: str) -> dict:
         """Один GROUP BY запрос вместо N отдельных get_sales_summary для дашборда.
-        Возвращает {date_iso: float} — выручка за каждый день диапазона.
+        Возвращает {date_iso: float} — выручка за каждый день диапазона (товары + POS-услуги).
         Дни без продаж отсутствуют в словаре (caller заполняет нулями).
         """
         try:
@@ -6991,9 +6991,24 @@ class Database:
                        GROUP BY date(sale_date)''',
                     (start_date, end_date)
                 ).fetchall() or []
+                result = {row[0]: float(row[1] or 0) for row in rows}
+                # Add POS service revenue per day
+                try:
+                    svc_rows = conn.execute(
+                        "SELECT date(start_time), COALESCE(SUM(price),0)"
+                        " FROM appointments WHERE source='pos_sale'"
+                        " AND date(start_time) >= ? AND date(start_time) <= ?"
+                        " GROUP BY date(start_time)",
+                        (start_date, end_date)
+                    ).fetchall() or []
+                    for sr in svc_rows:
+                        if sr[0]:
+                            result[sr[0]] = result.get(sr[0], 0.0) + float(sr[1] or 0)
+                except Exception:
+                    pass
             finally:
                 conn.close()
-            return {row[0]: float(row[1] or 0) for row in rows}
+            return result
         except Exception as e:
             logger.error("get_daily_chart_data: %s", e)
             return {}
@@ -11043,9 +11058,27 @@ class Database:
             conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(query, params)
-            result = cursor.fetchone()[0] or 0.0
+            result = float(cursor.fetchone()[0] or 0.0)
+
+            # Add POS service revenue for turnover plans without product/category filter
+            if metric_type == 'turnover' and filter_type not in ('category', 'product'):
+                try:
+                    svc_q = ("SELECT COALESCE(SUM(price),0) FROM appointments"
+                             " WHERE source='pos_sale' AND date(start_time) >= date(?)")
+                    svc_p = [start_date]
+                    if target_type == 'seller' and user_id:
+                        svc_q += " AND staff_user_id=?"
+                        svc_p.append(user_id)
+                    elif target_type == 'shop' and shop_name:
+                        svc_q += " AND shop_name=?"
+                        svc_p.append(shop_name)
+                    svc_row = conn.execute(svc_q, svc_p).fetchone()
+                    result += float(svc_row[0] or 0) if svc_row else 0.0
+                except Exception:
+                    pass
+
             conn.close()
-            return float(result)
+            return result
         except Exception as e:
             logger.error(f"Ошибка при расчёте плана: {e}")
             if 'conn' in locals():

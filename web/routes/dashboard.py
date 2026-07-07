@@ -249,10 +249,36 @@ def dashboard(request: Request, msg: str = ""):
         today_s = db.get_sales_summary(start_date=today_str, end_date=today_str) or (0, 0, 0, 0)
         month_s = db.get_sales_summary(start_date=month_str, end_date=today_str) or (0, 0, 0, 0)
 
-        ctx["today_sales"] = int(today_s[0] or 0)
-        ctx["today_revenue"] = _fmt(today_s[2], _csym)
-        ctx["month_sales"] = int(month_s[0] or 0)
-        ctx["month_revenue"] = _fmt(month_s[2], _csym)
+        # Add POS service revenue to main stats cards
+        _svc_today_rev, _svc_today_cnt = 0.0, 0
+        _svc_month_rev, _svc_month_cnt = 0.0, 0
+        try:
+            from billing_utils import has_module as _hm_d
+            if _hm_d(telegram_id, "services"):
+                _dc = db.get_connection()
+                try:
+                    _r1 = _dc.execute(
+                        "SELECT COUNT(*), COALESCE(SUM(price),0) FROM appointments"
+                        " WHERE source='pos_sale' AND date(start_time)=?", (today_str,)
+                    ).fetchone()
+                    _r2 = _dc.execute(
+                        "SELECT COUNT(*), COALESCE(SUM(price),0) FROM appointments"
+                        " WHERE source='pos_sale' AND date(start_time) BETWEEN ? AND ?",
+                        (month_str, today_str)
+                    ).fetchone()
+                finally:
+                    _dc.close()
+                if _r1:
+                    _svc_today_cnt, _svc_today_rev = int(_r1[0] or 0), float(_r1[1] or 0)
+                if _r2:
+                    _svc_month_cnt, _svc_month_rev = int(_r2[0] or 0), float(_r2[1] or 0)
+        except Exception:
+            pass
+
+        ctx["today_sales"] = int(today_s[0] or 0) + _svc_today_cnt
+        ctx["today_revenue"] = _fmt(float(today_s[2] or 0) + _svc_today_rev, _csym)
+        ctx["month_sales"] = int(month_s[0] or 0) + _svc_month_cnt
+        ctx["month_revenue"] = _fmt(float(month_s[2] or 0) + _svc_month_rev, _csym)
 
         # ── Returns summary (current month) ────────────────────────────────
         try:
