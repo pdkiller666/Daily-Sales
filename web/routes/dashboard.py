@@ -100,6 +100,22 @@ _GATE_MSGS = {
 }
 
 
+@router.get("/api/me/org-status")
+def api_org_status(request: Request):
+    """Lightweight endpoint: returns {"has_org": bool} based on live DB lookup (not JWT)."""
+    from fastapi.responses import JSONResponse
+    from web.auth import get_session_user
+    from web.deps import get_user_org_db_path
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"has_org": False}, status_code=401)
+
+    telegram_id = int(user['sub'])
+    org_db = get_user_org_db_path(telegram_id)
+    return JSONResponse({"has_org": bool(org_db)})
+
+
 @router.get("/dashboard")
 def dashboard(request: Request, msg: str = ""):
     from web.auth import get_session_user

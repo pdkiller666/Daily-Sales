@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.416.0"
+CURRENT_VERSION = "1.417.0"
 
 ENTRIES = [
+    {
+        "version": "1.417.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Add a button to refresh the page after accepting an invitation",
+            "Add refresh button + auto-poll when user has no org",
+        ],
+    },
     {
         "version": "1.416.0",
         "date": "7 июля 2026",

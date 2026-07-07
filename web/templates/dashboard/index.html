@@ -73,7 +73,7 @@
 <script nonce="{{ csp_nonce(request) }}">(function(){var b=document.getElementById('apk-banner');if(!b)return;var inApp=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;if(inApp||localStorage.getItem('ds_apk_banner')==='1')b.remove();})();</script>
 
 {% if no_org %}
-<div class="mb-5 rounded-2xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 overflow-hidden">
+<div class="mb-5 rounded-2xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 overflow-hidden" id="no-org-banner">
     <div class="flex items-start gap-3 p-4">
         <span class="shrink-0 text-2xl">👋</span>
         <div class="flex-1 min-w-0">
@@ -81,17 +81,17 @@
             <p class="text-amber-700 dark:text-amber-300 text-sm mt-1">
                 Чтобы начать работу, попросите владельца магазина или руководителя отправить вам <strong>пригласительную ссылку</strong> в Telegram.
             </p>
-            <p class="text-amber-600 dark:text-amber-400 text-xs mt-2">
-                Как только вы примете приглашение — дашборд откроется автоматически. Перезайдите на страницу после вступления.
+            <p class="text-amber-600 dark:text-amber-400 text-xs mt-2" id="no-org-hint">
+                Как только вы примете приглашение — нажмите кнопку ниже или дождитесь автоматического обновления.
             </p>
         </div>
     </div>
     <div class="border-t border-amber-200 dark:border-amber-700 bg-amber-100/60 dark:bg-amber-900/30 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
         <span class="text-xs text-amber-600 dark:text-amber-400">💡 Пригласительная ссылка приходит через бота @DailySalesBot</span>
-        <div class="flex items-center gap-2">
-            <button id="no-org-reload-btn"
+        <div class="flex items-center gap-2 shrink-0">
+            <button id="no-org-refresh-btn"
                     class="shrink-0 text-xs font-medium text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-600 bg-white dark:bg-amber-900/40 hover:bg-amber-50 dark:hover:bg-amber-800/40 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap">
-                ✅ Я принял приглашение
+                🔄 Я принял приглашение — обновить
             </button>
             <a href="https://t.me/DailySalesBot" target="_blank" rel="noopener"
                class="shrink-0 text-xs font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap">
@@ -100,17 +100,24 @@
         </div>
     </div>
 </div>
-<script nonce="{{ csp_nonce(request) }}">
-(function(){
-    var btn = document.getElementById('no-org-reload-btn');
-    if (!btn) return;
-    btn.addEventListener('click', function() {
+<script nonce="{{ csp_nonce(request) }}">(function(){
+    var INTERVAL = 10000;
+    var tid = null;
+    function checkOrg() {
+        fetch('/api/me/org-status', {credentials: 'same-origin'})
+            .then(function(r){ return r.ok ? r.json() : null; })
+            .then(function(d){ if(d && d.has_org){ clearInterval(tid); window.location.href='/dashboard'; } })
+            .catch(function(){});
+    }
+    tid = setInterval(checkOrg, INTERVAL);
+    var btn = document.getElementById('no-org-refresh-btn');
+    if(btn){ btn.addEventListener('click', function(){
         btn.disabled = true;
         btn.textContent = '⏳ Проверяем…';
-        window.location.reload();
-    });
-})();
-</script>
+        checkOrg();
+        window.location.href='/dashboard';
+    }); }
+})();</script>
 {% endif %}
 
 {% if gate_title %}
