@@ -53,6 +53,33 @@ def _is_trial(tg_id: int) -> bool:
         return False
 
 
+def _is_free_module(module_key: str) -> bool:
+    """True if the module has price_monthly=0 (always active for everyone)."""
+    try:
+        db = _conn()
+        row = db.execute(
+            "SELECT 1 FROM billing_modules WHERE key=? AND price_monthly=0 AND is_active=1 LIMIT 1",
+            (module_key,)
+        ).fetchone()
+        db.close()
+        return row is not None
+    except Exception:
+        return False
+
+
+def _free_module_keys() -> Set[str]:
+    """Return set of all free module keys (price_monthly=0)."""
+    try:
+        db = _conn()
+        rows = db.execute(
+            "SELECT key FROM billing_modules WHERE price_monthly=0 AND is_active=1"
+        ).fetchall()
+        db.close()
+        return {r[0] for r in rows}
+    except Exception:
+        return {'pos_retail'}
+
+
 def _has_direct_item(tg_id: int, item_key: str) -> bool:
     """Direct row in billing_module_subs for item_key."""
     try:
@@ -209,6 +236,9 @@ def has_module(tg_id: int, module_key: str) -> bool:
             return True
         if _env_mgr.is_super_admin(tg_id):
             return True
+        # Free modules (price_monthly=0) are always active for everyone
+        if _is_free_module(module_key):
+            return True
         if _is_trial(tg_id):
             return True
         if _has_direct_item(tg_id, module_key):
@@ -251,9 +281,11 @@ def get_modules_access(tg_id: int, keys) -> Dict[str, bool]:
         bundle_mods: Set[str] = set()
         for bk in bundle_keys:
             bundle_mods |= _bundle_modules(bk)
+        # Free modules (price_monthly=0) always active — fetch once for the bulk path
+        free_mods = _free_module_keys()
         result: Dict[str, bool] = {}
         for k in keys:
-            if k == 'pos_retail':
+            if k == 'pos_retail' or k in free_mods:
                 result[k] = True
             else:
                 result[k] = (k in direct) or (k in bundle_mods)

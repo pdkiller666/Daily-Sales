@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.405.0"
+CURRENT_VERSION = "1.406.0"
 
 ENTRIES = [
+    {
+        "version": "1.406.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Fix error that prevents users from accessing services and appointments",
+        ],
+    },
     {
         "version": "1.405.0",
         "date": "7 июля 2026",

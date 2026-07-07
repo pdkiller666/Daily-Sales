@@ -439,7 +439,7 @@ function toastMgr() {
         {% if _nm.crm %}
         <a href="/clients"
            class="nav-link {% if request.url.path.startswith('/clients') %}nav-active{% endif %}">
-            <span class="nav-icon mr-3 text-base">👤</span>Клиенты
+            <span class="nav-icon mr-3 text-base">📇</span>Клиенты
         </a>
         {% endif %}
         {% if _nm.services %}
@@ -2115,7 +2115,7 @@ function mainApp() {
                 {% if _nm.crm %}
                 <a href="/clients" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/clients') %}sht-active{% endif %}">
-                    <span class="sht-icon">👤</span>
+                    <span class="sht-icon">📇</span>
                     <span class="sht-label">Клиенты</span>
                 </a>
                 {% endif %}
