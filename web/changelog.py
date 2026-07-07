@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.425.0"
+CURRENT_VERSION = "1.426.0"
 
 ENTRIES = [
+    {
+        "version": "1.426.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Add service sales tracking and related AI tools",
+        ],
+    },
     {
         "version": "1.425.0",
         "date": "7 июля 2026",

@@ -558,6 +558,26 @@ def salary_page(
         except Exception:
             pass
 
+        # Service commissions bulk for all users (total per user_id)
+        service_bulk: dict = {}
+        try:
+            _sbconn = db.get_connection()
+            try:
+                _sb_rows = _sbconn.execute(
+                    "SELECT se.user_id, SUM(se.commission_amount)"
+                    " FROM service_earnings se"
+                    " LEFT JOIN appointments a ON se.appointment_id=a.id"
+                    " WHERE date(a.start_time) BETWEEN ? AND ?"
+                    " GROUP BY se.user_id",
+                    (start_date, end_date),
+                ).fetchall()
+            finally:
+                _sbconn.close()
+            for _sbr in _sb_rows:
+                service_bulk[_sbr[0]] = round(float(_sbr[1] or 0), 2)
+        except Exception:
+            pass
+
         for row in all_rates:
             try:
                 if env_manager.is_super_admin(row[4]):
@@ -615,26 +635,6 @@ def salary_page(
                     _status = _ar[5]
                     if _status == "approved" and _uid not in absent_map:
                         absent_map[_uid] = _atype
-        except Exception:
-            pass
-
-        # Service commissions bulk for all users (total per user_id)
-        service_bulk: dict = {}
-        try:
-            _sbconn = db.get_connection()
-            try:
-                _sb_rows = _sbconn.execute(
-                    "SELECT se.user_id, SUM(se.commission_amount)"
-                    " FROM service_earnings se"
-                    " LEFT JOIN appointments a ON se.appointment_id=a.id"
-                    " WHERE date(a.start_time) BETWEEN ? AND ?"
-                    " GROUP BY se.user_id",
-                    (start_date, end_date),
-                ).fetchall()
-            finally:
-                _sbconn.close()
-            for _sbr in _sb_rows:
-                service_bulk[_sbr[0]] = round(float(_sbr[1] or 0), 2)
         except Exception:
             pass
 
