@@ -65,7 +65,9 @@ def contests_page(
         return RedirectResponse(url="/login", status_code=302)
 
     telegram_id = int(user["sub"])
-    from billing_utils import has_extension
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "plans_motivation"):
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     if not has_extension(telegram_id, "contests"):
         return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     org_db = user.get("org_db")
@@ -219,6 +221,11 @@ def contests_new(request: Request):
         return RedirectResponse(url="/contests", status_code=302)
 
     telegram_id = int(user["sub"])
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "plans_motivation"):
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
+    if not has_extension(telegram_id, "contests"):
+        return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
     shops, cities, categories, products = _load_contest_form_data(db)
@@ -287,6 +294,11 @@ def contests_create(
                         status_code=403)
 
     telegram_id = int(user["sub"])
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "plans_motivation"):
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
+    if not has_extension(telegram_id, "contests"):
+        return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
     shops, cities, categories, products = _load_contest_form_data(db)
@@ -442,6 +454,11 @@ def contests_edit(request: Request, contest_id: int):
         return RedirectResponse(url="/contests", status_code=302)
 
     telegram_id = int(user["sub"])
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "plans_motivation"):
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
+    if not has_extension(telegram_id, "contests"):
+        return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
 
@@ -526,6 +543,11 @@ def contests_update(
                         status_code=403)
 
     telegram_id = int(user["sub"])
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "plans_motivation"):
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
+    if not has_extension(telegram_id, "contests"):
+        return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
 
@@ -637,8 +659,13 @@ def contests_finish(
     if not verify_csrf_token(request, csrf_token):
         return Response(content="Недействительный CSRF-токен.", status_code=403)
 
+    telegram_id = int(user["sub"])
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "plans_motivation"):
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
+    if not has_extension(telegram_id, "contests"):
+        return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     try:
-        telegram_id = int(user["sub"])
         org_db = user.get("org_db")
         db = get_web_db(telegram_id, org_db)
         row = db.get_contest(contest_id)
@@ -667,8 +694,13 @@ def contests_delete(
     if not verify_csrf_token(request, csrf_token):
         return Response(content="Недействительный CSRF-токен.", status_code=403)
 
+    telegram_id = int(user["sub"])
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "plans_motivation"):
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
+    if not has_extension(telegram_id, "contests"):
+        return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     try:
-        telegram_id = int(user["sub"])
         org_db = user.get("org_db")
         db = get_web_db(telegram_id, org_db)
         row = db.get_contest(contest_id)
@@ -697,8 +729,13 @@ def contests_clear_archive(
     if not verify_csrf_token(request, csrf_token):
         return Response(content="Недействительный CSRF-токен.", status_code=403)
 
+    telegram_id = int(user["sub"])
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "plans_motivation"):
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
+    if not has_extension(telegram_id, "contests"):
+        return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     try:
-        telegram_id = int(user["sub"])
         org_db = user.get("org_db")
         db = get_web_db(telegram_id, org_db)
         db.clear_contests_archive()
@@ -725,8 +762,13 @@ def contests_cancel(
     if not verify_csrf_token(request, csrf_token):
         return Response(content="Недействительный CSRF-токен.", status_code=403)
 
+    telegram_id = int(user["sub"])
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "plans_motivation"):
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
+    if not has_extension(telegram_id, "contests"):
+        return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     try:
-        telegram_id = int(user["sub"])
         org_db = user.get("org_db")
         db = get_web_db(telegram_id, org_db)
         row = db.get_contest(contest_id)
