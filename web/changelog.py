@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.408.0"
+CURRENT_VERSION = "1.409.0"
 
 ENTRIES = [
+    {
+        "version": "1.409.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Git commit prior to merge",
+            "/subscription?msg=services_locked renders correctly with upgrade prompt",
+        ],
+    },
     {
         "version": "1.408.0",
         "date": "7 июля 2026",

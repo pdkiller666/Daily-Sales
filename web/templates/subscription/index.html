@@ -197,6 +197,11 @@
 <div class="mb-5 px-4 py-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium">
     ✅ Скриншот оплаты прикреплён к заявке. Администратор получит уведомление и рассмотрит заявку.
 </div>
+{% elif msg == 'services_locked' %}
+<div class="mb-5 px-4 py-4 rounded-2xl bg-amber-50 border border-amber-200">
+    <p class="font-bold text-amber-800 mb-1">🔒 Модуль «Услуги» не подключён</p>
+    <p class="text-sm text-amber-700">Этот раздел доступен по подписке. Подключите модуль «Услуги» ниже, чтобы вести каталог услуг и записи клиентов.</p>
+</div>
 {% elif msg in ('csrf_error', 'user_not_found', 'invalid_plan', 'no_file', 'bad_file_type', 'file_too_large') %}
 <div class="mb-5 px-4 py-3 rounded-2xl bg-red-50 text-red-700 border border-red-200 text-sm font-medium">
     {% if msg == 'csrf_error' %}⚠️ Ошибка безопасности. Повторите действие.

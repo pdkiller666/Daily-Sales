@@ -963,7 +963,8 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
     if not user:
         return RedirectResponse(url="/login", status_code=302)
     if user.get("role") not in ("owner", "super_admin"):
-        return RedirectResponse(url="/dashboard", status_code=302)
+        _dest = f"/dashboard?msg={msg}" if msg else "/dashboard"
+        return RedirectResponse(url=_dest, status_code=302)
 
     telegram_id = int(user["sub"])
 
