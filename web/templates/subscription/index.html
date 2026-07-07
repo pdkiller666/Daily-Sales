@@ -1117,8 +1117,6 @@
 
 </div>{# end history tab #}
 
-</div>{# end Alpine tabs wrapper #}
-
 {# ── Скрытая форма для пакетной заявки ── #}
 <form id="batch-cart-form" method="POST" action="/subscription/batch-request" style="display:none">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -1161,6 +1159,8 @@
             </button>
         </div>
     </div>
-</div>
+</div>{# end cart panel #}
+
+</div>{# end Alpine tabs wrapper #}
 
 {% endblock %}
