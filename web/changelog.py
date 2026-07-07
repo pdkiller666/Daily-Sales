@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.418.0"
+CURRENT_VERSION = "1.419.0"
 
 ENTRIES = [
+    {
+        "version": "1.419.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Update application version and release notes with bug fixes and improvements",
+            "Keep session fresh when a user's role changes",
+        ],
+    },
     {
         "version": "1.418.0",
         "date": "7 июля 2026",
