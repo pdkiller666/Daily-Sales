@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.422.0"
+CURRENT_VERSION = "1.423.0"
 
 ENTRIES = [
+    {
+        "version": "1.423.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Preserve super admin role during session refresh and fix related errors",
+        ],
+    },
     {
         "version": "1.422.0",
         "date": "7 июля 2026",

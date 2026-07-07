@@ -160,7 +160,7 @@ def appointment_new_form(request: Request):
             "SELECT id, first_name||' '||last_name, phone FROM clients ORDER BY first_name LIMIT 200"
         ).fetchall()
         staff = conn.execute(
-            "SELECT id, first_name||' '||last_name FROM users WHERE role IN ('admin','user','owner') ORDER BY first_name"
+            "SELECT id, first_name||' '||last_name FROM users ORDER BY first_name"
         ).fetchall()
 
         prefill_client = request.query_params.get("client_id", "")
@@ -303,7 +303,7 @@ def appointment_detail(request: Request, appt_id: int):
             "SELECT id, first_name||' '||last_name FROM clients ORDER BY first_name LIMIT 200"
         ).fetchall()
         staff = conn.execute(
-            "SELECT id, first_name||' '||last_name FROM users WHERE role IN ('admin','user','owner') ORDER BY first_name"
+            "SELECT id, first_name||' '||last_name FROM users ORDER BY first_name"
         ).fetchall()
 
         ctx = _get_ctx(request)
