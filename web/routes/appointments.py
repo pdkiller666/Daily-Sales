@@ -240,14 +240,14 @@ def appointment_create(
             "INSERT INTO appointments (service_id, client_id, staff_user_id, start_time, end_time, "
             "notes, price, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (int(service_id), int(client_id), staff_val, start_dt_str, end_dt_str,
-             notes.strip(), price_val, user.get("telegram_id")),
+             notes.strip(), price_val, int(user.get("sub", 0))),
         )
         conn.commit()
         appt_id = cur.lastrowid
 
         conn.execute(
             "INSERT INTO appointment_status_log (appointment_id, new_status, changed_by) VALUES (?, 'planned', ?)",
-            (appt_id, user.get("telegram_id")),
+            (appt_id, int(user.get("sub", 0))),
         )
         conn.commit()
 
@@ -358,7 +358,7 @@ def appointment_change_status(
         conn.execute(
             "INSERT INTO appointment_status_log (appointment_id, old_status, new_status, changed_by, note) "
             "VALUES (?, ?, ?, ?, ?)",
-            (appt_id, old_status, new_status, user.get("telegram_id"), note.strip()),
+            (appt_id, old_status, new_status, int(user.get("sub", 0)), note.strip()),
         )
 
         if new_status == "completed" and old_status != "completed":

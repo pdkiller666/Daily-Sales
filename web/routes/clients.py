@@ -161,7 +161,7 @@ def clients_create(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (first_name.strip(), last_name.strip(), phone.strip(), email.strip(),
              birth_val, source.strip(), notes.strip(), tags_json,
-             user.get("telegram_id")),
+             int(user.get("sub", 0))),
         )
         conn.commit()
         client_id = cur.lastrowid

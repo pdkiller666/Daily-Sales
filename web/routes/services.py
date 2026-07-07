@@ -182,7 +182,7 @@ def service_create(
             "INSERT INTO services (name, description, category_id, price, duration_minutes, "
             "group_max_participants, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (name.strip(), description.strip(), cat_val, price_val, dur_val,
-             group_val, user.get("telegram_id")),
+             group_val, int(user.get("sub", 0))),
         )
         conn.commit()
         return RedirectResponse(f"/services/{cur.lastrowid}/edit?created=1", status_code=303)
