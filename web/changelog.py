@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.413.0"
+CURRENT_VERSION = "1.414.0"
 
 ENTRIES = [
+    {
+        "version": "1.414.0",
+        "date": "7 июля 2026",
+        "items": [
+            "show no-org onboarding banner on dashboard when user has no org assigned (Task #6)",
+        ],
+    },
     {
         "version": "1.413.0",
         "date": "7 июля 2026",

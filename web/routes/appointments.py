@@ -73,10 +73,10 @@ def appointments_list(request: Request, status: str = "", staff_id: int = 0,
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/subscription?msg=services_locked", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -141,10 +141,10 @@ def appointment_new_form(request: Request):
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/appointments", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -199,12 +199,12 @@ def appointment_create(
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse("/appointments/new?error=csrf", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/appointments", status_code=302)
     if not service_id or not client_id or not start_date or not start_time:
         return RedirectResponse("/appointments/new?error=required_fields", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -264,10 +264,10 @@ def appointment_detail(request: Request, appt_id: int):
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/appointments", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -333,12 +333,12 @@ def appointment_change_status(
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/subscription?msg=services_locked", status_code=302)
     if new_status not in _STATUSES:
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -362,7 +362,7 @@ def appointment_change_status(
         )
 
         if new_status == "completed" and old_status != "completed":
-            if staff_user_id and has_extension(user.get("telegram_id", 0), "services", "services_motivation"):
+            if staff_user_id and has_extension(int(user.get("sub", 0)), "services", "services_motivation"):
                 _calc_service_commission(conn, appt_id, service_id, staff_user_id, appt_price or 0)
 
         conn.commit()
@@ -424,12 +424,12 @@ def appointment_edit(
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/appointments", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -475,10 +475,10 @@ def appointment_delete(request: Request, appt_id: int, csrf_token: str = Form(""
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/appointments", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -502,7 +502,7 @@ def appointments_calendar(request: Request, year: int = 0, month: int = 0):
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/appointments", status_code=302)
 
     now = datetime.now()
@@ -514,7 +514,7 @@ def appointments_calendar(request: Request, year: int = 0, month: int = 0):
     date_from = f"{year:04d}-{month:02d}-01"
     date_to = f"{year:04d}-{month:02d}-{days_in_month:02d} 23:59:59"
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -569,13 +569,13 @@ def staff_slots_api(request: Request, staff_id: int = 0, date: str = ""):
     from web.deps import get_web_db
     from billing_utils import has_module
     user = get_session_user(request)
-    if not user or not has_module(user.get("telegram_id", 0), "services"):
+    if not user or not has_module(int(user.get("sub", 0)), "services"):
         return JSONResponse({"slots": []})
 
     if not staff_id or not date:
         return JSONResponse({"slots": []})
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return JSONResponse({"slots": []})

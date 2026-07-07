@@ -48,7 +48,7 @@ def services_list(request: Request, q: str = "", category_id: int = 0, page: int
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     if not has_module(tg_id, "services"):
         return RedirectResponse("/subscription?msg=services_locked", status_code=302)
 
@@ -106,12 +106,12 @@ def service_new_form(request: Request):
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -150,7 +150,7 @@ def service_create(
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse("/services/new?error=csrf", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services", status_code=302)
@@ -171,7 +171,7 @@ def service_create(
         group_val = 1
     cat_val = int(category_id) if category_id and category_id.isdigit() else None
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -198,12 +198,12 @@ def service_edit_form(request: Request, service_id: int):
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -255,7 +255,7 @@ def service_update(
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(f"/services/{service_id}/edit?error=csrf", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services", status_code=302)
@@ -277,7 +277,7 @@ def service_update(
     cat_val = int(category_id) if category_id and category_id.isdigit() else None
     active_val = 1 if str(is_active) in ("1", "on", "true") else 0
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -309,10 +309,10 @@ def service_delete(request: Request, service_id: int, csrf_token: str = Form("")
         return RedirectResponse("/services?error=csrf", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -334,12 +334,12 @@ def service_categories_page(request: Request):
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -372,12 +372,12 @@ def service_category_create(
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse("/services/categories", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
     if not name.strip():
         return RedirectResponse("/services/categories", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -406,10 +406,10 @@ def service_category_delete(request: Request, cat_id: int, csrf_token: str = For
         return RedirectResponse("/services/categories", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services/categories", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
@@ -432,12 +432,12 @@ def service_motivation_page(request: Request, service_id: int):
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/subscription?msg=services_locked", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     if not has_extension(tg_id, "services", "services_motivation"):
         ctx = _get_ctx(request)
         ctx["upsell"] = True
@@ -490,9 +490,9 @@ def service_motivation_save(
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(f"/services/{service_id}/motivation", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
+    if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/subscription?msg=services_locked", status_code=302)
-    if not has_extension(user.get("telegram_id", 0), "services", "services_motivation"):
+    if not has_extension(int(user.get("sub", 0)), "services", "services_motivation"):
         return RedirectResponse(f"/services/{service_id}/motivation", status_code=302)
 
     try:
@@ -500,7 +500,7 @@ def service_motivation_save(
     except (ValueError, AttributeError):
         val = 0.0
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)

@@ -53,7 +53,7 @@ def clients_list(request: Request, q: str = "", page: int = 1, tag: str = ""):
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     if not has_module(tg_id, "crm"):
         return RedirectResponse("/subscription?msg=crm_locked", status_code=302)
 
@@ -114,7 +114,7 @@ def clients_new_form(request: Request):
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "crm"):
+    if not has_module(int(user.get("sub", 0)), "crm"):
         return RedirectResponse("/clients", status_code=302)
     ctx = _get_ctx(request)
     ctx.update({"client": None, "error": request.query_params.get("error", "")})
@@ -142,7 +142,7 @@ def clients_create(
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse("/clients/new?error=csrf", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "crm"):
+    if not has_module(int(user.get("sub", 0)), "crm"):
         return RedirectResponse("/clients", status_code=302)
     if not first_name.strip():
         return RedirectResponse("/clients/new?error=name_required", status_code=302)
@@ -151,7 +151,7 @@ def clients_create(
     tags_json = json.dumps(tags_list, ensure_ascii=False)
     birth_val = birth_date.strip() or None
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
@@ -178,10 +178,10 @@ def client_detail(request: Request, client_id: int):
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "crm"):
+    if not has_module(int(user.get("sub", 0)), "crm"):
         return RedirectResponse("/dashboard", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
@@ -230,7 +230,7 @@ def client_detail(request: Request, client_id: int):
             "client": client, "sales": sales, "sales_total": sales_total,
             "appts": appts, "appts_total": appts_total, "ltv": ltv,
             "is_admin": user.get("role") in ("owner", "admin"),
-            "has_services": has_module(user.get("telegram_id", 0), "services"),
+            "has_services": has_module(int(user.get("sub", 0)), "services"),
         })
         return request.app.state.templates.TemplateResponse(request, "clients/detail.html", ctx)
     finally:
@@ -259,7 +259,7 @@ def client_edit(
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(f"/clients/{client_id}?error=csrf", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "crm"):
+    if not has_module(int(user.get("sub", 0)), "crm"):
         return RedirectResponse("/clients", status_code=302)
     if not first_name.strip():
         return RedirectResponse(f"/clients/{client_id}?error=name_required", status_code=302)
@@ -268,7 +268,7 @@ def client_edit(
     tags_json = json.dumps(tags_list, ensure_ascii=False)
     birth_val = birth_date.strip() or None
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
@@ -297,10 +297,10 @@ def client_delete(request: Request, client_id: int, csrf_token: str = Form("")):
         return RedirectResponse(f"/clients/{client_id}?error=csrf", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse(f"/clients/{client_id}", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "crm"):
+    if not has_module(int(user.get("sub", 0)), "crm"):
         return RedirectResponse("/clients", status_code=302)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
@@ -321,7 +321,7 @@ def clients_export(request: Request):
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "crm"):
+    if not has_module(int(user.get("sub", 0)), "crm"):
         return RedirectResponse("/clients", status_code=302)
 
     try:
@@ -330,7 +330,7 @@ def clients_export(request: Request):
     except ImportError:
         return Response("openpyxl not installed", status_code=500)
 
-    tg_id = user.get("telegram_id", 0)
+    tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
