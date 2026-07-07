@@ -780,7 +780,9 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         return RedirectResponse(url="/salary", status_code=302)
 
     telegram_id = int(user["sub"])
-    from billing_utils import has_extension
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "team"):
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     if not has_extension(telegram_id, "salary_export"):
         return RedirectResponse(url="/salary?msg=ext_salary_export_required", status_code=302)
     org_db = user.get("org_db")

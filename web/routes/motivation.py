@@ -237,7 +237,9 @@ def motivation_plan_coeff(
         return Response(content="Недействительный CSRF-токен.", status_code=403)
 
     telegram_id = int(user["sub"])
-    from billing_utils import has_extension
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "plans_motivation"):
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     if not has_extension(telegram_id, "plan_coefficients"):
         return RedirectResponse(
             url="/motivation?error=Расширение+«Коэффициент+плана»+не+подключено.+Перейдите+в+Подписка+→+Расширения.",
@@ -389,7 +391,9 @@ def motivation_set_extra(
 
     today = date.today()
     telegram_id = int(user["sub"])
-    from billing_utils import has_extension
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "plans_motivation"):
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     if not has_extension(telegram_id, "joint_motivation"):
         return RedirectResponse(
             url="/motivation?error=Расширение+«Совместная+мотивация»+не+подключено.+Перейдите+в+Подписка+→+Расширения.",

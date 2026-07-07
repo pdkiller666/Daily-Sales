@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.410.0"
+CURRENT_VERSION = "1.411.0"
 
 ENTRIES = [
+    {
+        "version": "1.411.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Git commit prior to merge",
+        ],
+    },
     {
         "version": "1.410.0",
         "date": "7 июля 2026",
