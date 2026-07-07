@@ -115,6 +115,7 @@ def dashboard(request: Request, msg: str = ""):
     is_admin = role in ('owner', 'admin', 'super_admin')
 
     gate_title, gate_text = _GATE_MSGS.get(msg, (None, None))
+    no_org = not bool(org_db)
 
     apk_new_version = ""
     apk_release_url = ""
@@ -143,6 +144,7 @@ def dashboard(request: Request, msg: str = ""):
         "is_admin": is_admin,
         "gate_title": gate_title,
         "gate_text": gate_text,
+        "no_org": no_org,
         "today_sales": 0, "today_revenue": f"0\u00a0{_csym}",
         "month_sales": 0, "month_revenue": f"0\u00a0{_csym}",
         "month_returns": {"count": 0, "total_qty": 0, "total_amount": 0.0},

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.412.0"
+CURRENT_VERSION = "1.413.0"
 
 ENTRIES = [
+    {
+        "version": "1.413.0",
+        "date": "7 июля 2026",
+        "items": [
+            "redirect to /subscription?msg=services_locked when Services module missing in sub-routes (Task #10)",
+        ],
+    },
     {
         "version": "1.412.0",
         "date": "7 июля 2026",
