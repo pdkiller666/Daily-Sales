@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.421.0"
+CURRENT_VERSION = "1.422.0"
 
 ENTRIES = [
+    {
+        "version": "1.422.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Fix cart display and prevent crashes in user-related sections",
+        ],
+    },
     {
         "version": "1.421.0",
         "date": "7 июля 2026",

@@ -39,6 +39,12 @@ def get_web_db(telegram_id: int, org_db: str | None = None) -> Database:
 
 def get_user_role_from_db(telegram_id: int) -> str:
     try:
+        from env_manager import env_manager as _env_mgr
+        if _env_mgr.is_super_admin(telegram_id):
+            return 'super_admin'
+    except Exception:
+        pass
+    try:
         conn = sqlite3.connect('data/main.db')
         cursor = conn.cursor()
         cursor.execute(

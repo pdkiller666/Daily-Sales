@@ -133,7 +133,9 @@ def dashboard(request: Request, msg: str = ""):
     # Case 1: JWT was issued before the user joined an org — org_db missing.
     # Case 2: User's role was changed (e.g. promoted to admin) after login.
     # In both cases reissue the cookie so the request renders with fresh data.
-    if telegram_id > 0:
+    # NOTE: super_admin role is determined at login via env_manager — never
+    # overwrite it from org DB (super_admin may appear as 'user' in org tables).
+    if telegram_id > 0 and role != 'super_admin':
         if not org_db:
             live_org_db = get_user_org_db_path(telegram_id)
             if live_org_db:
