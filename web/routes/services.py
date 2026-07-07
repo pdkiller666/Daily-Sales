@@ -48,10 +48,12 @@ def services_list(request: Request, q: str = "", category_id: int = 0, page: int
     user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
-    if not has_module(user.get("telegram_id", 0), "services"):
-        return RedirectResponse("/dashboard?msg=services_locked", status_code=302)
+    tg_id = user.get("telegram_id", 0)
+    if not has_module(tg_id, "services"):
+        return RedirectResponse("/subscription?msg=services_locked", status_code=302)
 
-    db = get_web_db(request)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         categories = conn.execute(
@@ -107,7 +109,9 @@ def service_new_form(request: Request):
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         cats = conn.execute(
@@ -163,7 +167,9 @@ def service_create(
         group_val = 1
     cat_val = int(category_id) if category_id and category_id.isdigit() else None
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         cur = conn.execute(
@@ -191,7 +197,9 @@ def service_edit_form(request: Request, service_id: int):
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         r = conn.execute(
@@ -261,7 +269,9 @@ def service_update(
     cat_val = int(category_id) if category_id and category_id.isdigit() else None
     active_val = 1 if str(is_active) in ("1", "on", "true") else 0
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         conn.execute(
@@ -292,7 +302,9 @@ def service_delete(request: Request, service_id: int, csrf_token: str = Form("")
     if not has_module(user.get("telegram_id", 0), "services"):
         return RedirectResponse("/services", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         conn.execute("DELETE FROM services WHERE id=?", (service_id,))
@@ -315,7 +327,9 @@ def service_categories_page(request: Request):
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         rows = conn.execute(
@@ -349,7 +363,9 @@ def service_category_create(
     if not name.strip():
         return RedirectResponse("/services/categories", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         conn.execute(
@@ -377,7 +393,9 @@ def service_category_delete(request: Request, cat_id: int, csrf_token: str = For
     if not has_module(user.get("telegram_id", 0), "services"):
         return RedirectResponse("/services", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         conn.execute("UPDATE services SET category_id=NULL WHERE category_id=?", (cat_id,))
@@ -408,7 +426,8 @@ def service_motivation_page(request: Request, service_id: int):
         ctx["service_id"] = service_id
         return request.app.state.templates.TemplateResponse(request, "services/motivation.html", ctx)
 
-    db = get_web_db(request)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         svc = conn.execute("SELECT id, name FROM services WHERE id=?", (service_id,)).fetchone()
@@ -461,7 +480,9 @@ def service_motivation_save(
     except (ValueError, AttributeError):
         val = 0.0
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         conn.execute(

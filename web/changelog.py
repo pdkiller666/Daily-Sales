@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.407.0"
+CURRENT_VERSION = "1.408.0"
 
 ENTRIES = [
+    {
+        "version": "1.408.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Update subscription page to include a shopping cart and pending status indicators",
+            "Fix get_web_db signature and services_locked redirect in CRM/Services/Appointments routes",
+        ],
+    },
     {
         "version": "1.407.0",
         "date": "7 июля 2026",

@@ -57,8 +57,8 @@ def clients_list(request: Request, q: str = "", page: int = 1, tag: str = ""):
     if not has_module(tg_id, "crm"):
         return RedirectResponse("/dashboard?msg=crm_locked", status_code=302)
 
-    db = get_web_db(request)
     org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
 
@@ -151,7 +151,9 @@ def clients_create(
     tags_json = json.dumps(tags_list, ensure_ascii=False)
     birth_val = birth_date.strip() or None
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         cur = conn.execute(
@@ -179,7 +181,9 @@ def client_detail(request: Request, client_id: int):
     if not has_module(user.get("telegram_id", 0), "crm"):
         return RedirectResponse("/dashboard", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         r = conn.execute(
@@ -264,7 +268,9 @@ def client_edit(
     tags_json = json.dumps(tags_list, ensure_ascii=False)
     birth_val = birth_date.strip() or None
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         conn.execute(
@@ -294,7 +300,9 @@ def client_delete(request: Request, client_id: int, csrf_token: str = Form("")):
     if not has_module(user.get("telegram_id", 0), "crm"):
         return RedirectResponse("/clients", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         conn.execute("UPDATE sales SET client_id=NULL WHERE client_id=?", (client_id,))
@@ -322,7 +330,9 @@ def clients_export(request: Request):
     except ImportError:
         return Response("openpyxl not installed", status_code=500)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         rows = conn.execute(

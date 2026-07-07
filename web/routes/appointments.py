@@ -74,9 +74,11 @@ def appointments_list(request: Request, status: str = "", staff_id: int = 0,
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
-        return RedirectResponse("/dashboard?msg=services_locked", status_code=302)
+        return RedirectResponse("/subscription?msg=services_locked", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         is_admin = user.get("role") in ("owner", "admin")
@@ -140,7 +142,9 @@ def appointment_new_form(request: Request):
     if not has_module(user.get("telegram_id", 0), "services"):
         return RedirectResponse("/appointments", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         services = conn.execute(
@@ -196,7 +200,9 @@ def appointment_create(
     if not service_id or not client_id or not start_date or not start_time:
         return RedirectResponse("/appointments/new?error=required_fields", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         svc = conn.execute("SELECT price, duration_minutes FROM services WHERE id=?", (service_id,)).fetchone()
@@ -255,7 +261,9 @@ def appointment_detail(request: Request, appt_id: int):
     if not has_module(user.get("telegram_id", 0), "services"):
         return RedirectResponse("/appointments", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         rows = _appt_query(conn, "a.id=?", [appt_id])
@@ -322,7 +330,9 @@ def appointment_change_status(
     if new_status not in _STATUSES:
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         old = conn.execute("SELECT status, service_id, staff_user_id, price FROM appointments WHERE id=?", (appt_id,)).fetchone()
@@ -409,7 +419,9 @@ def appointment_edit(
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         svc = conn.execute("SELECT price, duration_minutes FROM services WHERE id=?", (service_id,)).fetchone()
@@ -454,7 +466,9 @@ def appointment_delete(request: Request, appt_id: int, csrf_token: str = Form(""
     if not has_module(user.get("telegram_id", 0), "services"):
         return RedirectResponse("/appointments", status_code=302)
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         conn.execute("DELETE FROM appointment_status_log WHERE appointment_id=?", (appt_id,))
@@ -486,7 +500,9 @@ def appointments_calendar(request: Request, year: int = 0, month: int = 0):
     date_from = f"{year:04d}-{month:02d}-01"
     date_to = f"{year:04d}-{month:02d}-{days_in_month:02d} 23:59:59"
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         is_admin = user.get("role") in ("owner", "admin")
@@ -543,7 +559,9 @@ def staff_slots_api(request: Request, staff_id: int = 0, date: str = ""):
     if not staff_id or not date:
         return JSONResponse({"slots": []})
 
-    db = get_web_db(request)
+    tg_id = user.get("telegram_id", 0)
+    org_db = user.get("org_db", "")
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         rows = conn.execute(
