@@ -272,6 +272,7 @@ Disallow: /ai-insights
 Disallow: /returns
 Disallow: /api/returns/
 Disallow: /clients
+Disallow: /clients/duplicates
 Disallow: /services
 Disallow: /appointments
 Disallow: /api/appointments/

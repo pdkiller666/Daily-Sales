@@ -8,18 +8,38 @@
 {% endblock %}
 
 {% block content %}
-<div x-data="{ tab: 'info' }">
+
+{% set _init_tab = request.query_params.get('tab', 'info') %}
+<div x-data="{ tab: '{{ _init_tab }}' }" id="client-detail">
+
+{% if flash %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300">
+  ✅ {{ flash }}
+</div>
+{% endif %}
+{% if error %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300">
+  {% if error == 'name_required' %}Введите имя клиента.
+  {% elif error == 'csrf' %}Ошибка безопасности, попробуйте снова.
+  {% else %}Произошла ошибка.{% endif %}
+</div>
+{% endif %}
 
 <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
   <div class="flex items-center gap-4">
     <div class="w-14 h-14 rounded-2xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-2xl font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
-      {{ client.first_name[0] | upper }}
+      {{ client.first_name[0] | upper if client.first_name else '?' }}
     </div>
     <div>
       <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">{{ client.first_name }} {{ client.last_name }}</h1>
       <div class="flex flex-wrap gap-1 mt-1">
         {% for t in client.tags %}
-        <span class="inline-block px-2 py-0.5 text-xs rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300">{{ t }}</span>
+        <span class="inline-block px-2 py-0.5 text-xs rounded-full
+          {% if t == 'Чемпион' %}bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300
+          {% elif t == 'Лояльный' %}bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300
+          {% elif t == 'Уходящий' %}bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300
+          {% elif t in ['Спящий','Обычный'] %}bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400
+          {% else %}bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300{% endif %}">{{ t }}</span>
         {% endfor %}
       </div>
     </div>
@@ -32,10 +52,10 @@
       + Запись
     </a>
     {% endif %}
-    <a href="#" onclick="document.getElementById('edit-modal').classList.remove('hidden'); return false;"
+    <button onclick="document.getElementById('edit-modal').classList.remove('hidden')"
        class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
       ✏️ Изменить
-    </a>
+    </button>
   </div>
   {% endif %}
 </div>
@@ -47,7 +67,7 @@
     <div class="text-xl font-bold text-indigo-600 dark:text-indigo-400">{{ "{:,.0f}".format(ltv) }} ₽</div>
   </div>
   <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-center">
-    <div class="text-xs text-slate-400 dark:text-slate-500 mb-1">Продаж</div>
+    <div class="text-xs text-slate-400 dark:text-slate-500 mb-1">Покупок</div>
     <div class="text-xl font-bold text-slate-700 dark:text-slate-200">{{ sales | length }}</div>
   </div>
   <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-center">
@@ -57,13 +77,15 @@
 </div>
 
 <!-- Tabs -->
-<div class="flex gap-1 mb-4 border-b border-slate-200 dark:border-slate-700">
+<div class="flex gap-1 mb-4 border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
   <button @click="tab='info'" :class="tab==='info' ? 'border-b-2 border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'"
-          class="px-4 py-2 text-sm font-medium transition-colors">Профиль</button>
+          class="px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap shrink-0">Профиль</button>
   <button @click="tab='appts'" :class="tab==='appts' ? 'border-b-2 border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'"
-          class="px-4 py-2 text-sm font-medium transition-colors">Записи ({{ appts | length }})</button>
+          class="px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap shrink-0">Записи ({{ appts | length }})</button>
   <button @click="tab='sales'" :class="tab==='sales' ? 'border-b-2 border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'"
-          class="px-4 py-2 text-sm font-medium transition-colors">Покупки ({{ sales | length }})</button>
+          class="px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap shrink-0">Покупки ({{ sales | length }})</button>
+  <button @click="tab='log'" :class="tab==='log' ? 'border-b-2 border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'"
+          class="px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap shrink-0">Лог ({{ interactions | length }})</button>
 </div>
 
 <!-- Профиль -->
@@ -86,6 +108,9 @@
     <p class="text-xs text-slate-400 dark:text-slate-500 mb-1">Заметки</p>
     <p class="text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{{ client.notes }}</p>
   </div>
+  {% endif %}
+  {% if not (client.phone or client.phone_fmt or client.email or client.birth_date or client.source or client.notes) %}
+  <p class="text-sm text-slate-400 dark:text-slate-500 text-center py-4">Нет данных. <button onclick="document.getElementById('edit-modal').classList.remove('hidden')" class="text-indigo-500 hover:underline">Заполнить профиль</button></p>
   {% endif %}
 </div>
 
@@ -110,9 +135,9 @@
           <td class="px-4 py-3">
             <span class="px-2 py-0.5 text-xs rounded-full
               {% if a.status == 'completed' %}bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300
-              {% elif a.status == 'cancelled' or a.status == 'no_show' %}bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300
+              {% elif a.status in ['cancelled','no_show'] %}bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300
               {% else %}bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300{% endif %}">
-              {{ a.status }}
+              {{ a.status_ru }}
             </span>
           </td>
           <td class="px-4 py-3 text-right text-slate-800 dark:text-slate-100">{{ "{:,.0f}".format(a.price or 0) }} ₽</td>
@@ -137,7 +162,7 @@
       <thead>
         <tr class="border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
           <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Товар</th>
-          <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Магазин</th>
+          <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400 hidden sm:table-cell">Магазин</th>
           <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Дата</th>
           <th class="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400">Сумма</th>
         </tr>
@@ -146,7 +171,7 @@
         {% for s in sales %}
         <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
           <td class="px-4 py-3 text-slate-800 dark:text-slate-100">{{ s.product }}</td>
-          <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ s.shop or '—' }}</td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 hidden sm:table-cell">{{ s.shop or '—' }}</td>
           <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ s.date[:10] if s.date else '—' }}</td>
           <td class="px-4 py-3 text-right text-slate-800 dark:text-slate-100">{{ "{:,.0f}".format((s.qty or 0) * (s.price or 0)) }} ₽</td>
         </tr>
@@ -162,9 +187,71 @@
   {% endif %}
 </div>
 
+<!-- Лог взаимодействий -->
+<div x-show="tab==='log'" x-cloak>
+  {% if is_admin %}
+  <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 mb-4">
+    <h3 class="text-sm font-medium text-slate-700 dark:text-slate-200 mb-3">Добавить запись</h3>
+    <form method="post" action="/clients/{{ client.id }}/interactions" class="space-y-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="flex gap-2">
+        <select name="itype"
+                class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          {% for k, v in interaction_types.items() %}
+          <option value="{{ k }}">{{ v }}</option>
+          {% endfor %}
+        </select>
+        <input type="text" name="text" placeholder="Описание…" required
+               class="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <button type="submit"
+                class="px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shrink-0">
+          Добавить
+        </button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if interactions %}
+  <div class="space-y-2">
+    {% for inter in interactions %}
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ inter.type_label }}</span>
+            {% if inter.author %}
+            <span class="text-xs text-slate-400">{{ inter.author }}</span>
+            {% endif %}
+            <span class="text-xs text-slate-400">· {{ inter.created_at }}</span>
+          </div>
+          <p class="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{{ inter.text }}</p>
+        </div>
+        {% if is_admin %}
+        <form method="post" action="/clients/{{ client.id }}/interactions/{{ inter.id }}/delete" class="shrink-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" onclick="return confirm('Удалить запись?')"
+                  class="text-xs text-slate-300 dark:text-slate-600 hover:text-red-500 dark:hover:text-red-400 transition-colors">✕</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-center py-10 text-slate-400 dark:text-slate-500">
+    <div class="text-3xl mb-2">💬</div>
+    <p class="text-sm">Лог взаимодействий пуст</p>
+    {% if is_admin %}
+    <p class="text-xs mt-1">Добавьте заметку, звонок или встречу выше</p>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 
-<!-- Edit modal (inline form) -->
+</div>
+
+<!-- Edit modal -->
 {% if is_admin %}
 <div id="edit-modal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
   <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
@@ -183,19 +270,31 @@
         </div>
         <div>
           <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Фамилия</label>
-          <input type="text" name="last_name" value="{{ client.last_name }}"
+          <input type="text" name="last_name" value="{{ client.last_name or '' }}"
                  class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Телефон</label>
-          <input type="tel" name="phone" value="{{ client.phone }}"
+          <input type="tel" name="phone" value="{{ client.phone or '' }}"
                  class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
         </div>
         <div>
           <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Email</label>
-          <input type="email" name="email" value="{{ client.email }}"
+          <input type="email" name="email" value="{{ client.email or '' }}"
+                 class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Дата рождения</label>
+          <input type="date" name="birth_date" value="{{ client.birth_date or '' }}"
+                 class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Источник</label>
+          <input type="text" name="source" value="{{ client.source or '' }}" placeholder="Реклама, сарафанное радио…"
                  class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
         </div>
       </div>
@@ -207,19 +306,30 @@
       <div>
         <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Заметки</label>
         <textarea name="notes" rows="3"
-                  class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none">{{ client.notes }}</textarea>
+                  class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none">{{ client.notes or '' }}</textarea>
       </div>
-      <input type="hidden" name="birth_date" value="{{ client.birth_date or '' }}">
-      <input type="hidden" name="source" value="{{ client.source or '' }}">
       <div class="flex items-center justify-between pt-2">
-        <form method="post" action="/clients/{{ client.id }}/delete" onsubmit="return confirm('Удалить клиента?')">
+        <form method="post" action="/clients/{{ client.id }}/delete">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button type="submit" class="text-sm text-red-500 hover:text-red-700 dark:hover:text-red-400">Удалить</button>
+          <button type="submit" onclick="return confirm('Удалить клиента?')"
+                  class="text-sm text-red-500 hover:text-red-700 dark:hover:text-red-400">Удалить</button>
         </form>
         <button type="submit" class="px-5 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">Сохранить</button>
       </div>
     </form>
   </div>
 </div>
+
+<script nonce="{{ csp_nonce }}">
+(function(){
+  var h = window.location.hash;
+  if(h === '#edit') {
+    var m = document.getElementById('edit-modal');
+    if(m) m.classList.remove('hidden');
+    history.replaceState(null,'',window.location.pathname+window.location.search);
+  }
+})();
+</script>
 {% endif %}
+
 {% endblock %}

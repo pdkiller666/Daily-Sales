@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.429.0"
+CURRENT_VERSION = "1.430.0"
 
 ENTRIES = [
+    {
+        "version": "1.430.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Include service revenue in daily and monthly financial summaries",
+        ],
+    },
     {
         "version": "1.429.0",
         "date": "7 июля 2026",

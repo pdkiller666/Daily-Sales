@@ -1847,6 +1847,20 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_clients_phone ON clients(phone)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_clients_tg ON clients(telegram_id) WHERE telegram_id IS NOT NULL')
 
+        # ── CRM: client_interactions (лог взаимодействий) ───────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS client_interactions (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id    INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+                type         TEXT    NOT NULL DEFAULT 'note',
+                text         TEXT    NOT NULL DEFAULT '',
+                author_id    INTEGER DEFAULT NULL,
+                author_name  TEXT    DEFAULT '',
+                created_at   TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_client_inter_client ON client_interactions(client_id)')
+
         # ── Services: service_categories ────────────────────────────────────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS service_categories (

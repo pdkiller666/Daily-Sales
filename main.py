@@ -1238,6 +1238,78 @@ async def send_appointment_reminders(bot: Bot):
         logging.error(f"send_appointment_reminders: {e}")
 
 
+async def send_client_birthday_reminders(bot: Bot):
+    """Напоминания о днях рождения клиентов — отправляет сотрудникам-администраторам организации."""
+    try:
+        import glob as _glob
+        from datetime import datetime as _dt
+        from database import Database
+        from billing_utils import has_module as _hm
+        from utils import he as _he
+
+        today_md = _dt.utcnow().strftime("%m-%d")  # MM-DD для сравнения
+
+        org_dbs = _glob.glob("data/tenants/org_*.db")
+        for db_path in org_dbs:
+            try:
+                db = Database(db_path)
+                conn = db.get_connection()
+                try:
+                    # Проверяем что у орг есть модуль crm (через owner)
+                    owner_row = conn.execute(
+                        "SELECT telegram_id FROM users WHERE role='owner' LIMIT 1"
+                    ).fetchone()
+                    if not owner_row:
+                        continue
+                    owner_tg = owner_row[0]
+                    if not _hm(owner_tg, "crm"):
+                        continue
+
+                    # Клиенты с днём рождения сегодня
+                    bday_clients = conn.execute(
+                        "SELECT id, first_name, last_name, phone FROM clients "
+                        "WHERE birth_date IS NOT NULL AND strftime('%m-%d', birth_date)=?",
+                        (today_md,)
+                    ).fetchall()
+
+                    if not bday_clients:
+                        continue
+
+                    # Все admins/owners для уведомления
+                    admin_rows = conn.execute(
+                        "SELECT telegram_id FROM users WHERE role IN ('owner','admin') AND telegram_id IS NOT NULL"
+                    ).fetchall()
+                finally:
+                    conn.close()
+
+                for client_row in bday_clients:
+                    cid, cfn, cln, cphone = client_row
+                    name = _he(f"{cfn} {cln or ''}".strip())
+                    phone_str = f"\nТелефон: {_he(cphone)}" if cphone else ""
+                    text = (
+                        f"🎂 <b>День рождения клиента!</b>\n\n"
+                        f"Сегодня день рождения: <b>{name}</b>"
+                        f"{phone_str}\n\n"
+                        f"Не забудьте поздравить!"
+                    )
+                    for ar in admin_rows:
+                        tg_id = ar[0]
+                        if not tg_id:
+                            continue
+                        try:
+                            await bot.send_message(
+                                chat_id=tg_id,
+                                text=text,
+                                parse_mode="HTML",
+                            )
+                        except Exception:
+                            pass
+            except Exception:
+                continue
+    except Exception as e:
+        logging.error(f"send_client_birthday_reminders: {e}")
+
+
 async def auto_reject_stale_payments(bot: Bot):
     """Авто-отклонение pending-заявок СБП старше 72 часов без обработки."""
     try:
@@ -1344,6 +1416,17 @@ async def main():
         max_instances=1,
         coalesce=True,
         misfire_grace_time=120,
+    )
+
+    # Напоминания о днях рождения клиентов — ежедневно в 09:05
+    scheduler.add_job(
+        send_client_birthday_reminders,
+        CronTrigger(hour=9, minute=5, second=0),
+        args=[bot],
+        id='send_client_birthday_reminders',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=600,
     )
 
     # APScheduler inline-джобы вынесены в jobs/registry.py (roadmap 1.4)
