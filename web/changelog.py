@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.403.0"
+CURRENT_VERSION = "1.404.0"
 
 ENTRIES = [
+    {
+        "version": "1.404.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Update deployment and version information for latest changes",
+        ],
+    },
     {
         "version": "1.403.0",
         "date": "7 июля 2026",

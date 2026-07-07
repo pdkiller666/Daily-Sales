@@ -436,6 +436,22 @@ function toastMgr() {
             <span class="nav-icon mr-3 text-base">🗂️</span>Категории
         </a>
         {% endif %}
+        {% if _nm.crm %}
+        <a href="/clients"
+           class="nav-link {% if request.url.path.startswith('/clients') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">👤</span>Клиенты
+        </a>
+        {% endif %}
+        {% if _nm.services %}
+        <a href="/services"
+           class="nav-link {% if request.url.path.startswith('/services') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">✂️</span>Услуги
+        </a>
+        <a href="/appointments"
+           class="nav-link {% if request.url.path.startswith('/appointments') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">📆</span>Записи
+        </a>
+        {% endif %}
 
         {% if _nm.analytics %}
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Аналитика</p>
@@ -2094,6 +2110,25 @@ function mainApp() {
                    class="sht-item {% if _p.startswith('/categories') %}sht-active{% endif %}">
                     <span class="sht-icon">🗂️</span>
                     <span class="sht-label">Категории</span>
+                </a>
+                {% endif %}
+                {% if _nm.crm %}
+                <a href="/clients" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/clients') %}sht-active{% endif %}">
+                    <span class="sht-icon">👤</span>
+                    <span class="sht-label">Клиенты</span>
+                </a>
+                {% endif %}
+                {% if _nm.services %}
+                <a href="/services" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/services') %}sht-active{% endif %}">
+                    <span class="sht-icon">✂️</span>
+                    <span class="sht-label">Услуги</span>
+                </a>
+                <a href="/appointments" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/appointments') %}sht-active{% endif %}">
+                    <span class="sht-icon">📆</span>
+                    <span class="sht-label">Записи</span>
                 </a>
                 {% endif %}
             </div>
