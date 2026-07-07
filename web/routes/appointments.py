@@ -67,10 +67,10 @@ def _appt_query(conn, where: str = "1=1", params: list = None, limit: int = _PAG
 @router.get("/appointments")
 def appointments_list(request: Request, status: str = "", staff_id: int = 0,
                       date_from: str = "", date_to: str = "", page: int = 1):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
@@ -131,10 +131,10 @@ def appointments_list(request: Request, status: str = "", staff_id: int = 0,
 
 @router.get("/appointments/new")
 def appointment_new_form(request: Request):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
@@ -183,10 +183,10 @@ def appointment_create(
     notes: str = Form(""),
     price: str = Form(""),
 ):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -246,10 +246,10 @@ def appointment_create(
 
 @router.get("/appointments/{appt_id}")
 def appointment_detail(request: Request, appt_id: int):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
@@ -309,10 +309,10 @@ def appointment_change_status(
     new_status: str = Form(""),
     note: str = Form(""),
 ):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module, has_extension
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -396,10 +396,10 @@ def appointment_edit(
     notes: str = Form(""),
     price: str = Form(""),
 ):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -441,10 +441,10 @@ def appointment_edit(
 
 @router.post("/appointments/{appt_id}/delete")
 def appointment_delete(request: Request, appt_id: int, csrf_token: str = Form("")):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -468,10 +468,10 @@ def appointment_delete(request: Request, appt_id: int, csrf_token: str = Form(""
 
 @router.get("/appointments/calendar")
 def appointments_calendar(request: Request, year: int = 0, month: int = 0):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
@@ -533,10 +533,10 @@ def appointments_calendar(request: Request, year: int = 0, month: int = 0):
 
 @router.get("/api/appointments/staff_slots")
 def staff_slots_api(request: Request, staff_id: int = 0, date: str = ""):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user or not has_module(user.get("telegram_id", 0), "services"):
         return JSONResponse({"slots": []})
 

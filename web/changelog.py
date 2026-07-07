@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.404.0"
+CURRENT_VERSION = "1.405.0"
 
 ENTRIES = [
+    {
+        "version": "1.405.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Add navigation links for new services and client modules",
+        ],
+    },
     {
         "version": "1.404.0",
         "date": "7 июля 2026",

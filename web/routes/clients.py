@@ -48,9 +48,9 @@ def _format_phone(phone: str) -> str:
 @router.get("/clients")
 def clients_list(request: Request, q: str = "", page: int = 1, tag: str = ""):
     from web.deps import get_web_db
-    from web.auth import require_session
+    from web.auth import get_session_user
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     tg_id = user.get("telegram_id", 0)
@@ -109,9 +109,9 @@ def clients_list(request: Request, q: str = "", page: int = 1, tag: str = ""):
 
 @router.get("/clients/new")
 def clients_new_form(request: Request):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "crm"):
@@ -134,10 +134,10 @@ def clients_create(
     notes: str = Form(""),
     tags: str = Form(""),
 ):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -170,10 +170,10 @@ def clients_create(
 
 @router.get("/clients/{client_id}")
 def client_detail(request: Request, client_id: int):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "crm"):
@@ -247,10 +247,10 @@ def client_edit(
     notes: str = Form(""),
     tags: str = Form(""),
 ):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -281,10 +281,10 @@ def client_edit(
 
 @router.post("/clients/{client_id}/delete")
 def client_delete(request: Request, client_id: int, csrf_token: str = Form("")):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -307,10 +307,10 @@ def client_delete(request: Request, client_id: int, csrf_token: str = Form("")):
 
 @router.get("/clients/export.xlsx")
 def clients_export(request: Request):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "crm"):

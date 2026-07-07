@@ -42,10 +42,10 @@ def _row_to_service(r) -> dict:
 
 @router.get("/services")
 def services_list(request: Request, q: str = "", category_id: int = 0, page: int = 1):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
@@ -96,10 +96,10 @@ def services_list(request: Request, q: str = "", category_id: int = 0, page: int
 
 @router.get("/services/new")
 def service_new_form(request: Request):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
@@ -134,10 +134,10 @@ def service_create(
     duration_minutes: str = Form("60"),
     group_max_participants: str = Form("1"),
 ):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -180,10 +180,10 @@ def service_create(
 
 @router.get("/services/{service_id}/edit")
 def service_edit_form(request: Request, service_id: int):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
@@ -231,10 +231,10 @@ def service_update(
     group_max_participants: str = Form("1"),
     is_active: str = Form("1"),
 ):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -279,10 +279,10 @@ def service_update(
 
 @router.post("/services/{service_id}/delete")
 def service_delete(request: Request, service_id: int, csrf_token: str = Form("")):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -304,10 +304,10 @@ def service_delete(request: Request, service_id: int, csrf_token: str = Form("")
 
 @router.get("/services/categories")
 def service_categories_page(request: Request):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
@@ -336,10 +336,10 @@ def service_category_create(
     name: str = Form(""),
     color: str = Form("#6366f1"),
 ):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -364,10 +364,10 @@ def service_category_create(
 
 @router.post("/services/categories/{cat_id}/delete")
 def service_category_delete(request: Request, cat_id: int, csrf_token: str = Form("")):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
@@ -390,10 +390,10 @@ def service_category_delete(request: Request, cat_id: int, csrf_token: str = For
 
 @router.get("/services/{service_id}/motivation")
 def service_motivation_page(request: Request, service_id: int):
-    from web.auth import require_session
+    from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module, has_extension
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
@@ -443,10 +443,10 @@ def service_motivation_save(
     mot_type: str = Form("percentage"),
     value: str = Form("0"),
 ):
-    from web.auth import require_session, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from billing_utils import has_module, has_extension
-    user = require_session(request)
+    user = get_session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
