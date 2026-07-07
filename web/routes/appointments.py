@@ -258,6 +258,75 @@ def appointment_create(
         conn.close()
 
 
+@router.get("/appointments/calendar")
+def appointments_calendar(request: Request, year: int = 0, month: int = 0):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    from billing_utils import has_module
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    if not has_module(int(user.get("sub", 0)), "services"):
+        return RedirectResponse("/appointments", status_code=302)
+
+    now = datetime.now()
+    year = year or now.year
+    month = month or now.month
+
+    from calendar import monthrange
+    _, days_in_month = monthrange(year, month)
+    date_from = f"{year:04d}-{month:02d}-01"
+    date_to = f"{year:04d}-{month:02d}-{days_in_month:02d} 23:59:59"
+
+    tg_id = int(user.get("sub", 0))
+    org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
+    db = get_web_db(tg_id, org_db)
+    conn = db.get_connection()
+    try:
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
+        params = [date_from, date_to]
+        where = "a.start_time >= ? AND a.start_time <= ?"
+        if not is_admin:
+            my_user = conn.execute("SELECT id FROM users WHERE telegram_id=?", (int(user.get("sub", 0)),)).fetchone()
+            my_uid = my_user[0] if my_user else -1
+            where += " AND a.staff_user_id=?"
+            params.append(my_uid)
+
+        appts = _appt_query(conn, where, params, limit=500, offset=0)
+
+        by_day = {}
+        for a in appts:
+            try:
+                day = int(a["start_time"][8:10])
+            except (TypeError, IndexError, ValueError):
+                continue
+            by_day.setdefault(day, []).append(a)
+
+        prev_month = month - 1 if month > 1 else 12
+        prev_year = year if month > 1 else year - 1
+        next_month = month + 1 if month < 12 else 1
+        next_year = year if month < 12 else year + 1
+
+        from calendar import weekday as cal_weekday
+        first_weekday = cal_weekday(year, month, 1)
+
+        ctx = _get_ctx(request)
+        ctx.update({
+            "year": year, "month": month, "days_in_month": days_in_month,
+            "first_weekday": first_weekday, "by_day": by_day,
+            "statuses": _STATUSES, "is_admin": is_admin,
+            "prev_year": prev_year, "prev_month": prev_month,
+            "next_year": next_year, "next_month": next_month,
+            "month_name": ["", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                           "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"][month],
+        })
+        return request.app.state.templates.TemplateResponse(request, "appointments/calendar.html", ctx)
+    finally:
+        conn.close()
+
+
 @router.get("/appointments/{appt_id}")
 def appointment_detail(request: Request, appt_id: int):
     from web.auth import get_session_user
@@ -501,75 +570,6 @@ def appointment_delete(request: Request, appt_id: int, csrf_token: str = Form(""
         conn.execute("DELETE FROM appointments WHERE id=?", (appt_id,))
         conn.commit()
         return RedirectResponse("/appointments", status_code=303)
-    finally:
-        conn.close()
-
-
-@router.get("/appointments/calendar")
-def appointments_calendar(request: Request, year: int = 0, month: int = 0):
-    from web.auth import get_session_user
-    from web.deps import get_web_db
-    from billing_utils import has_module
-    user = get_session_user(request)
-    if not user:
-        return RedirectResponse("/login", status_code=302)
-    if not has_module(int(user.get("sub", 0)), "services"):
-        return RedirectResponse("/appointments", status_code=302)
-
-    now = datetime.now()
-    year = year or now.year
-    month = month or now.month
-
-    from calendar import monthrange
-    _, days_in_month = monthrange(year, month)
-    date_from = f"{year:04d}-{month:02d}-01"
-    date_to = f"{year:04d}-{month:02d}-{days_in_month:02d} 23:59:59"
-
-    tg_id = int(user.get("sub", 0))
-    org_db = user.get("org_db", "")
-    if not org_db:
-        return RedirectResponse("/dashboard", status_code=302)
-    db = get_web_db(tg_id, org_db)
-    conn = db.get_connection()
-    try:
-        is_admin = user.get("role") in ("owner", "admin", "super_admin")
-        params = [date_from, date_to]
-        where = "a.start_time >= ? AND a.start_time <= ?"
-        if not is_admin:
-            my_user = conn.execute("SELECT id FROM users WHERE telegram_id=?", (int(user.get("sub", 0)),)).fetchone()
-            my_uid = my_user[0] if my_user else -1
-            where += " AND a.staff_user_id=?"
-            params.append(my_uid)
-
-        appts = _appt_query(conn, where, params, limit=500, offset=0)
-
-        by_day = {}
-        for a in appts:
-            try:
-                day = int(a["start_time"][8:10])
-            except (TypeError, IndexError, ValueError):
-                continue
-            by_day.setdefault(day, []).append(a)
-
-        prev_month = month - 1 if month > 1 else 12
-        prev_year = year if month > 1 else year - 1
-        next_month = month + 1 if month < 12 else 1
-        next_year = year if month < 12 else year + 1
-
-        from calendar import weekday as cal_weekday
-        first_weekday = cal_weekday(year, month, 1)
-
-        ctx = _get_ctx(request)
-        ctx.update({
-            "year": year, "month": month, "days_in_month": days_in_month,
-            "first_weekday": first_weekday, "by_day": by_day,
-            "statuses": _STATUSES, "is_admin": is_admin,
-            "prev_year": prev_year, "prev_month": prev_month,
-            "next_year": next_year, "next_month": next_month,
-            "month_name": ["", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-                           "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"][month],
-        })
-        return request.app.state.templates.TemplateResponse(request, "appointments/calendar.html", ctx)
     finally:
         conn.close()
 

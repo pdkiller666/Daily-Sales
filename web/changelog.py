@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.426.0"
+CURRENT_VERSION = "1.427.0"
 
 ENTRIES = [
+    {
+        "version": "1.427.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Fix salary calculation errors by correcting service revenue integration",
+        ],
+    },
     {
         "version": "1.426.0",
         "date": "7 июля 2026",
