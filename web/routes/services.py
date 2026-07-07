@@ -433,7 +433,7 @@ def service_motivation_page(request: Request, service_id: int):
     if not user:
         return RedirectResponse("/login", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
-        return RedirectResponse("/services", status_code=302)
+        return RedirectResponse("/subscription?msg=services_locked", status_code=302)
     if user.get("role") not in ("owner", "admin"):
         return RedirectResponse("/services", status_code=302)
 
@@ -491,7 +491,7 @@ def service_motivation_save(
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(f"/services/{service_id}/motivation", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
-        return RedirectResponse("/services", status_code=302)
+        return RedirectResponse("/subscription?msg=services_locked", status_code=302)
     if not has_extension(user.get("telegram_id", 0), "services", "services_motivation"):
         return RedirectResponse(f"/services/{service_id}/motivation", status_code=302)
 

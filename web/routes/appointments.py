@@ -334,7 +334,7 @@ def appointment_change_status(
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
     if not has_module(user.get("telegram_id", 0), "services"):
-        return RedirectResponse("/appointments", status_code=302)
+        return RedirectResponse("/subscription?msg=services_locked", status_code=302)
     if new_status not in _STATUSES:
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
 

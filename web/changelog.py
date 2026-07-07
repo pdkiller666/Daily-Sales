@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.411.0"
+CURRENT_VERSION = "1.412.0"
 
 ENTRIES = [
+    {
+        "version": "1.412.0",
+        "date": "7 июля 2026",
+        "items": [
+            "add parent-module gate before extension checks in motivation.py and salary.py (Task #9)",
+        ],
+    },
     {
         "version": "1.411.0",
         "date": "7 июля 2026",
