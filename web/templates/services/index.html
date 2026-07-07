@@ -8,6 +8,20 @@
 {% endblock %}
 
 {% block content %}
+{% if error == 'has_appointments' %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-300">
+  <span class="shrink-0 text-base">⚠️</span>
+  <div>
+    <p class="font-semibold">Невозможно удалить услугу</p>
+    <p class="mt-0.5">У услуги есть активные или запланированные записи. Сначала отмените или завершите все записи на эту услугу, а затем повторите попытку.</p>
+  </div>
+</div>
+{% elif error == 'csrf' %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 dark:bg-red-900/20 dark:border-red-700 dark:text-red-300">
+  <span class="shrink-0">🔒</span>
+  <span>Ошибка безопасности. Попробуйте снова.</span>
+</div>
+{% endif %}
 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
   <div>
     <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Услуги</h1>

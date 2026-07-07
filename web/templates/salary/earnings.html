@@ -99,6 +99,13 @@
         <p class="text-xs text-slate-400 mt-0.5">{{ contest_details|length }} конкурс{{ 'а' if contest_details|length in [2,3,4] else '' if contest_details|length == 1 else 'ов' }}</p>
     </div>
     {% endif %}
+    {% if service_commission > 0 %}
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Услуги</p>
+        <p class="text-xl font-bold text-sky-600">+{{ service_commission|int|fmt_currency }}</p>
+        <p class="text-xs text-slate-400 mt-0.5">{{ service_earnings_rows|length }} запис{{ 'и' if service_earnings_rows|length in [2,3,4] else 'ь' if service_earnings_rows|length == 1 else 'ей' }} с мотивацией</p>
+    </div>
+    {% endif %}
     <div class="card p-4 bg-gradient-to-br from-emerald-50 to-emerald-100/50 border-emerald-100">
         <p class="text-xs font-semibold text-emerald-600 uppercase tracking-wide mb-1">Итого</p>
         <p class="text-xl font-bold text-emerald-700">{{ grand_total|int|fmt_currency }}</p>

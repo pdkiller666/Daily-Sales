@@ -199,6 +199,8 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         "total_adj": 0.0,
         "contest_rewards": 0.0,
         "contest_details": [],
+        "service_commission": 0.0,
+        "service_earnings_rows": [],
         "grand_total": 0.0,
         "worked_days": 0,
         "paid_absence_days": 0,
@@ -297,6 +299,38 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         except Exception:
             joint_adj = 0.0
 
+        # Service commissions from completed appointments
+        service_commission = 0.0
+        service_earnings_rows = []
+        try:
+            _sc = db.get_connection()
+            try:
+                _svc_rows = _sc.execute(
+                    "SELECT se.commission_amount, se.motivation_type, se.motivation_value,"
+                    " COALESCE(sv.name,'—'), a.price, a.start_time"
+                    " FROM service_earnings se"
+                    " LEFT JOIN appointments a ON se.appointment_id=a.id"
+                    " LEFT JOIN services sv ON se.service_id=sv.id"
+                    " WHERE se.user_id=? AND date(a.start_time) BETWEEN ? AND ?",
+                    (user_db_id, start_date, end_date),
+                ).fetchall()
+            finally:
+                _sc.close()
+            for _sr in _svc_rows:
+                _c = float(_sr[0] or 0)
+                service_commission += _c
+                service_earnings_rows.append({
+                    "date": str(_sr[5] or "")[:10],
+                    "service": _sr[3] or "—",
+                    "price": float(_sr[4] or 0),
+                    "mtype": _sr[1] or "percentage",
+                    "mval": float(_sr[2] or 0),
+                    "commission": _c,
+                })
+            service_commission = round(service_commission, 2)
+        except Exception:
+            pass
+
         # Коэффициент выполнения недельных планов
         plan_coeff = None
         plan_coeff_details = []
@@ -381,7 +415,9 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
             "total_adj": round(adj_sum, 2),
             "contest_rewards": round(contest_rewards, 2),
             "contest_details": contest_details,
-            "grand_total": round(base_salary + total_commission + adj_sum + contest_rewards, 2),
+            "service_commission": service_commission,
+            "service_earnings_rows": service_earnings_rows,
+            "grand_total": round(base_salary + total_commission + adj_sum + contest_rewards + service_commission, 2),
             "worked_days": worked,
             "paid_absence_days": paid_abs,
             "daily_rate": rate,
@@ -537,7 +573,8 @@ def salary_page(
                 base = rate * (worked + non_vac_paid_abs) + vac_pay_i
                 motivation = round(float((earnings_bulk.get(uid) or {}).get('total_earnings', 0.0) or 0), 2)
                 contest_rewards = round(float(contest_bulk.get(row[4], 0.0) or 0), 2)
-                total = base + adj_sum + motivation + contest_rewards
+                svc_comm = service_bulk.get(uid, 0.0)
+                total = base + adj_sum + motivation + contest_rewards + svc_comm
                 total_fund += total
 
                 staff_salary.append({
@@ -556,6 +593,7 @@ def salary_page(
                     "adj_sum": adj_sum,
                     "motivation": motivation,
                     "contest_rewards": contest_rewards,
+                    "service_commission": svc_comm,
                     "total": total,
                     "shop": "",
                 })
@@ -577,6 +615,26 @@ def salary_page(
                     _status = _ar[5]
                     if _status == "approved" and _uid not in absent_map:
                         absent_map[_uid] = _atype
+        except Exception:
+            pass
+
+        # Service commissions bulk for all users (total per user_id)
+        service_bulk: dict = {}
+        try:
+            _sbconn = db.get_connection()
+            try:
+                _sb_rows = _sbconn.execute(
+                    "SELECT se.user_id, SUM(se.commission_amount)"
+                    " FROM service_earnings se"
+                    " LEFT JOIN appointments a ON se.appointment_id=a.id"
+                    " WHERE date(a.start_time) BETWEEN ? AND ?"
+                    " GROUP BY se.user_id",
+                    (start_date, end_date),
+                ).fetchall()
+            finally:
+                _sbconn.close()
+            for _sbr in _sb_rows:
+                service_bulk[_sbr[0]] = round(float(_sbr[1] or 0), 2)
         except Exception:
             pass
 
@@ -668,6 +726,34 @@ def salary_page(
             except Exception:
                 pass
 
+            # Service commissions for selected user
+            detail_service_commission = 0.0
+            detail_service_earnings_rows = []
+            try:
+                _sc2 = db.get_connection()
+                try:
+                    _svc2 = _sc2.execute(
+                        "SELECT se.commission_amount, COALESCE(sv.name,'—'), a.start_time"
+                        " FROM service_earnings se"
+                        " LEFT JOIN appointments a ON se.appointment_id=a.id"
+                        " LEFT JOIN services sv ON se.service_id=sv.id"
+                        " WHERE se.user_id=? AND date(a.start_time) BETWEEN ? AND ?",
+                        (user_id, start_date, end_date),
+                    ).fetchall()
+                finally:
+                    _sc2.close()
+                for _sr2 in _svc2:
+                    _c2 = float(_sr2[0] or 0)
+                    detail_service_commission += _c2
+                    detail_service_earnings_rows.append({
+                        "date": str(_sr2[2] or "")[:10],
+                        "service": _sr2[1] or "—",
+                        "commission": _c2,
+                    })
+                detail_service_commission = round(detail_service_commission, 2)
+            except Exception:
+                pass
+
             # Pagination for detail earnings
             detail_total_count = len(detail_earnings)
             detail_total_pages = max(1, (detail_total_count + EARNINGS_PAGE_SIZE - 1) // EARNINGS_PAGE_SIZE)
@@ -723,6 +809,8 @@ def salary_page(
             ctx["detail_plan_coeff_details"] = detail_plan_coeff_details
             ctx["detail_contest_rewards"] = round(detail_contest_rewards, 2)
             ctx["detail_contest_details"] = detail_contest_details
+            ctx["detail_service_commission"] = detail_service_commission
+            ctx["detail_service_earnings_rows"] = detail_service_earnings_rows
             ctx["detail_absences"] = detail_absences
             ctx["rate_history"] = rate_history
           except Exception as _uid_exc:

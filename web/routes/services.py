@@ -43,7 +43,7 @@ def _row_to_service(r) -> dict:
 
 
 @router.get("/services")
-def services_list(request: Request, q: str = "", category_id: int = 0, page: int = 1):
+def services_list(request: Request, q: str = "", category_id: int = 0, page: int = 1, error: str = ""):
     from web.auth import get_session_user
     from web.deps import get_web_db
     from billing_utils import has_module
@@ -94,6 +94,7 @@ def services_list(request: Request, q: str = "", category_id: int = 0, page: int
             "services": services, "categories": cats, "total": total,
             "q": q, "category_id": category_id, "page": page, "total_pages": total_pages,
             "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
+            "error": error,
         })
         return request.app.state.templates.TemplateResponse(request, "services/index.html", ctx)
     finally:
@@ -321,6 +322,14 @@ def service_delete(request: Request, service_id: int, csrf_token: str = Form("")
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
+        future = conn.execute(
+            "SELECT COUNT(*) FROM appointments WHERE service_id=? AND status IN ('planned','confirmed')",
+            (service_id,),
+        ).fetchone()[0]
+        if future:
+            return RedirectResponse(f"/services?error=has_appointments&svc={service_id}", status_code=302)
+        conn.execute("UPDATE appointments SET service_id=NULL WHERE service_id=?", (service_id,))
+        conn.execute("DELETE FROM service_motivation_rules WHERE service_id=?", (service_id,))
         conn.execute("DELETE FROM services WHERE id=?", (service_id,))
         conn.commit()
         return RedirectResponse("/services", status_code=303)

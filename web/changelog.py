@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.423.0"
+CURRENT_VERSION = "1.424.0"
 
 ENTRIES = [
+    {
+        "version": "1.424.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Improve access controls and fix data retrieval for user roles",
+        ],
+    },
     {
         "version": "1.423.0",
         "date": "7 июля 2026",

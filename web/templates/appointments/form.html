@@ -10,7 +10,7 @@
 {% block content %}
 <div class="max-w-xl mx-auto" x-data="{
   serviceId: '{{ prefill_service or (appt.service_id if appt else '') }}',
-  services: {{ services | tojson }},
+  services: {{ services | tojson | forceescape }},
   serviceDuration: 60,
   servicePrice: 0,
   updateService() {

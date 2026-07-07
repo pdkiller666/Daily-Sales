@@ -232,6 +232,29 @@ def reports_page(
         except Exception:
             ctx["returns_summary"] = {"count": 0, "total_qty": 0, "total_amount": 0.0}
 
+        # Service revenue for the same period (appointments module)
+        ctx["service_revenue"] = {"revenue": 0.0, "count": 0}
+        try:
+            from billing_utils import has_module as _hm_srv
+            if _hm_srv(telegram_id, "services"):
+                _src_conn = db.get_connection()
+                try:
+                    _srv_row = _src_conn.execute(
+                        "SELECT COUNT(*), COALESCE(SUM(price),0)"
+                        " FROM appointments"
+                        " WHERE date(start_time) BETWEEN ? AND ? AND status='completed'",
+                        (df, dt),
+                    ).fetchone()
+                finally:
+                    _src_conn.close()
+                if _srv_row:
+                    ctx["service_revenue"] = {
+                        "revenue": float(_srv_row[1] or 0),
+                        "count": int(_srv_row[0] or 0),
+                    }
+        except Exception:
+            pass
+
         try:
             _ly, _lm = int(date_from[:4]), int(date_from[5:7])
         except Exception:

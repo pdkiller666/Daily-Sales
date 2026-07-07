@@ -64,12 +64,13 @@ def clients_list(request: Request, q: str = "", page: int = 1, tag: str = ""):
         return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
+    conn.create_function("lower_u", 1, lambda s: s.lower() if s else "")
     try:
         offset = (page - 1) * _PAGE_SIZE
         params = []
         where = "1=1"
         if q:
-            where += " AND (lower(first_name||' '||last_name) LIKE ? OR phone LIKE ? OR email LIKE ?)"
+            where += " AND (lower_u(first_name||' '||last_name) LIKE ? OR phone LIKE ? OR email LIKE ?)"
             like = f"%{q.lower()}%"
             params += [like, like, like]
         if tag:

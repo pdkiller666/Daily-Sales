@@ -216,6 +216,9 @@ def dashboard(request: Request, msg: str = ""):
         "apk_new_version": apk_new_version,
         "apk_release_url": apk_release_url,
         "user_shop": "",
+        "appt_today": 0,
+        "appt_revenue_today": "",
+        "upcoming_appts": [],
     }
 
     try:
@@ -423,6 +426,53 @@ def dashboard(request: Request, msg: str = ""):
                 ctx["plans_dash"] = _group_plans_dash(plans_dash, limit=6)
             except Exception:
                 ctx["plans_dash"] = []
+
+        # ── Appointments today (services module) ─────────────────────────────
+        try:
+            from billing_utils import has_module as _hm_svc
+            if _hm_svc(telegram_id, "services") and org_db:
+                _ac = db.get_connection()
+                try:
+                    _appt_n = _ac.execute(
+                        "SELECT COUNT(*) FROM appointments"
+                        " WHERE date(start_time)=? AND status IN ('planned','confirmed')",
+                        (today_str,),
+                    ).fetchone()[0]
+                    _appt_rev = _ac.execute(
+                        "SELECT COALESCE(SUM(price),0) FROM appointments"
+                        " WHERE date(start_time)=? AND status='completed'",
+                        (today_str,),
+                    ).fetchone()[0]
+                    _upcoming = _ac.execute(
+                        "SELECT a.id, sv.name,"
+                        " COALESCE(c.first_name,'')||' '||COALESCE(c.last_name,''),"
+                        " COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,''),"
+                        " a.start_time, a.status"
+                        " FROM appointments a"
+                        " LEFT JOIN services sv ON a.service_id=sv.id"
+                        " LEFT JOIN clients c ON a.client_id=c.id"
+                        " LEFT JOIN users u ON a.staff_user_id=u.id"
+                        " WHERE a.start_time >= ? AND a.status IN ('planned','confirmed')"
+                        " ORDER BY a.start_time LIMIT 5",
+                        (today_str + " 00:00:00",),
+                    ).fetchall()
+                finally:
+                    _ac.close()
+                ctx["appt_today"] = int(_appt_n or 0)
+                ctx["appt_revenue_today"] = _fmt(_appt_rev, _csym)
+                ctx["upcoming_appts"] = [
+                    {
+                        "id": r[0],
+                        "service": r[1] or "—",
+                        "client": (r[2] or "").strip() or "—",
+                        "staff": (r[3] or "").strip() or "—",
+                        "start_time": str(r[4] or "")[:16].replace("T", " "),
+                        "status": r[5] or "",
+                    }
+                    for r in _upcoming
+                ]
+        except Exception:
+            pass
 
     except Exception as exc:
         import logging
