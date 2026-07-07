@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.417.0"
+CURRENT_VERSION = "1.418.0"
 
 ENTRIES = [
+    {
+        "version": "1.418.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Fix incorrect user IDs being saved for email-based users",
+            "auto-refresh stale session when user joins an org (no manual re-login needed)",
+        ],
+    },
     {
         "version": "1.417.0",
         "date": "7 июля 2026",

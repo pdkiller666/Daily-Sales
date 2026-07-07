@@ -118,8 +118,8 @@ def api_org_status(request: Request):
 
 @router.get("/dashboard")
 def dashboard(request: Request, msg: str = ""):
-    from web.auth import get_session_user
-    from web.deps import get_web_db
+    from web.auth import get_session_user, create_session_token, COOKIE_NAME
+    from web.deps import get_web_db, get_user_org_db_path, get_user_role_from_db
 
     user = get_session_user(request)
     if not user:
@@ -128,6 +128,27 @@ def dashboard(request: Request, msg: str = ""):
     telegram_id = int(user['sub'])
     org_db = user.get('org_db')
     role = user.get('role', 'user')
+
+    # ── Stale-session refresh ──────────────────────────────────────────────────
+    # JWT was issued before the user joined an org.  Look up live DB; if the
+    # user now belongs to an org, reissue the cookie and redirect so this very
+    # request renders with fresh data.
+    if not org_db and telegram_id > 0:
+        live_org_db = get_user_org_db_path(telegram_id)
+        if live_org_db:
+            live_role = get_user_role_from_db(telegram_id)
+            new_token = create_session_token(
+                telegram_id, user.get('name', ''), live_org_db, live_role
+            )
+            redirect_url = "/dashboard" + (f"?msg={msg}" if msg else "")
+            response = RedirectResponse(url=redirect_url, status_code=302)
+            response.set_cookie(
+                COOKIE_NAME, new_token,
+                httponly=True, secure=True, samesite='lax',
+                max_age=7 * 24 * 3600,
+            )
+            return response
+
     is_admin = role in ('owner', 'admin', 'super_admin')
 
     gate_title, gate_text = _GATE_MSGS.get(msg, (None, None))
