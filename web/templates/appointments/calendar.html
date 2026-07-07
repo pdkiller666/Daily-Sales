@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Календарь записей{% endblock %}
+
+{% block breadcrumb %}
+<a href="/appointments" class="text-slate-400 text-xs hover:text-indigo-500">Записи</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm dark:text-slate-200">Календарь</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+  <div class="flex items-center gap-3">
+    <a href="/appointments/calendar?year={{ prev_year }}&month={{ prev_month }}"
+       class="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">←</a>
+    <h1 class="text-xl font-bold text-slate-800 dark:text-slate-100">{{ month_name }} {{ year }}</h1>
+    <a href="/appointments/calendar?year={{ next_year }}&month={{ next_month }}"
+       class="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">→</a>
+  </div>
+  <div class="flex items-center gap-2">
+    <a href="/appointments" class="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+      Список
+    </a>
+    <a href="/appointments/new" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+      + Запись
+    </a>
+  </div>
+</div>
+
+<div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+  <!-- Заголовки дней -->
+  <div class="grid grid-cols-7 border-b border-slate-100 dark:border-slate-700">
+    {% for day_name in ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'] %}
+    <div class="px-2 py-2.5 text-center text-xs font-medium text-slate-500 dark:text-slate-400
+                {% if loop.index >= 6 %}text-red-400 dark:text-red-500{% endif %}">
+      {{ day_name }}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Сетка дней -->
+  <div class="grid grid-cols-7">
+    {% set ns = namespace(day=1, col=first_weekday) %}
+
+    <!-- Пустые ячейки до первого дня -->
+    {% for i in range(first_weekday) %}
+    <div class="min-h-[80px] border-b border-r border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/20"></div>
+    {% endfor %}
+
+    <!-- Дни месяца -->
+    {% for day in range(1, days_in_month + 1) %}
+    {% set col_idx = (first_weekday + day - 1) % 7 %}
+    {% set day_appts = by_day.get(day, []) %}
+    <div class="min-h-[80px] border-b border-r border-slate-100 dark:border-slate-700 p-1.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors
+                {% if col_idx >= 5 %}bg-red-50/30 dark:bg-red-900/5{% endif %}">
+      <div class="flex items-start justify-between mb-1">
+        <span class="text-xs font-medium {% if col_idx >= 5 %}text-red-500 dark:text-red-400{% else %}text-slate-500 dark:text-slate-400{% endif %}">
+          {{ day }}
+        </span>
+        {% if day_appts %}
+        <a href="/appointments/new?date={{ '%04d-%02d-%02d' | format(year, month, day) }}"
+           class="text-xs text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300">+</a>
+        {% endif %}
+      </div>
+      {% for a in day_appts[:3] %}
+      <a href="/appointments/{{ a.id }}"
+         class="block mb-0.5 px-1.5 py-0.5 text-xs rounded truncate
+                {% if a.status == 'completed' %}bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300
+                {% elif a.status in ('cancelled','no_show') %}bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 line-through
+                {% elif a.status == 'confirmed' %}bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300
+                {% else %}bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300{% endif %}"
+         title="{{ a.service_name }} — {{ a.client_name }}">
+        {{ a.start_time[11:16] if a.start_time else '' }} {{ a.client_name.split()[0] }}
+      </a>
+      {% endfor %}
+      {% if day_appts | length > 3 %}
+      <a href="/appointments?date_from={{ '%04d-%02d-%02d' | format(year, month, day) }}&date_to={{ '%04d-%02d-%02d' | format(year, month, day) }}"
+         class="block px-1.5 text-xs text-slate-400 dark:text-slate-500 hover:text-indigo-500">
+        ещё {{ day_appts | length - 3 }}…
+      </a>
+      {% endif %}
+    </div>
+
+    <!-- Если последний день в строке — добавляем пустые ячейки -->
+    {% if (first_weekday + day) % 7 == 0 and day < days_in_month %}
+    <!-- line break in CSS grid - automatic -->
+    {% endif %}
+    {% endfor %}
+
+    <!-- Пустые ячейки после последнего дня -->
+    {% set last_col = (first_weekday + days_in_month - 1) % 7 %}
+    {% for i in range(6 - last_col) %}
+    <div class="min-h-[80px] border-b border-r border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/20"></div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Легенда -->
+<div class="flex flex-wrap gap-3 mt-4">
+  <div class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+    <span class="w-3 h-3 rounded bg-indigo-100 dark:bg-indigo-900/50"></span> Запланирована
+  </div>
+  <div class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+    <span class="w-3 h-3 rounded bg-blue-100 dark:bg-blue-900/50"></span> Подтверждена
+  </div>
+  <div class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+    <span class="w-3 h-3 rounded bg-emerald-100 dark:bg-emerald-900/50"></span> Выполнена
+  </div>
+  <div class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+    <span class="w-3 h-3 rounded bg-red-100 dark:bg-red-900/50"></span> Отменена/Неявка
+  </div>
+</div>
+{% endblock %}

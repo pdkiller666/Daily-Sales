@@ -592,9 +592,9 @@
                          user_id[5] sale_date[6]
                   then  product_name[7] category[8] first_name[9] last_name[10] returned_qty[11]
                 #}
-                {% set _ret_qty = s[11] if s|length > 11 else 0 %}
-                {% set _is_full_return = _ret_qty > 0 and _ret_qty >= s[3] %}
-                {% set _is_partial_return = _ret_qty > 0 and _ret_qty < s[3] %}
+                {% set _ret_qty = (s[11] | int) if s|length > 11 else 0 %}
+                {% set _is_full_return = _ret_qty > 0 and _ret_qty >= (s[3] | int) %}
+                {% set _is_partial_return = _ret_qty > 0 and _ret_qty < (s[3] | int) %}
                 <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-700/30 transition-colors {% if _is_full_return %}opacity-70{% endif %}" data-sale-id="{{ s[0] }}">
                     <td class="px-3 sm:px-5 py-3 text-xs text-slate-400 dark:text-slate-500 hidden sm:table-cell">{{ page_offset + loop.index }}</td>
                     <td class="px-3 py-2.5">

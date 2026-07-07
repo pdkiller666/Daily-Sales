@@ -271,6 +271,10 @@ Disallow: /tasks/workload
 Disallow: /ai-insights
 Disallow: /returns
 Disallow: /api/returns/
+Disallow: /clients
+Disallow: /services
+Disallow: /appointments
+Disallow: /api/appointments/
 Disallow: /api/
 Disallow: /payment-proof/
 Disallow: /payment-proof-req/
@@ -597,7 +601,8 @@ def create_web_app() -> FastAPI:
     templates.env.globals['subscription_grace'] = _subscription_grace
 
     _NAV_MODULE_KEYS = ('analytics', 'team', 'plans_motivation', 'chat',
-                        'integrations', 'notifications', 'ai_assistant', 'pos_retail')
+                        'integrations', 'notifications', 'ai_assistant', 'pos_retail',
+                        'crm', 'services')
 
     def _ai_insights_enabled(request=None) -> bool:
         """Return True if the current user has the ai_network_insights extension.
@@ -877,6 +882,9 @@ def create_web_app() -> FastAPI:
     from web.routes.ai_insights import router as ai_insights_router
     from web.routes.security import router as security_router
     from web.routes.returns import router as returns_router
+    from web.routes.clients import router as clients_router
+    from web.routes.services import router as services_router
+    from web.routes.appointments import router as appointments_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -913,6 +921,9 @@ def create_web_app() -> FastAPI:
     app.include_router(ai_insights_router)
     app.include_router(security_router)
     app.include_router(returns_router)
+    app.include_router(clients_router)
+    app.include_router(services_router)
+    app.include_router(appointments_router)
 
     _APK_LOCAL = Path("data/apk/DailySales-latest.apk")
     _APK_MIN_SIZE = 200_000  # 200 KB — реальные TWA APK ~500-600 KB

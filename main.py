@@ -45,6 +45,8 @@ from addon_handlers import addon_router
 from web_auth_handlers import router as web_auth_router
 from absence_handlers import absence_router
 from tasks_handlers import tasks_router as tasks_bot_router
+from clients_handlers import clients_router as clients_bot_router
+from services_handlers import services_router as services_bot_router
 import scheduler_module
 from jobs.registry import register_inline_jobs
 from utils import he
@@ -145,6 +147,8 @@ dp.include_router(addon_router)
 dp.include_router(web_auth_router)
 dp.include_router(absence_router)
 dp.include_router(tasks_bot_router)
+dp.include_router(clients_bot_router)
+dp.include_router(services_bot_router)
 
 # Создаем папку data если не существует
 if not os.path.exists('data'):
@@ -1180,6 +1184,60 @@ async def send_monthly_ranking_notification(bot: Bot):
         logging.error(f"Error in send_monthly_ranking_notification: {e}")
 
 
+async def send_appointment_reminders(bot: Bot):
+    """Напоминания о записях за 1 час до начала."""
+    try:
+        from database import Database
+        from tenant_manager import tenant_manager
+        import glob as _glob
+        from datetime import datetime as _dt, timedelta as _td
+
+        now = _dt.utcnow()
+        window_start = (now + _td(minutes=55)).strftime("%Y-%m-%d %H:%M")
+        window_end   = (now + _td(minutes=65)).strftime("%Y-%m-%d %H:%M")
+
+        org_dbs = _glob.glob("data/tenants/org_*.db")
+        for db_path in org_dbs:
+            try:
+                db = Database(db_path)
+                conn = db.get_connection()
+                rows = conn.execute(
+                    "SELECT a.id, sv.name, c.first_name||' '||c.last_name, c.phone, "
+                    "u.telegram_id, a.start_time "
+                    "FROM appointments a "
+                    "LEFT JOIN services sv ON a.service_id=sv.id "
+                    "LEFT JOIN clients c ON a.client_id=c.id "
+                    "LEFT JOIN users u ON a.staff_user_id=u.id "
+                    "WHERE a.status IN ('planned','confirmed') "
+                    "AND a.start_time BETWEEN ? AND ?",
+                    (window_start, window_end),
+                ).fetchall()
+                conn.close()
+                for r in rows:
+                    appt_id, svc_name, client_name, phone, staff_tg, start = r
+                    if not staff_tg:
+                        continue
+                    try:
+                        from utils import he as _he
+                        await bot.send_message(
+                            chat_id=staff_tg,
+                            text=(
+                                f"⏰ <b>Напоминание о записи</b>\n\n"
+                                f"Через ~1 час: <b>{_he(svc_name or '—')}</b>\n"
+                                f"Клиент: {_he((client_name or '—').strip())}"
+                                + (f" · {_he(phone)}" if phone else "") + f"\n"
+                                f"Время: {(start or '')[:16]}"
+                            ),
+                            parse_mode="HTML",
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+    except Exception as e:
+        logging.error(f"send_appointment_reminders: {e}")
+
+
 async def auto_reject_stale_payments(bot: Bot):
     """Авто-отклонение pending-заявок СБП старше 72 часов без обработки."""
     try:
@@ -1275,6 +1333,17 @@ async def main():
         max_instances=1,
         coalesce=True,
         misfire_grace_time=60,
+    )
+
+    # Напоминания о записях (Услуги) — каждые 5 минут
+    scheduler.add_job(
+        send_appointment_reminders,
+        CronTrigger(minute='*/5', second=30),
+        args=[bot],
+        id='send_appointment_reminders',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
     )
 
     # APScheduler inline-джобы вынесены в jobs/registry.py (roadmap 1.4)

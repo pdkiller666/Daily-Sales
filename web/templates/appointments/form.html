@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Редактировать запись' if appt else 'Новая запись' }}{% endblock %}
+
+{% block breadcrumb %}
+<a href="/appointments" class="text-slate-400 text-xs hover:text-indigo-500">Записи</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm dark:text-slate-200">{{ 'Редактировать' if appt else 'Новая запись' }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto" x-data="{
+  serviceId: '{{ prefill_service or (appt.service_id if appt else '') }}',
+  services: {{ services | tojson }},
+  serviceDuration: 60,
+  servicePrice: 0,
+  updateService() {
+    const s = this.services.find(x => String(x.id) === String(this.serviceId));
+    if (s) { this.serviceDuration = s.duration; this.servicePrice = s.price; }
+  }
+}" x-init="updateService()">
+
+  <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-6">
+    {{ 'Редактировать запись' if appt else 'Новая запись' }}
+  </h1>
+
+  {% if error %}
+  <div class="mb-4 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm">
+    {% if error == 'csrf' %}Ошибка безопасности, попробуйте снова.
+    {% elif error == 'required_fields' %}Заполните все обязательные поля.
+    {% elif error == 'staff_busy' %}⚠️ Мастер уже занят в это время. Выберите другое время.
+    {% elif error == 'no_service' %}Услуга не найдена.
+    {% elif error == 'bad_datetime' %}Некорректные дата или время.
+    {% else %}Произошла ошибка. Попробуйте снова.{% endif %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ '/appointments/' ~ appt.id ~ '/edit' if appt else '/appointments/new' }}"
+        class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6 space-y-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Услуга <span class="text-red-500">*</span></label>
+      <select name="service_id" x-model="serviceId" @change="updateService()" required
+              class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <option value="">— выберите услугу —</option>
+        {% for s in services %}
+        <option value="{{ s.id }}" {% if (appt and appt.service_id == s.id) or prefill_service == s.id|string %}selected{% endif %}>
+          {{ s.name }} — {{ "{:,.0f}".format(s.price) }} ₽ ({{ s.duration }} мин)
+        </option>
+        {% endfor %}
+      </select>
+      <p class="mt-1 text-xs text-slate-400" x-show="serviceId">
+        Длительность: <span x-text="serviceDuration"></span> мин · Стоимость: <span x-text="servicePrice.toLocaleString('ru')"></span> ₽
+      </p>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Клиент <span class="text-red-500">*</span></label>
+      <select name="client_id" required
+              class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <option value="">— выберите клиента —</option>
+        {% for c in clients %}
+        <option value="{{ c.id }}" {% if (appt and appt.client_id == c.id) or prefill_client == c.id|string %}selected{% endif %}>
+          {{ c.name }}{% if c.phone %} ({{ c.phone }}){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      <p class="mt-1 text-xs text-slate-400">
+        Нужного клиента нет? <a href="/clients/new" target="_blank" class="text-indigo-500 hover:underline">Добавить клиента</a>
+      </p>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Мастер</label>
+      <select name="staff_user_id"
+              class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <option value="">— без мастера —</option>
+        {% for s in staff %}
+        <option value="{{ s.id }}" {% if appt and appt.staff_user_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Дата <span class="text-red-500">*</span></label>
+        <input type="date" name="start_date"
+               value="{{ appt.start_time[:10] if appt else '' }}" required
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Время <span class="text-red-500">*</span></label>
+        <input type="time" name="start_time"
+               value="{{ appt.start_time[11:16] if appt else '' }}" required
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Цена (₽)</label>
+      <input type="number" name="price" :placeholder="servicePrice" min="0" step="0.01"
+             value="{{ appt.price if appt else '' }}"
+             class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      <p class="mt-1 text-xs text-slate-400">Оставьте пустым — возьмём из карточки услуги</p>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Заметки</label>
+      <textarea name="notes" rows="2" placeholder="Пожелания, уточнения…"
+                class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none">{{ appt.notes if appt else '' }}</textarea>
+    </div>
+
+    <div class="flex items-center justify-between pt-2">
+      <a href="{{ '/appointments/' ~ appt.id if appt else '/appointments' }}"
+         class="px-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+        Отмена
+      </a>
+      <button type="submit"
+              class="px-5 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+        {{ 'Сохранить' if appt else 'Создать запись' }}
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Редактировать услугу' if service else 'Новая услуга' }}{% endblock %}
+
+{% block breadcrumb %}
+<a href="/services" class="text-slate-400 text-xs hover:text-indigo-500">Услуги</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm dark:text-slate-200">{{ 'Редактировать' if service else 'Новая услуга' }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto">
+  {% if created %}
+  <div class="mb-4 px-4 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-sm">
+    ✅ Услуга создана. Теперь вы можете <a href="/appointments/new?service_id={{ service.id }}" class="underline">создать запись</a>.
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div class="mb-4 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm">
+    {% if error == 'name_required' %}Введите название услуги.
+    {% elif error == 'csrf' %}Ошибка безопасности, попробуйте снова.
+    {% else %}Произошла ошибка.{% endif %}
+  </div>
+  {% endif %}
+
+  <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-6">
+    {{ 'Редактировать услугу' if service else 'Новая услуга' }}
+  </h1>
+
+  <form method="post" action="{{ '/services/' ~ service.id ~ '/edit' if service else '/services/new' }}"
+        class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6 space-y-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Название <span class="text-red-500">*</span></label>
+      <input type="text" name="name" value="{{ service.name if service else '' }}" required placeholder="Стрижка, Урок вокала…"
+             class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Категория</label>
+      <select name="category_id"
+              class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <option value="">— без категории —</option>
+        {% for c in categories %}
+        <option value="{{ c.id }}" {% if service and service.category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Цена (₽) <span class="text-red-500">*</span></label>
+        <input type="number" name="price" value="{{ service.price if service else 0 }}" min="0" step="0.01" required
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Длительность (мин)</label>
+        <input type="number" name="duration_minutes" value="{{ service.duration_minutes if service else 60 }}" min="5" step="5"
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Макс. участников</label>
+      <input type="number" name="group_max_participants" value="{{ service.group_max_participants if service else 1 }}" min="1"
+             class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      <p class="mt-1 text-xs text-slate-400">1 — индивидуальная, >1 — групповая услуга</p>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Описание</label>
+      <textarea name="description" rows="3" placeholder="Что входит в услугу…"
+                class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none">{{ service.description if service else '' }}</textarea>
+    </div>
+
+    {% if service %}
+    <div class="flex items-center gap-3">
+      <label class="relative inline-flex items-center cursor-pointer">
+        <input type="checkbox" name="is_active" value="1" {% if service.is_active %}checked{% endif %} class="sr-only peer">
+        <div class="w-10 h-6 rounded-full bg-slate-200 dark:bg-slate-700 peer-checked:bg-indigo-600 peer-focus:ring-2 peer-focus:ring-indigo-400 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-transform peer-checked:after:translate-x-4"></div>
+      </label>
+      <span class="text-sm text-slate-700 dark:text-slate-300">Услуга активна</span>
+    </div>
+    {% endif %}
+
+    <div class="flex items-center justify-between pt-2 {% if service %}border-t border-slate-100 dark:border-slate-700{% endif %}">
+      <div class="flex items-center gap-3">
+        <a href="/services" class="px-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Отмена</a>
+        {% if service %}
+        <form method="post" action="/services/{{ service.id }}/delete" onsubmit="return confirm('Удалить услугу?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="text-sm text-red-500 hover:text-red-700 dark:hover:text-red-400">Удалить</button>
+        </form>
+        {% endif %}
+      </div>
+      <button type="submit" class="px-5 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+        {{ 'Сохранить' if service else 'Создать услугу' }}
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

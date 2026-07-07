@@ -1826,6 +1826,134 @@ class Database:
             )
         ''')
 
+        # ── CRM: clients (база клиентов, бесплатный модуль) ─────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS clients (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                first_name   TEXT    NOT NULL,
+                last_name    TEXT    DEFAULT '',
+                phone        TEXT    DEFAULT '',
+                email        TEXT    DEFAULT '',
+                birth_date   TEXT    DEFAULT NULL,
+                source       TEXT    DEFAULT '',
+                notes        TEXT    DEFAULT '',
+                tags_json    TEXT    DEFAULT '[]',
+                telegram_id  INTEGER DEFAULT NULL,
+                created_by   INTEGER DEFAULT NULL,
+                created_at   TEXT    DEFAULT (datetime('now')),
+                updated_at   TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_clients_phone ON clients(phone)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_clients_tg ON clients(telegram_id) WHERE telegram_id IS NOT NULL')
+
+        # ── Services: service_categories ────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS service_categories (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT    NOT NULL UNIQUE,
+                color      TEXT    DEFAULT '#6366f1',
+                sort_order INTEGER DEFAULT 0,
+                is_active  INTEGER DEFAULT 1,
+                created_at TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
+        # ── Services: services (каталог услуг) ───────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS services (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name                 TEXT    NOT NULL,
+                description          TEXT    DEFAULT '',
+                category_id          INTEGER DEFAULT NULL,
+                price                REAL    NOT NULL DEFAULT 0,
+                duration_minutes     INTEGER DEFAULT 60,
+                group_max_participants INTEGER DEFAULT 1,
+                is_active            INTEGER DEFAULT 1,
+                created_by           INTEGER DEFAULT NULL,
+                created_at           TEXT    DEFAULT (datetime('now')),
+                updated_at           TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_services_category ON services(category_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_services_active ON services(is_active)')
+
+        # ── Services: appointments (записи клиентов) ─────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS appointments (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                service_id    INTEGER NOT NULL,
+                client_id     INTEGER NOT NULL,
+                staff_user_id INTEGER DEFAULT NULL,
+                start_time    TEXT    NOT NULL,
+                end_time      TEXT    NOT NULL,
+                status        TEXT    DEFAULT 'planned',
+                notes         TEXT    DEFAULT '',
+                price         REAL    DEFAULT NULL,
+                created_by    INTEGER DEFAULT NULL,
+                created_at    TEXT    DEFAULT (datetime('now')),
+                updated_at    TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_appt_client ON appointments(client_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_appt_staff ON appointments(staff_user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_appt_start ON appointments(start_time)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_appt_status ON appointments(status)')
+
+        # ── Services: appointment_status_log ────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS appointment_status_log (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                appointment_id INTEGER NOT NULL,
+                old_status     TEXT    DEFAULT NULL,
+                new_status     TEXT    NOT NULL,
+                changed_by     INTEGER DEFAULT NULL,
+                note           TEXT    DEFAULT '',
+                created_at     TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_apsl_appt ON appointment_status_log(appointment_id)')
+
+        # ── Services: service_earnings (комиссии за оказанные услуги) ───────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS service_earnings (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                appointment_id   INTEGER NOT NULL UNIQUE,
+                user_id          INTEGER NOT NULL,
+                service_id       INTEGER NOT NULL,
+                commission_amount REAL    DEFAULT 0,
+                motivation_type  TEXT    DEFAULT 'percentage',
+                motivation_value REAL    DEFAULT 0,
+                motivation_source TEXT   DEFAULT 'global',
+                created_at       TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_se_user ON service_earnings(user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_se_appt ON service_earnings(appointment_id)')
+
+        # ── Services: service_motivation_rules ──────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS service_motivation_rules (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                service_id   INTEGER DEFAULT NULL,
+                scope_type   TEXT    DEFAULT 'global',
+                scope_value  TEXT    DEFAULT NULL,
+                type         TEXT    DEFAULT 'percentage',
+                value        REAL    DEFAULT 0,
+                is_active    INTEGER DEFAULT 1,
+                created_at   TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_smr_service ON service_motivation_rules(service_id)')
+
+        # ── CRM: ALTER TABLE sales ADD COLUMN client_id ─────────────────────────
+        _sales_cols = {r[1] for r in cursor.execute("PRAGMA table_info(sales)").fetchall()}
+        if 'client_id' not in _sales_cols:
+            try:
+                cursor.execute("ALTER TABLE sales ADD COLUMN client_id INTEGER DEFAULT NULL")
+            except Exception as _exc:
+                logger.debug("create_tables: sales.client_id подавлено: %s", _exc)
+
         conn.commit()
 
         # Удаляем осиротевшие записи motivation_schedule (товар уже удалён)
@@ -2539,6 +2667,10 @@ class Database:
              'POS-касса, штрихкоды, дизайн и печать ценников', 0, 9),
             ('tasks_pro', '📋 Задачи Pro', '📋',
              'Kanban-доска, аналитика, шаблоны, bulk-операции, Excel-экспорт, история', 249, 10),
+            ('crm', '👥 Клиенты (CRM)', '👥',
+             'База клиентов, история покупок и записей, LTV, теги', 0, 11),
+            ('services', '🎯 Услуги и запись', '🎯',
+             'Каталог услуг, онлайн-запись клиентов, расписание мастеров, напоминания', 499, 12),
         ]
         for key, name, icon, description, price, sort in EXTRA_MODULES:
             cursor.execute(
@@ -2577,6 +2709,11 @@ class Database:
              'AI-чеклист, AI-описание задачи, AI-декомпозиция цели, создание из бота на естественном языке', 199, 1),
             ('tasks_pro', 'tasks_digest', '📰', 'AI-дайджест задач',
              'Еженедельный AI-дайджест прогресса команды + предиктор просрочки', 149, 2),
+            # services extensions
+            ('services', 'services_analytics', '📊', 'Аналитика услуг',
+             'LTV клиентов, загрузка мастеров, конверсия, повторные визиты', 199, 1),
+            ('services', 'services_motivation', '💰', 'Мотивация за услуги',
+             'Настраиваемые комиссии мастеров за оказанные услуги', 149, 2),
         ]
         for module_key, key, icon, name, description, price, sort in EXTRA_EXTENSIONS:
             cursor.execute(

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Категории услуг{% endblock %}
+
+{% block breadcrumb %}
+<a href="/services" class="text-slate-400 text-xs hover:text-indigo-500">Услуги</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm dark:text-slate-200">Категории</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Категории услуг</h1>
+    <a href="/services" class="text-sm text-indigo-500 hover:underline">← К услугам</a>
+  </div>
+
+  <form method="post" action="/services/categories/new"
+        class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 mb-5">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h2 class="text-base font-semibold text-slate-700 dark:text-slate-200 mb-3">Новая категория</h2>
+    <div class="flex gap-3">
+      <input type="text" name="name" placeholder="Название категории…" required
+             class="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      <input type="color" name="color" value="#6366f1" title="Цвет"
+             class="w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer p-0.5">
+      <button type="submit"
+              class="px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+        Добавить
+      </button>
+    </div>
+  </form>
+
+  {% if categories %}
+  <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700">
+    {% for c in categories %}
+    <div class="flex items-center justify-between px-5 py-3.5">
+      <div class="flex items-center gap-3">
+        <div class="w-4 h-4 rounded-full shrink-0" style="background-color:{{ c.color }};"></div>
+        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ c.name }}</span>
+        {% if not c.is_active %}
+        <span class="text-xs text-slate-400">(архив)</span>
+        {% endif %}
+      </div>
+      <form method="post" action="/services/categories/{{ c.id }}/delete"
+            onsubmit="return confirm('Удалить категорию «{{ c.name }}»?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="text-slate-400 hover:text-red-500 dark:hover:text-red-400 text-xs transition-colors">Удалить</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-center py-10 text-slate-400 dark:text-slate-500">
+    <p class="text-sm">Категорий пока нет</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

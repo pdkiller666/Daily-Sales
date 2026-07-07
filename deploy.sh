@@ -252,7 +252,13 @@ echo "2. Отправка на GitHub..."
 cd "$GITHUB_DIR"
 # Сначала получаем актуальную историю из GitHub — чтобы новые коммиты
 # строились поверх существующей истории, а не создавали orphan-цепочку.
-git remote set-url origin "https://pdkiller666:${GITHUB_TOKEN}@github.com/pdkiller666/Daily-Sales.git"
+# URL-кодируем токен: он может содержать спецсимволы (@, :, #), ломающие URL.
+GITHUB_REMOTE_URL=$(python3 -c "
+import os, urllib.parse
+t = urllib.parse.quote(os.environ['GITHUB_TOKEN'], safe='')
+print(f'https://pdkiller666:{t}@github.com/pdkiller666/Daily-Sales.git')
+")
+git remote set-url origin "$GITHUB_REMOTE_URL"
 git fetch origin main 2>/dev/null || git fetch origin master 2>/dev/null || true
 git reset --soft origin/main 2>/dev/null || git reset --soft origin/master 2>/dev/null || true
 git add -A

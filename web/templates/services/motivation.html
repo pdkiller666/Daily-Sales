@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Мотивация по услуге{% endblock %}
+
+{% block breadcrumb %}
+<a href="/services" class="text-slate-400 text-xs hover:text-indigo-500">Услуги</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm dark:text-slate-200">Мотивация</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto">
+  {% if upsell %}
+  <div class="text-center py-16">
+    <div class="text-5xl mb-4">💰</div>
+    <h2 class="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">Мотивация за услуги</h2>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-sm mx-auto">
+      Настройте комиссии мастеров за оказанные услуги. Доступно в расширении «Мотивация за услуги».
+    </p>
+    <a href="/subscription" class="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+      Подключить расширение
+    </a>
+  </div>
+  {% else %}
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Мотивация</h1>
+      <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ service.name }}</p>
+    </div>
+    <a href="/services" class="text-sm text-indigo-500 hover:underline">← К услугам</a>
+  </div>
+
+  <form method="post" action="/services/{{ service.id }}/motivation"
+        class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 mb-5">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h2 class="text-base font-semibold text-slate-700 dark:text-slate-200 mb-3">Добавить правило</h2>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Тип мотивации</label>
+        <select name="mot_type" class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none">
+          <option value="percentage">% от суммы</option>
+          <option value="fixed">Фиксированная сумма</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Значение</label>
+        <input type="number" name="value" value="10" min="0" step="0.01"
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+    </div>
+    <input type="hidden" name="scope_type" value="global">
+    <input type="hidden" name="scope_value" value="">
+    <button type="submit" class="w-full px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+      Добавить правило
+    </button>
+  </form>
+
+  {% if rules %}
+  <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700">
+    {% for r in rules %}
+    <div class="flex items-center justify-between px-5 py-3.5">
+      <div>
+        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">
+          {% if r.type == 'percentage' %}{{ r.value }}%{% else %}{{ "{:,.0f}".format(r.value) }} ₽{% endif %}
+        </span>
+        <span class="ml-2 text-xs text-slate-400">{{ r.scope_type }}</span>
+      </div>
+      <span class="px-2 py-0.5 text-xs rounded-full {% if r.is_active %}bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300{% else %}bg-slate-100 dark:bg-slate-700 text-slate-400{% endif %}">
+        {{ 'Активно' if r.is_active else 'Выкл' }}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-center py-8 text-slate-400 dark:text-slate-500 text-sm">Правил пока нет</div>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

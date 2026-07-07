@@ -1383,6 +1383,42 @@ try:
 except Exception as _e:
     _fn_fail("Tasks Phase 3 templates compile", _e)
 
+# ── Модули CRM + Услуги: роуты и хендлеры импортируются ─────────────────────
+try:
+    import web.routes.clients as _wrc
+    import web.routes.services as _wrs
+    import web.routes.appointments as _wra
+    assert hasattr(_wrc, 'router'), "web.routes.clients: нет router"
+    assert hasattr(_wrs, 'router'), "web.routes.services: нет router"
+    assert hasattr(_wra, 'router'), "web.routes.appointments: нет router"
+    _fn_ok("CRM+Services: web routes импортируются")
+except Exception as _e:
+    _fn_fail("CRM+Services web routes", _e)
+
+try:
+    import clients_handlers as _ch
+    import services_handlers as _sh
+    assert hasattr(_ch, 'clients_router'), "clients_handlers: нет clients_router"
+    assert hasattr(_sh, 'services_router'), "services_handlers: нет services_router"
+    _fn_ok("CRM+Services: bot handlers импортируются")
+except Exception as _e:
+    _fn_fail("CRM+Services bot handlers", _e)
+
+try:
+    from jinja2 import Environment as _Env_crm, FileSystemLoader as _FSL_crm, \
+        select_autoescape as _sae_crm
+    _env_crm = _Env_crm(loader=_FSL_crm('web/templates'),
+                        autoescape=_sae_crm(['html']))
+    for _tpl in ('clients/index.html', 'clients/form.html', 'clients/detail.html',
+                 'services/index.html', 'services/form.html', 'services/categories.html',
+                 'services/motivation.html',
+                 'appointments/index.html', 'appointments/form.html',
+                 'appointments/detail.html', 'appointments/calendar.html'):
+        _env_crm.get_template(_tpl)
+    _fn_ok("CRM+Services: все шаблоны компилируются")
+except Exception as _e:
+    _fn_fail("CRM+Services templates compile", _e)
+
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")
 print("=" * 55)

@@ -274,3 +274,13 @@ class TaskRateStates(StatesGroup):
 class AiTaskCreateStates(StatesGroup):
     waiting_goal = State()   # пользователь вводит цель → AI генерирует задачу
     confirming   = State()   # предпросмотр AI-задачи → подтверждение
+
+
+class CrmSearchState(StatesGroup):
+    waiting_query = State()   # ожидание строки поиска клиента
+
+
+class ClientAddStates(StatesGroup):
+    waiting_first_name = State()
+    waiting_last_name  = State()
+    waiting_phone      = State()

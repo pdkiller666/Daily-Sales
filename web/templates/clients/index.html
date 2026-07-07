@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Клиенты{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm dark:text-slate-200">Клиенты</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Клиенты</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">База клиентов организации</p>
+  </div>
+  {% if is_admin %}
+  <a href="/clients/new"
+     class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+    + Добавить клиента
+  </a>
+  {% endif %}
+</div>
+
+<form method="get" action="/clients" class="flex flex-col sm:flex-row gap-2 mb-5">
+  <input type="text" name="q" value="{{ q }}" placeholder="Поиск по имени, телефону, email…"
+         class="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+  {% if all_tags %}
+  <select name="tag"
+          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-3 py-2 text-sm focus:outline-none">
+    <option value="">Все теги</option>
+    {% for t in all_tags %}
+    <option value="{{ t }}" {% if tag == t %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+  <button type="submit"
+          class="px-4 py-2 text-sm font-medium rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+    Найти
+  </button>
+  {% if q or tag %}
+  <a href="/clients" class="px-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">✕</a>
+  {% endif %}
+</form>
+
+{% if clients %}
+<div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+          <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Клиент</th>
+          <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400 hidden sm:table-cell">Телефон</th>
+          <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400 hidden md:table-cell">Email</th>
+          <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400 hidden lg:table-cell">Теги</th>
+          <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400 hidden md:table-cell">Добавлен</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+        {% for c in clients %}
+        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors"
+            onclick="window.location='/clients/{{ c.id }}'">
+          <td class="px-4 py-3">
+            <a href="/clients/{{ c.id }}" class="font-medium text-slate-800 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400">
+              {{ c.first_name }} {{ c.last_name }}
+            </a>
+          </td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 hidden sm:table-cell">{{ c.phone or '—' }}</td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 hidden md:table-cell">{{ c.email or '—' }}</td>
+          <td class="px-4 py-3 hidden lg:table-cell">
+            <div class="flex flex-wrap gap-1">
+              {% for t in c.tags %}
+              <span class="inline-block px-2 py-0.5 text-xs rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300">{{ t }}</span>
+              {% endfor %}
+            </div>
+          </td>
+          <td class="px-4 py-3 text-slate-400 dark:text-slate-500 text-xs hidden md:table-cell">{{ c.created_at[:10] if c.created_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if total_pages > 1 %}
+<div class="flex justify-center items-center gap-2 mt-5">
+  {% if page > 1 %}
+  <a href="?q={{ q }}&tag={{ tag }}&page={{ page - 1 }}"
+     class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">← Пред.</a>
+  {% endif %}
+  <span class="text-sm text-slate-500 dark:text-slate-400">{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a href="?q={{ q }}&tag={{ tag }}&page={{ page + 1 }}"
+     class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">След. →</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="text-center py-16 text-slate-400 dark:text-slate-500">
+  <div class="text-5xl mb-3">👥</div>
+  {% if q or tag %}
+  <p class="text-base">Клиенты не найдены. <a href="/clients" class="text-indigo-500 hover:underline">Сбросить фильтр</a></p>
+  {% else %}
+  <p class="text-base font-medium mb-1 text-slate-600 dark:text-slate-300">База клиентов пуста</p>
+  <p class="text-sm mb-4">Добавьте первого клиента, чтобы начать</p>
+  {% if is_admin %}
+  <a href="/clients/new" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+    + Добавить клиента
+  </a>
+  {% endif %}
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="flex items-center justify-between mt-4">
+  <p class="text-sm text-slate-400 dark:text-slate-500">Всего: {{ total }}</p>
+  {% if is_admin %}
+  <a href="/clients/export.xlsx" class="text-sm text-indigo-500 hover:underline">📥 Excel</a>
+  {% endif %}
+</div>
+{% endblock %}
