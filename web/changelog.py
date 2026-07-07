@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.415.0"
+CURRENT_VERSION = "1.416.0"
 
 ENTRIES = [
+    {
+        "version": "1.416.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Improve analytics section by visually indicating unavailable features",
+            "Extension gate banners — role-aware redirects and subscription page banners",
+        ],
+    },
     {
         "version": "1.415.0",
         "date": "7 июля 2026",

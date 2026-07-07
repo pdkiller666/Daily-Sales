@@ -197,6 +197,20 @@
 <div class="mb-5 px-4 py-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium">
     ✅ Скриншот оплаты прикреплён к заявке. Администратор получит уведомление и рассмотрит заявку.
 </div>
+{% elif msg in ('ext_heatmap_required', 'ext_abc_required', 'ext_turnover_required', 'ext_dead_stock_required', 'ext_salary_export_required') %}
+{% set _ext_info = {
+    'ext_heatmap_required':       ('🌡️', 'Тепловая карта', 'Подключите расширение «Тепловая карта», чтобы видеть, в какие часы и дни продажи идут лучше всего.'),
+    'ext_abc_required':           ('📦', 'ABC-анализ', 'Подключите расширение «ABC-анализ», чтобы определить, какие товары приносят 80% выручки.'),
+    'ext_turnover_required':      ('🔄', 'Оборачиваемость', 'Подключите расширение «Оборачиваемость», чтобы знать, когда закончится каждый товар на складе.'),
+    'ext_dead_stock_required':    ('🏚️', 'Залежалые товары', 'Подключите расширение «Залежалые товары», чтобы выявлять позиции, которые давно не продавались.'),
+    'ext_salary_export_required': ('📥', 'Экспорт зарплат', 'Подключите расширение «Экспорт зарплат», чтобы выгружать зарплатные ведомости в Excel.'),
+} %}
+{% set _ei = _ext_info.get(msg, ('🔒', 'Расширение', 'Подключите расширение ниже.')) %}
+<div class="mb-5 px-4 py-4 rounded-2xl bg-violet-50 border border-violet-200 dark:bg-violet-900/20 dark:border-violet-700">
+    <p class="font-bold text-violet-800 dark:text-violet-200 mb-1">{{ _ei[0] }} Расширение «{{ _ei[1] }}» не подключено</p>
+    <p class="text-sm text-violet-700 dark:text-violet-300">{{ _ei[2] }}</p>
+    <p class="text-xs text-violet-500 dark:text-violet-400 mt-1.5">💡 Прокрутите вниз до вкладки <strong>Расширения</strong>, чтобы подключить.</p>
+</div>
 {% elif msg in ('services_locked', 'crm_locked', 'analytics_locked', 'plans_motivation_locked', 'team_locked', 'notifications_locked', 'contests_locked') %}
 {% set _locked_info = {
     'services_locked':          ('🔒', 'Услуги', 'Подключите модуль «Услуги», чтобы вести каталог услуг и записи клиентов.'),

@@ -555,6 +555,8 @@ def reports_heatmap(
     if not has_module(telegram_id, "analytics"):
         return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     if not has_extension(telegram_id, "heatmap"):
+        if user.get("role") == "owner":
+            return RedirectResponse(url="/subscription?msg=ext_heatmap_required&tab=extensions", status_code=302)
         return RedirectResponse(url="/reports?msg=ext_heatmap_required", status_code=302)
     org_db = user.get("org_db")
     if not org_db:
@@ -632,6 +634,8 @@ def reports_abc(
     if not has_module(telegram_id, "analytics"):
         return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     if not has_extension(telegram_id, "abc_analysis"):
+        if user.get("role") == "owner":
+            return RedirectResponse(url="/subscription?msg=ext_abc_required&tab=extensions", status_code=302)
         return RedirectResponse(url="/reports?msg=ext_abc_required", status_code=302)
     org_db = user.get("org_db")
     if not org_db:
@@ -717,6 +721,8 @@ def reports_turnover(
     if not has_module(telegram_id, "analytics"):
         return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     if not has_extension(telegram_id, "turnover"):
+        if user.get("role") == "owner":
+            return RedirectResponse(url="/subscription?msg=ext_turnover_required&tab=extensions", status_code=302)
         return RedirectResponse(url="/reports?msg=ext_turnover_required", status_code=302)
     org_db = user.get("org_db")
     if not org_db:
@@ -785,6 +791,8 @@ def reports_dead_stock(
     if not has_module(telegram_id, "analytics"):
         return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     if not has_extension(telegram_id, "dead_stock"):
+        if user.get("role") == "owner":
+            return RedirectResponse(url="/subscription?msg=ext_dead_stock_required&tab=extensions", status_code=302)
         return RedirectResponse(url="/reports?msg=ext_dead_stock_required", status_code=302)
     org_db = user.get("org_db")
     if not org_db:

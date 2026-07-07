@@ -36,9 +36,15 @@
     <span class="shrink-0 text-base">🔒</span>
     <div class="flex-1">
         <p class="font-semibold">Расширение «Экспорт зарплат» не подключено</p>
-        <p class="mt-0.5 text-blue-700 dark:text-blue-300">Подключите расширение в разделе Подписка → Расширения.</p>
+        {% if user.role == 'owner' %}
+        <p class="mt-0.5 text-blue-700 dark:text-blue-300">Подключите расширение в разделе Подписка → Расширения, чтобы выгружать зарплатные ведомости в Excel.</p>
+        {% else %}
+        <p class="mt-0.5 text-blue-700 dark:text-blue-300">Обратитесь к владельцу организации — он может подключить это расширение в настройках подписки.</p>
+        {% endif %}
     </div>
+    {% if user.role == 'owner' %}
     <a href="/subscription?tab=modules" class="shrink-0 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-3 py-1.5 transition-colors">Подключить</a>
+    {% endif %}
 </div>
 {% endif %}
 {% if error %}

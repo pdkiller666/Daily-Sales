@@ -790,6 +790,8 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
     if not has_module(telegram_id, "team"):
         return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     if not has_extension(telegram_id, "salary_export"):
+        if user.get("role") == "owner":
+            return RedirectResponse(url="/subscription?msg=ext_salary_export_required&tab=extensions", status_code=302)
         return RedirectResponse(url="/salary?msg=ext_salary_export_required", status_code=302)
     org_db = user.get("org_db")
     if not org_db:
