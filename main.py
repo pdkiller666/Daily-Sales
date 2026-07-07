@@ -1238,6 +1238,75 @@ async def send_appointment_reminders(bot: Bot):
         logging.error(f"send_appointment_reminders: {e}")
 
 
+async def notify_expiring_packages(bot: Bot):
+    """Уведомления об абонементах, истекающих в ближайшие 3 дня."""
+    try:
+        import glob as _glob
+        from database import Database
+        from billing_utils import has_module as _hm
+        from utils import he as _he
+
+        org_dbs = _glob.glob("data/tenants/org_*.db")
+        for db_path in org_dbs:
+            try:
+                db = Database(db_path)
+                conn = db.get_connection()
+                try:
+                    owner_row = conn.execute(
+                        "SELECT telegram_id FROM users WHERE role='owner' LIMIT 1"
+                    ).fetchone()
+                    if not owner_row:
+                        continue
+                    owner_tg = owner_row[0]
+                    if not _hm(owner_tg, "crm"):
+                        continue
+
+                    expiring = conn.execute(
+                        "SELECT cp.id, c.first_name, c.last_name, sp.name, cp.expires_at, "
+                        "cp.visits_total, cp.visits_used "
+                        "FROM client_packages cp "
+                        "JOIN clients c ON c.id=cp.client_id "
+                        "JOIN service_packages sp ON sp.id=cp.package_id "
+                        "WHERE cp.status='active' "
+                        "AND cp.expires_at IS NOT NULL "
+                        "AND cp.expires_at BETWEEN datetime('now') AND datetime('now', '+3 days')"
+                    ).fetchall()
+                    if not expiring:
+                        continue
+
+                    admin_rows = conn.execute(
+                        "SELECT telegram_id FROM users WHERE role IN ('owner','admin') "
+                        "AND telegram_id IS NOT NULL"
+                    ).fetchall()
+                finally:
+                    conn.close()
+
+                for ep in expiring:
+                    cp_id, cfn, cln, pkg_name, expires_at, total, used = ep
+                    client_name = _he(f"{cfn} {cln or ''}".strip())
+                    exp_date = str(expires_at or "")[:10]
+                    left = total - used
+                    text = (
+                        f"⚠️ <b>Абонемент истекает!</b>\n\n"
+                        f"Клиент: <b>{client_name}</b>\n"
+                        f"Абонемент: {_he(pkg_name)}\n"
+                        f"Истекает: {exp_date}\n"
+                        f"Осталось занятий: {left} / {total}"
+                    )
+                    for ar in admin_rows:
+                        tg_id = ar[0]
+                        if not tg_id:
+                            continue
+                        try:
+                            await bot.send_message(chat_id=tg_id, text=text, parse_mode="HTML")
+                        except Exception:
+                            pass
+            except Exception:
+                continue
+    except Exception as e:
+        logging.error(f"notify_expiring_packages: {e}")
+
+
 async def send_client_birthday_reminders(bot: Bot):
     """Напоминания о днях рождения клиентов — отправляет сотрудникам-администраторам организации."""
     try:
@@ -1416,6 +1485,17 @@ async def main():
         max_instances=1,
         coalesce=True,
         misfire_grace_time=120,
+    )
+
+    # Напоминания об истекающих абонементах — ежедневно в 10:00
+    scheduler.add_job(
+        notify_expiring_packages,
+        CronTrigger(hour=10, minute=0, second=0),
+        args=[bot],
+        id='notify_expiring_packages',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=600,
     )
 
     # Напоминания о днях рождения клиентов — ежедневно в 09:05

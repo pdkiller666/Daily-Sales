@@ -26,7 +26,7 @@
         }
     </script>
     <!-- Tailwind: pre-compiled static CSS (replaces the dev-only CDN runtime build) -->
-    <link rel="stylesheet" href="/static/app.css?v=4c2aaa85d0">
+    <link rel="stylesheet" href="/static/app.css?v=fe1e371376">
     {% block extra_css %}{% endblock %}
     <script defer src="/static/vendor/htmx.min.js?v=faf9d188bd"></script>
     <script defer src="/static/vendor/alpine.min.js?v=faf9d188bd"></script>
@@ -440,6 +440,10 @@ function toastMgr() {
         <a href="/clients"
            class="nav-link {% if request.url.path.startswith('/clients') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">📇</span>Клиенты
+        </a>
+        <a href="/packages"
+           class="nav-link {% if request.url.path.startswith('/packages') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">🎫</span>Абонементы
         </a>
         {% endif %}
         {% if _nm.services %}
@@ -2117,6 +2121,11 @@ function mainApp() {
                    class="sht-item {% if _p.startswith('/clients') %}sht-active{% endif %}">
                     <span class="sht-icon">📇</span>
                     <span class="sht-label">Клиенты</span>
+                </a>
+                <a href="/packages" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/packages') %}sht-active{% endif %}">
+                    <span class="sht-icon">🎫</span>
+                    <span class="sht-label">Абонементы</span>
                 </a>
                 {% endif %}
                 {% if _nm.services %}

@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.430.0"
+CURRENT_VERSION = "1.431.0"
 
 ENTRIES = [
+    {
+        "version": "1.431.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Модуль «Абонементы» — пакеты занятий для клиентов (йога, салоны красоты и т.д.): шаблоны пакетов с количеством визитов и сроком действия, продажа клиентам, списание занятий из карточки клиента и записи, заморозка, авто-истечение, уведомления за 3 дня до окончания.",
+            "Add extensive CRM features for client management and communication",
+            "Add package sales and management system with notifications",
+        ],
+    },
     {
         "version": "1.430.0",
         "date": "7 июля 2026",

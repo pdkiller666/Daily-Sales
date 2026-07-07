@@ -607,6 +607,52 @@ def client_detail(request: Request, client_id: int):
         except Exception:
             author_name = ""
 
+        # Абонементы клиента
+        client_packages = []
+        try:
+            # auto-expire
+            try:
+                conn.execute(
+                    "UPDATE client_packages SET status='expired' "
+                    "WHERE status='active' AND expires_at IS NOT NULL AND expires_at < datetime('now')"
+                )
+                conn.execute(
+                    "UPDATE client_packages SET status='exhausted' "
+                    "WHERE status IN ('active','frozen') AND visits_used >= visits_total"
+                )
+                conn.commit()
+            except Exception:
+                pass
+            cp_rows = conn.execute(
+                "SELECT cp.id, sp.name, cp.visits_total, cp.visits_used, "
+                "cp.price_paid, cp.purchased_at, cp.expires_at, cp.status, cp.notes "
+                "FROM client_packages cp "
+                "JOIN service_packages sp ON sp.id=cp.package_id "
+                "WHERE cp.client_id=? ORDER BY cp.purchased_at DESC",
+                (client_id,),
+            ).fetchall()
+            _pkg_status_ru = {
+                "active": "Активен", "frozen": "Заморожен",
+                "exhausted": "Исчерпан", "expired": "Истёк",
+            }
+            client_packages = [
+                {
+                    "id": cp[0], "name": cp[1],
+                    "visits_total": cp[2], "visits_used": cp[3],
+                    "visits_left": cp[2] - cp[3],
+                    "price_paid": cp[4], "purchased_at": str(cp[5] or "")[:10],
+                    "expires_at": str(cp[6] or "")[:10],
+                    "status": cp[7], "status_label": _pkg_status_ru.get(cp[7], cp[7]),
+                    "notes": cp[8] or "",
+                    "pct": int((cp[3] / cp[2]) * 100) if cp[2] > 0 else 0,
+                }
+                for cp in cp_rows
+            ]
+            # Добавляем стоимость активных абонементов в LTV
+            ltv += sum(float(cp[4] or 0) for cp in cp_rows)
+        except Exception:
+            pass
+
         ctx = _get_ctx(request)
         ctx.update({
             "client": client, "sales": sales, "sales_total": sales_total,
@@ -616,8 +662,10 @@ def client_detail(request: Request, client_id: int):
             "author_name": author_name,
             "is_admin": is_admin,
             "has_services": has_module(int(user.get("sub", 0)), "services"),
+            "client_packages": client_packages,
             "flash": request.query_params.get("msg", ""),
             "error": request.query_params.get("error", ""),
+            "tab_sold": request.query_params.get("sold", ""),
         })
         return request.app.state.templates.TemplateResponse(request, "clients/detail.html", ctx)
     finally:
@@ -851,3 +899,43 @@ def clients_export(request: Request):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=clients.xlsx"},
     )
+
+
+# ─── API: поиск клиентов (для модала продажи абонемента) ─────────────────────
+
+@router.get("/api/clients/search")
+def api_clients_search(request: Request, q: str = ""):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    from billing_utils import has_module
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"clients": []})
+    if not has_module(int(user.get("sub", 0)), "crm"):
+        return JSONResponse({"clients": []})
+
+    org_db = user.get("org_db", "")
+    if not org_db or not q.strip():
+        return JSONResponse({"clients": []})
+
+    db = get_web_db(int(user.get("sub", 0)), org_db)
+    conn = db.get_connection()
+    try:
+        like = f"%{q.strip()}%"
+        rows = conn.execute(
+            "SELECT id, first_name, last_name, phone FROM clients "
+            "WHERE (first_name LIKE ? OR last_name LIKE ? OR phone LIKE ?) "
+            "ORDER BY first_name LIMIT 20",
+            (like, like, like),
+        ).fetchall()
+        clients = [
+            {
+                "id": r[0],
+                "name": f"{r[1] or ''} {r[2] or ''}".strip(),
+                "phone": r[3] or "",
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+    return JSONResponse({"clients": clients})

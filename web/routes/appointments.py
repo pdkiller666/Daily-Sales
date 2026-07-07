@@ -375,6 +375,42 @@ def appointment_detail(request: Request, appt_id: int):
             "SELECT id, first_name||' '||last_name FROM users ORDER BY first_name"
         ).fetchall()
 
+        # Активные абонементы клиента для быстрого списания
+        client_packages = []
+        if appt.get("client_id"):
+            try:
+                conn.execute(
+                    "UPDATE client_packages SET status='expired' "
+                    "WHERE status='active' AND expires_at IS NOT NULL AND expires_at < datetime('now')"
+                )
+                conn.execute(
+                    "UPDATE client_packages SET status='exhausted' "
+                    "WHERE status IN ('active','frozen') AND visits_used >= visits_total"
+                )
+                conn.commit()
+            except Exception:
+                pass
+            try:
+                cp_rows = conn.execute(
+                    "SELECT cp.id, sp.name, cp.visits_total, cp.visits_used, cp.expires_at "
+                    "FROM client_packages cp "
+                    "JOIN service_packages sp ON sp.id=cp.package_id "
+                    "WHERE cp.client_id=? AND cp.status='active' "
+                    "ORDER BY cp.expires_at ASC NULLS LAST",
+                    (appt["client_id"],),
+                ).fetchall()
+                client_packages = [
+                    {
+                        "id": cp[0], "name": cp[1],
+                        "visits_total": cp[2], "visits_used": cp[3],
+                        "visits_left": cp[2] - cp[3],
+                        "expires_at": str(cp[4] or "")[:10],
+                    }
+                    for cp in cp_rows
+                ]
+            except Exception:
+                pass
+
         ctx = _get_ctx(request)
         ctx.update({
             "appt": appt, "history": history, "statuses": _STATUSES,
@@ -382,6 +418,7 @@ def appointment_detail(request: Request, appt_id: int):
             "clients": [{"id": r[0], "name": r[1].strip()} for r in clients],
             "staff": [{"id": r[0], "name": r[1].strip()} for r in staff],
             "is_admin": is_admin,
+            "client_packages": client_packages,
         })
         return request.app.state.templates.TemplateResponse(request, "appointments/detail.html", ctx)
     finally:

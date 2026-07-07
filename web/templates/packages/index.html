@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}Абонементы{% endblock %}
+
+{% block breadcrumb %}
+<span class="font-medium text-slate-700 text-sm dark:text-slate-200">Абонементы</span>
+{% endblock %}
+
+{% block content %}
+
+{% if error %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm
+  {% if error == 'has_sold' %}bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300
+  {% else %}bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300{% endif %}">
+  {% if error == 'has_sold' %}Нельзя удалить шаблон — по нему есть проданные абонементы.
+  {% elif error == 'required_fields' %}Заполните обязательные поля.
+  {% else %}Произошла ошибка.{% endif %}
+</div>
+{% endif %}
+
+<!-- Header -->
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Абонементы</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Пакеты занятий для клиентов</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <a href="/packages/sold"
+       class="px-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+      Проданные
+    </a>
+    {% if is_admin %}
+    <button onclick="document.getElementById('new-modal').classList.remove('hidden')"
+            class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+      + Создать шаблон
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="grid grid-cols-3 gap-3 mb-6">
+  <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-center">
+    <div class="text-xs text-slate-400 dark:text-slate-500 mb-1">Шаблонов</div>
+    <div class="text-2xl font-bold text-slate-700 dark:text-slate-200">{{ packages | length }}</div>
+  </div>
+  <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-center">
+    <div class="text-xs text-slate-400 dark:text-slate-500 mb-1">Продано</div>
+    <div class="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{{ total_sold }}</div>
+  </div>
+  <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-center">
+    <div class="text-xs text-slate-400 dark:text-slate-500 mb-1">Активных</div>
+    <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{{ total_active }}</div>
+  </div>
+</div>
+
+{% if packages %}
+<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  {% for p in packages %}
+  <div class="bg-white dark:bg-slate-800 rounded-2xl border {% if p.is_active %}border-slate-200 dark:border-slate-700{% else %}border-slate-100 dark:border-slate-800 opacity-60{% endif %} p-5 flex flex-col gap-3">
+    <div class="flex items-start justify-between gap-2">
+      <div class="flex-1 min-w-0">
+        <h3 class="font-semibold text-slate-800 dark:text-slate-100 truncate">{{ p.name }}</h3>
+        <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ p.service_name }}</p>
+      </div>
+      {% if not p.is_active %}
+      <span class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">Выкл</span>
+      {% endif %}
+    </div>
+
+    <div class="flex items-center gap-4 text-sm">
+      <div class="text-center">
+        <div class="text-xl font-bold text-indigo-600 dark:text-indigo-400">{{ p.visits_total }}</div>
+        <div class="text-xs text-slate-400 dark:text-slate-500">занятий</div>
+      </div>
+      <div class="text-center">
+        <div class="text-xl font-bold text-slate-700 dark:text-slate-200">{{ "{:,.0f}".format(p.price) }}</div>
+        <div class="text-xs text-slate-400 dark:text-slate-500">₽</div>
+      </div>
+      {% if p.validity_days %}
+      <div class="text-center">
+        <div class="text-xl font-bold text-slate-700 dark:text-slate-200">{{ p.validity_days }}</div>
+        <div class="text-xs text-slate-400 dark:text-slate-500">дней</div>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if p.description %}
+    <p class="text-xs text-slate-500 dark:text-slate-400">{{ p.description }}</p>
+    {% endif %}
+
+    <div class="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-700">
+      <span class="text-xs text-slate-400">Продано: {{ p.sold_count }}</span>
+      {% if is_admin %}
+      <div class="flex items-center gap-1">
+        <button onclick="openEdit({{ p.id }}, {{ p.name | tojson }}, {{ p.service_id | tojson if p.service_id else 'null' }}, {{ p.visits_total }}, {{ p.price }}, {{ p.validity_days | tojson if p.validity_days else 'null' }}, {{ p.description | tojson }})"
+                class="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" title="Редактировать">✏️</button>
+        <form method="post" action="/packages/{{ p.id }}/toggle" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="p-1.5 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+                  title="{{ 'Выключить' if p.is_active else 'Включить' }}">{{ '🔕' if p.is_active else '🔔' }}</button>
+        </form>
+        <form method="post" action="/packages/{{ p.id }}/delete" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" onclick="return confirm('Удалить шаблон «{{ p.name }}»?')"
+                  class="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Удалить">🗑</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-16 text-slate-400 dark:text-slate-500">
+  <div class="text-5xl mb-3">🎫</div>
+  <p class="text-base font-medium mb-1">Шаблонов абонементов пока нет</p>
+  <p class="text-sm mb-4">Создайте первый шаблон — абонемент на 5, 10 или любое число занятий</p>
+  {% if is_admin %}
+  <button onclick="document.getElementById('new-modal').classList.remove('hidden')"
+          class="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+    + Создать первый шаблон
+  </button>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if is_admin %}
+<!-- Модал создания -->
+<div id="new-modal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+  <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Новый шаблон абонемента</h2>
+      <button onclick="document.getElementById('new-modal').classList.add('hidden')"
+              class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">✕</button>
+    </div>
+    <form method="post" action="/packages/new" class="space-y-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Название *</label>
+        <input type="text" name="name" placeholder="Абонемент 10 занятий йоги" required
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Услуга (необязательно)</label>
+        <select name="service_id"
+                class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          <option value="">— Любая услуга —</option>
+          {% for s in services %}<option value="{{ s[0] }}">{{ s[1] }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Кол-во занятий *</label>
+          <input type="number" name="visits_total" value="10" min="1" required
+                 class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Цена (₽) *</label>
+          <input type="number" name="price" value="0" min="0" step="0.01" required
+                 class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Срок действия (дней, необязательно)</label>
+        <input type="number" name="validity_days" placeholder="90" min="1"
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Если указан — абонемент истечёт через N дней после продажи</p>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Описание</label>
+        <textarea name="description" rows="2" placeholder="Описание условий…"
+                  class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
+      </div>
+      <div class="flex gap-2 pt-1">
+        <button type="button" onclick="document.getElementById('new-modal').classList.add('hidden')"
+                class="flex-1 px-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Отмена</button>
+        <button type="submit" class="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">Создать</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Модал редактирования -->
+<div id="edit-modal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+  <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Редактировать шаблон</h2>
+      <button onclick="document.getElementById('edit-modal').classList.add('hidden')"
+              class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">✕</button>
+    </div>
+    <form id="edit-form" method="post" action="" class="space-y-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Название *</label>
+        <input id="edit-name" type="text" name="name" required
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Услуга</label>
+        <select id="edit-service" name="service_id"
+                class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          <option value="">— Любая услуга —</option>
+          {% for s in services %}<option value="{{ s[0] }}">{{ s[1] }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Кол-во занятий *</label>
+          <input id="edit-visits" type="number" name="visits_total" min="1" required
+                 class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Цена (₽) *</label>
+          <input id="edit-price" type="number" name="price" min="0" step="0.01" required
+                 class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Срок действия (дней)</label>
+        <input id="edit-validity" type="number" name="validity_days" min="1"
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Описание</label>
+        <textarea id="edit-desc" name="description" rows="2"
+                  class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
+      </div>
+      <div class="flex gap-2 pt-1">
+        <button type="button" onclick="document.getElementById('edit-modal').classList.add('hidden')"
+                class="flex-1 px-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Отмена</button>
+        <button type="submit" class="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+function openEdit(id, name, serviceId, visits, price, validityDays, desc) {
+  document.getElementById('edit-form').action = '/packages/' + id + '/edit';
+  document.getElementById('edit-name').value = name;
+  document.getElementById('edit-visits').value = visits;
+  document.getElementById('edit-price').value = price;
+  document.getElementById('edit-validity').value = validityDays || '';
+  document.getElementById('edit-desc').value = desc || '';
+  var sel = document.getElementById('edit-service');
+  sel.value = serviceId !== null ? String(serviceId) : '';
+  document.getElementById('edit-modal').classList.remove('hidden');
+}
+</script>
+{% endif %}
+
+{% endblock %}

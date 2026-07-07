@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}Проданные абонементы{% endblock %}
+
+{% block breadcrumb %}
+<a href="/packages" class="text-slate-400 text-xs hover:text-indigo-500">Абонементы</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm dark:text-slate-200">Проданные</span>
+{% endblock %}
+
+{% block content %}
+
+{% if error %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300">
+  {% if error == 'csrf' %}Ошибка безопасности.
+  {% elif error == 'required_fields' %}Выберите шаблон и клиента.
+  {% elif error == 'pkg_not_found' %}Шаблон не найден или деактивирован.
+  {% else %}Произошла ошибка.{% endif %}
+</div>
+{% endif %}
+
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Проданные абонементы</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Всего: {{ total }}</p>
+  </div>
+  {% if is_admin %}
+  <button onclick="document.getElementById('sell-modal').classList.remove('hidden')"
+          class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+    + Продать абонемент
+  </button>
+  {% endif %}
+</div>
+
+<!-- Фильтры -->
+<div class="flex flex-wrap gap-2 mb-4">
+  <a href="/packages/sold"
+     class="px-3 py-1.5 text-xs rounded-xl border transition-colors {{ 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-800 border-slate-800 dark:border-slate-200' if not status else 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700' }}">
+    Все
+  </a>
+  {% for k, v in statuses.items() %}
+  <a href="/packages/sold?status={{ k }}{% if package_id %}&package_id={{ package_id }}{% endif %}"
+     class="px-3 py-1.5 text-xs rounded-xl border transition-colors
+       {{ 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-800 border-slate-800 dark:border-slate-200' if status == k else 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700' }}">
+    {{ v }}
+  </a>
+  {% endfor %}
+</div>
+
+{% if sold %}
+<div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+          <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Клиент</th>
+          <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Абонемент</th>
+          <th class="px-4 py-3 text-center font-medium text-slate-600 dark:text-slate-400">Занятий</th>
+          <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400 hidden sm:table-cell">Куплен</th>
+          <th class="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400 hidden sm:table-cell">Истекает</th>
+          <th class="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400 hidden sm:table-cell">Сумма</th>
+          <th class="px-4 py-3 text-center font-medium text-slate-600 dark:text-slate-400">Статус</th>
+          {% if is_admin %}<th class="px-4 py-3"></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+        {% for cp in sold %}
+        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+          <td class="px-4 py-3 text-slate-800 dark:text-slate-100 font-medium">{{ cp.client_name }}</td>
+          <td class="px-4 py-3">
+            <div class="text-slate-800 dark:text-slate-100">{{ cp.package_name }}</div>
+            {% if cp.notes %}<div class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ cp.notes }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3">
+            <div class="flex flex-col items-center gap-1">
+              <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ cp.visits_used }}/{{ cp.visits_total }}</span>
+              <div class="w-16 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                <div class="h-full rounded-full
+                  {% if cp.pct >= 100 %}bg-red-400{% elif cp.pct >= 70 %}bg-amber-400{% else %}bg-emerald-400{% endif %}"
+                     style="width:{{ cp.pct }}%"></div>
+              </div>
+            </div>
+          </td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 hidden sm:table-cell">{{ cp.purchased_at }}</td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 hidden sm:table-cell">{{ cp.expires_at or '—' }}</td>
+          <td class="px-4 py-3 text-right text-slate-800 dark:text-slate-100 hidden sm:table-cell">{{ "{:,.0f}".format(cp.price_paid or 0) }} ₽</td>
+          <td class="px-4 py-3 text-center">
+            <span class="px-2 py-0.5 text-xs rounded-full
+              {% if cp.status == 'active' %}bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300
+              {% elif cp.status == 'exhausted' %}bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400
+              {% elif cp.status == 'frozen' %}bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300
+              {% else %}bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300{% endif %}">
+              {{ cp.status_label }}
+            </span>
+          </td>
+          {% if is_admin %}
+          <td class="px-4 py-3 text-center">
+            {% if cp.status in ('active', 'frozen') %}
+            <form method="post" action="/packages/freeze/{{ cp.id }}" class="inline" id="freeze-form-{{ cp.id }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit"
+                      class="text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                      title="{{ 'Разморозить' if cp.status == 'frozen' else 'Заморозить' }}">
+                {{ '▶' if cp.status == 'frozen' else '⏸' }}
+              </button>
+            </form>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if total_pages > 1 %}
+<div class="flex items-center justify-center gap-2 mt-4">
+  {% if page > 1 %}<a href="?status={{ status }}&package_id={{ package_id }}&page={{ page - 1 }}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">← Пред.</a>{% endif %}
+  <span class="text-sm text-slate-500 dark:text-slate-400">{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}<a href="?status={{ status }}&package_id={{ package_id }}&page={{ page + 1 }}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">След. →</a>{% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="text-center py-16 text-slate-400 dark:text-slate-500">
+  <div class="text-5xl mb-3">🎫</div>
+  <p class="text-sm">Нет проданных абонементов</p>
+</div>
+{% endif %}
+
+{% if is_admin %}
+<!-- Модал продажи -->
+<div id="sell-modal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+  <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Продать абонемент</h2>
+      <button onclick="document.getElementById('sell-modal').classList.add('hidden')"
+              class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">✕</button>
+    </div>
+    <form method="post" action="/packages/sell" class="space-y-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Шаблон абонемента *</label>
+        <select name="package_id" required
+                class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          <option value="">— Выберите —</option>
+          {% for p in all_packages %}<option value="{{ p[0] }}">{{ p[1] }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Клиент *</label>
+        <input type="text" id="sell-client-search" placeholder="Начните вводить имя…"
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 mb-1">
+        <select id="sell-client-select" name="client_id" required
+                class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          <option value="">— Выберите —</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Сумма оплаты (₽)</label>
+        <input type="number" name="price_paid" min="0" step="0.01" placeholder="По умолчанию — цена шаблона"
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Примечание</label>
+        <input type="text" name="notes" placeholder="Необязательно"
+               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      </div>
+      <div class="flex gap-2 pt-1">
+        <button type="button" onclick="document.getElementById('sell-modal').classList.add('hidden')"
+                class="flex-1 px-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Отмена</button>
+        <button type="submit" class="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">Продать</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+(function(){
+  var search = document.getElementById('sell-client-search');
+  var sel = document.getElementById('sell-client-select');
+  var timer = null;
+  if (!search || !sel) return;
+  search.addEventListener('input', function(){
+    clearTimeout(timer);
+    var q = this.value.trim();
+    if (q.length < 1) { sel.innerHTML = '<option value="">— Выберите —</option>'; return; }
+    timer = setTimeout(function(){
+      fetch('/api/clients/search?q=' + encodeURIComponent(q))
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          sel.innerHTML = '<option value="">— Выберите —</option>';
+          (data.clients || []).forEach(function(c){
+            var o = document.createElement('option');
+            o.value = c.id;
+            o.textContent = c.name + (c.phone ? ' · ' + c.phone : '');
+            sel.appendChild(o);
+          });
+        })
+        .catch(function(){});
+    }, 300);
+  });
+})();
+</script>
+{% endif %}
+
+{% endblock %}

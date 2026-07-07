@@ -273,6 +273,7 @@ Disallow: /returns
 Disallow: /api/returns/
 Disallow: /clients
 Disallow: /clients/duplicates
+Disallow: /packages
 Disallow: /services
 Disallow: /appointments
 Disallow: /api/appointments/
@@ -886,6 +887,7 @@ def create_web_app() -> FastAPI:
     from web.routes.clients import router as clients_router
     from web.routes.services import router as services_router
     from web.routes.appointments import router as appointments_router
+    from web.routes.packages import router as packages_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -925,6 +927,7 @@ def create_web_app() -> FastAPI:
     app.include_router(clients_router)
     app.include_router(services_router)
     app.include_router(appointments_router)
+    app.include_router(packages_router)
 
     _APK_LOCAL = Path("data/apk/DailySales-latest.apk")
     _APK_MIN_SIZE = 200_000  # 200 KB — реальные TWA APK ~500-600 KB

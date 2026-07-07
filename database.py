@@ -1968,6 +1968,54 @@ class Database:
             except Exception as _exc:
                 logger.debug("create_tables: sales.client_id подавлено: %s", _exc)
 
+        # ── CRM: service_packages (шаблоны абонементов) ─────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS service_packages (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT    NOT NULL,
+                service_id      INTEGER DEFAULT NULL,
+                visits_total    INTEGER NOT NULL DEFAULT 1,
+                price           REAL    NOT NULL DEFAULT 0,
+                validity_days   INTEGER DEFAULT NULL,
+                description     TEXT    DEFAULT '',
+                is_active       INTEGER DEFAULT 1,
+                created_at      TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
+        # ── CRM: client_packages (проданные абонементы) ─────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS client_packages (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                package_id      INTEGER NOT NULL,
+                client_id       INTEGER NOT NULL,
+                visits_total    INTEGER NOT NULL,
+                visits_used     INTEGER NOT NULL DEFAULT 0,
+                price_paid      REAL    DEFAULT 0,
+                purchased_at    TEXT    DEFAULT (datetime('now')),
+                expires_at      TEXT    DEFAULT NULL,
+                status          TEXT    DEFAULT 'active',
+                sold_by         INTEGER DEFAULT NULL,
+                notes           TEXT    DEFAULT ''
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_cp_client ON client_packages(client_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_cp_package ON client_packages(package_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_cp_status ON client_packages(status)')
+
+        # ── CRM: client_package_uses (история списаний) ─────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS client_package_uses (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_package_id   INTEGER NOT NULL,
+                appointment_id      INTEGER DEFAULT NULL,
+                used_by             INTEGER DEFAULT NULL,
+                note                TEXT    DEFAULT '',
+                created_at          TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_cpu_cp ON client_package_uses(client_package_id)')
+
         # ── POS: ALTER TABLE appointments ADD source + shop_name ─────────────────
         _appt_cols = {r[1] for r in cursor.execute("PRAGMA table_info(appointments)").fetchall()}
         if 'source' not in _appt_cols:

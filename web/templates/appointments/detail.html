@@ -138,6 +138,33 @@
   </div>
   {% endif %}
 
+  <!-- Списать занятие с абонемента -->
+  {% if is_admin and appt.client_id and appt.status != 'cancelled' and client_packages %}
+  <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 mb-4">
+    <h2 class="text-base font-semibold text-slate-700 dark:text-slate-200 mb-3">🎫 Списать с абонемента</h2>
+    <div class="space-y-2">
+      {% for cp in client_packages %}
+      <div class="flex items-center justify-between gap-3 py-2 border-b border-slate-100 dark:border-slate-700 last:border-0">
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ cp.name }}</div>
+          <div class="text-xs text-slate-400 dark:text-slate-500">
+            Осталось: {{ cp.visits_left }} / {{ cp.visits_total }}
+            {% if cp.expires_at %} · до {{ cp.expires_at }}{% endif %}
+          </div>
+        </div>
+        <form method="post" action="/packages/use/{{ cp.id }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" onclick="return confirm('Списать одно занятие с абонемента «{{ cp.name }}»?')"
+                  class="shrink-0 px-3 py-1.5 text-xs font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+            − Занятие
+          </button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   <!-- История статусов -->
   {% if history %}
   <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
