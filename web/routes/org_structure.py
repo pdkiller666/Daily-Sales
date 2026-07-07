@@ -53,6 +53,8 @@ def org_structure_page(request: Request, tab: str = "depts", msg: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     # Биллинговый гейт: owner без оплаченного модуля org_structure → /dashboard
     if user.get("role") == "owner":
@@ -152,6 +154,8 @@ def dept_add(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         level = org_structure_level(telegram_id)
         db = get_web_db(telegram_id, org_db)
@@ -189,6 +193,8 @@ def dept_delete(request: Request, dept_id: int, csrf_token: str = Form(default="
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         db.delete_department(dept_id)
@@ -232,6 +238,8 @@ def role_add(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         if org_structure_level(telegram_id) != "full":
             return _redirect("roles", "paid_only")
@@ -279,6 +287,8 @@ def role_delete(request: Request, role_id: int, csrf_token: str = Form(default="
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         db.delete_org_role(role_id)

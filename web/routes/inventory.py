@@ -22,6 +22,8 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
@@ -117,6 +119,8 @@ def inventory_export_xlsx(request: Request, shop: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         import openpyxl
@@ -271,6 +275,8 @@ def inventory_adjust(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
     try:
         db = get_web_db(telegram_id, org_db)
@@ -390,6 +396,8 @@ def inventory_history(request: Request, shop: str = "", product_id: int = 0):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     rows = []

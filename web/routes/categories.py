@@ -17,6 +17,8 @@ def categories_page(request: Request, msg: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     ctx: dict = {
         "request": request,
@@ -87,8 +89,11 @@ async def categories_rename(
     if new_name == old_name:
         return RedirectResponse(url="/categories?msg=same_name", status_code=303)
 
+    org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
-        db = get_web_db(int(user["sub"]), user.get("org_db"))
+        db = get_web_db(int(user["sub"]), org_db)
         conn = db.get_connection()
         try:
             dup = conn.execute(
@@ -128,8 +133,11 @@ async def categories_delete(
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(url="/categories?msg=csrf_error", status_code=303)
 
+    org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
-        db = get_web_db(int(user["sub"]), user.get("org_db"))
+        db = get_web_db(int(user["sub"]), org_db)
         conn = db.get_connection()
         try:
             if move_to and move_to.strip() and move_to.strip() != name:
@@ -174,8 +182,11 @@ async def categories_create(
     if not name or len(name) > 80:
         return RedirectResponse(url="/categories?msg=invalid_name", status_code=303)
 
+    org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
-        db = get_web_db(int(user["sub"]), user.get("org_db"))
+        db = get_web_db(int(user["sub"]), org_db)
         conn = db.get_connection()
         try:
             exists = conn.execute(

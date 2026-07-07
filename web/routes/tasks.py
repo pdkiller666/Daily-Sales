@@ -364,6 +364,8 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     from billing_utils import has_module as _has_module, has_extension as _has_ext
@@ -507,6 +509,8 @@ def tasks_quick_add(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
@@ -564,6 +568,8 @@ def tasks_views_save(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
@@ -606,6 +612,8 @@ def tasks_views_delete(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
@@ -643,6 +651,8 @@ def task_inline_edit(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     ALLOWED_FIELDS = {"title", "priority", "deadline"}
@@ -777,6 +787,8 @@ def task_add_blocker(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         bid = int(blocker_id)
         if bid == task_id:
@@ -813,6 +825,8 @@ def task_remove_blocker(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         bid = int(blocker_id)
     except (ValueError, TypeError):
@@ -864,6 +878,8 @@ def tasks_decompose_form(request: Request, msg: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     if not _has_module(telegram_id, 'tasks_pro') or not _has_ext(telegram_id, 'tasks_ai'):
         return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
@@ -908,6 +924,8 @@ def tasks_decompose_create(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     if not _has_module(telegram_id, 'tasks_pro') or not _has_ext(telegram_id, 'tasks_ai'):
         return RedirectResponse(url="/tasks?msg=pro_required", status_code=303)
@@ -958,6 +976,8 @@ def tasks_pool(request: Request, topic_id: str = "", q: str = "", msg: str = "")
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     from billing_utils import has_module as _has_module
     if not _has_module(telegram_id, 'tasks_pro'):
@@ -999,6 +1019,8 @@ def task_self_assign(request: Request, task_id: int, csrf_token: str = Form(""))
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     from billing_utils import has_module as _has_module
     if not _has_module(telegram_id, 'tasks_pro'):
@@ -1057,6 +1079,8 @@ def tasks_templates_list(request: Request, msg: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     from billing_utils import has_module as _has_module
     if not _has_module(telegram_id, 'tasks_pro'):
@@ -1101,6 +1125,8 @@ def tasks_templates_new(request: Request, csrf_token: str = Form(""),
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     from billing_utils import has_module as _has_module
     if not _has_module(telegram_id, 'tasks_pro'):
@@ -1155,6 +1181,8 @@ def tasks_template_delete(request: Request, tid: int, csrf_token: str = Form("")
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -1179,6 +1207,8 @@ def task_save_as_template(request: Request, task_id: int, csrf_token: str = Form
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     from billing_utils import has_module as _has_module
     if not _has_module(telegram_id, 'tasks_pro'):
@@ -1236,6 +1266,8 @@ def tasks_new_form(request: Request, template_id: int = 0, parent_id: int = 0):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     from billing_utils import has_module as _has_module, has_extension as _has_ext
     tasks_pro = _has_module(telegram_id, 'tasks_pro')
@@ -1330,6 +1362,8 @@ async def tasks_new_post(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     if any(f and f.filename for f in files):
         try:
@@ -1606,6 +1640,8 @@ def tasks_kanban(request: Request, topic_id: int = 0, shop_filter: str = "",
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     from billing_utils import has_module as _has_module
@@ -1747,6 +1783,8 @@ def tasks_kanban_move(request: Request,
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     try:
@@ -1820,6 +1858,8 @@ def tasks_topics(request: Request, msg: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     ctx = {
         "request": request, "user": user, "is_admin": True,
@@ -1867,6 +1907,8 @@ def tasks_topics_new(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -1913,6 +1955,8 @@ def tasks_topics_edit(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -1950,6 +1994,8 @@ def tasks_topics_delete(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -2033,7 +2079,10 @@ def tasks_automation(request: Request, msg: str = ""):
     if not _has_module(telegram_id, 'tasks_pro'):
         return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
 
-    ctx = _automation_ctx(request, telegram_id, user.get("org_db"))
+    org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
+    ctx = _automation_ctx(request, telegram_id, org_db)
     ctx["user"] = user
     ctx["msg"] = msg
     return request.app.state.templates.TemplateResponse(
@@ -2068,8 +2117,11 @@ async def tasks_automation_sla(request: Request):
         except Exception:
             return None
 
+    org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
-        db = get_web_db(telegram_id, user.get("org_db"))
+        db = get_web_db(telegram_id, org_db)
         for prio, _ in _SLA_PRIORITIES:
             react = _num(form.get(f"react_{prio}", ""))
             resolve = _num(form.get(f"resolve_{prio}", ""))
@@ -2145,9 +2197,12 @@ async def tasks_automation_rule_new(request: Request):
     if event not in VALID_EVENTS:
         return RedirectResponse(url="/tasks/automation?msg=bad_event", status_code=303)
 
+    org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         conditions_json, actions_json = _build_rule_payload(form)
-        db = get_web_db(telegram_id, user.get("org_db"))
+        db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
         try:
             my_row = conn.execute(
@@ -2184,8 +2239,11 @@ def tasks_automation_rule_toggle(request: Request, rid: int,
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(url="/tasks/automation?msg=csrf_error", status_code=303)
 
+    org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
-        db = get_web_db(telegram_id, user.get("org_db"))
+        db = get_web_db(telegram_id, org_db)
         rules = {r["id"]: r for r in db.get_automation_rules()}
         r = rules.get(rid)
         if not r:
@@ -2219,8 +2277,11 @@ def tasks_automation_rule_delete(request: Request, rid: int,
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(url="/tasks/automation?msg=csrf_error", status_code=303)
 
+    org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
-        db = get_web_db(telegram_id, user.get("org_db"))
+        db = get_web_db(telegram_id, org_db)
         db.delete_automation_rule(rid)
     except Exception as e:
         logger.error("tasks_automation_rule_delete: %s", e)
@@ -2250,6 +2311,8 @@ def tasks_bulk(request: Request, action: str = Form(""),
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     from billing_utils import has_module as _has_module
     if not _has_module(telegram_id, 'tasks_pro'):
@@ -2357,6 +2420,8 @@ def tasks_export_excel(request: Request, status: str = "", topic_id: int = 0,
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     from billing_utils import has_module as _has_module
     if not _has_module(telegram_id, 'tasks_pro'):
@@ -2472,6 +2537,8 @@ def tasks_analytics(request: Request):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     from billing_utils import has_module as _has_module
@@ -2556,6 +2623,8 @@ def tasks_calendar(request: Request, year: int = 0, month: int = 0):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     from billing_utils import has_module as _has_module
@@ -2668,6 +2737,8 @@ def tasks_gantt(request: Request):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     from billing_utils import has_module as _has_module
@@ -2747,6 +2818,8 @@ def tasks_workload(request: Request):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     from billing_utils import has_module as _has_module
@@ -2790,6 +2863,8 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     from billing_utils import has_module as _has_module, has_extension as _has_ext
@@ -3054,6 +3129,8 @@ async def task_upload_attachment(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     if any(f and f.filename for f in files):
@@ -3137,6 +3214,8 @@ def task_serve_attachment(request: Request, att_id: int):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     try:
@@ -3199,6 +3278,8 @@ def task_delete_attachment(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
     task_id = 0
 
@@ -3264,6 +3345,8 @@ def task_change_status(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     if status not in STATUS_LABELS:
@@ -3411,6 +3494,8 @@ def task_add_comment(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     try:
@@ -3580,6 +3665,8 @@ def task_toggle_checklist(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     try:
@@ -3675,6 +3762,8 @@ def task_rate(request: Request, task_id: int,
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -3730,6 +3819,8 @@ def task_rate_inline(request: Request, task_id: int,
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -3780,6 +3871,8 @@ def task_set_reminder(request: Request, task_id: int,
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         hours = float(remind_in) if remind_in else 0
@@ -3830,6 +3923,8 @@ def task_duplicate(request: Request, task_id: int, csrf_token: str = Form("")):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -3884,6 +3979,8 @@ def task_edit_form(request: Request, task_id: int):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     from billing_utils import has_module as _has_module, has_extension as _has_ext
     _tpro = _has_module(telegram_id, 'tasks_pro')
@@ -3957,6 +4054,8 @@ def task_edit_post(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -4111,6 +4210,8 @@ def task_delete(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -4155,6 +4256,8 @@ def task_my_complete(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -4277,6 +4380,8 @@ def task_watch(request: Request, task_id: int, csrf_token: str = Form("")):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
     try:
         db = get_web_db(telegram_id, org_db)
@@ -4319,6 +4424,8 @@ def task_unwatch(request: Request, task_id: int, csrf_token: str = Form("")):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
     try:
         db = get_web_db(telegram_id, org_db)
@@ -4373,6 +4480,8 @@ def task_log_time(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     if not _has_module(telegram_id, 'tasks_pro'):
         return RedirectResponse(url=f"/tasks/{task_id}?msg=pro_required", status_code=303)
@@ -4438,6 +4547,8 @@ def task_delete_time_log(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     try:

@@ -144,6 +144,8 @@ def reports_page(
     if not has_module(telegram_id, "analytics"):
         return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     ctx: dict = {
         "request": request, "user": user,
@@ -323,6 +325,8 @@ def reports_export_xlsx(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         from subscription_utils import check_export_permission
@@ -549,6 +553,8 @@ def reports_heatmap(
     if not has_extension(telegram_id, "heatmap"):
         return RedirectResponse(url="/reports?msg=ext_heatmap_required", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
@@ -624,6 +630,8 @@ def reports_abc(
     if not has_extension(telegram_id, "abc_analysis"):
         return RedirectResponse(url="/reports?msg=ext_abc_required", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
@@ -707,6 +715,8 @@ def reports_turnover(
     if not has_extension(telegram_id, "turnover"):
         return RedirectResponse(url="/reports?msg=ext_turnover_required", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
@@ -773,6 +783,8 @@ def reports_dead_stock(
     if not has_extension(telegram_id, "dead_stock"):
         return RedirectResponse(url="/reports?msg=ext_dead_stock_required", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
@@ -840,6 +852,8 @@ def reports_seller(
     if not has_module(telegram_id, "analytics"):
         return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": True,

@@ -169,6 +169,8 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     today = date.today()
     if not year:
         year = today.year
@@ -427,6 +429,8 @@ def salary_page(
     if not has_module(telegram_id, "team"):
         return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     today = date.today()
     if not year:
@@ -752,6 +756,8 @@ def salary_rate_history(request: Request, user_id: int = 0, limit: int = 10):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     limit = max(1, min(limit, 50))
 
     try:
@@ -786,6 +792,8 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
     if not has_extension(telegram_id, "salary_export"):
         return RedirectResponse(url="/salary?msg=ext_salary_export_required", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     today = date.today()
     if not year:
@@ -1123,6 +1131,8 @@ def salary_my_slip(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -1229,6 +1239,8 @@ def salary_adj_add(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     year  = max(2015, min(year,  2040))
     month = max(1,    min(month, 12))
     amount = max(-1_000_000.0, min(amount, 1_000_000.0))
@@ -1294,6 +1306,8 @@ def salary_adj_delete(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         db.delete_salary_adjustment(adj_id, user_id=target_user_id)
@@ -1334,6 +1348,8 @@ def salary_rate_set(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         admin_uid = _get_internal_uid(db, telegram_id)

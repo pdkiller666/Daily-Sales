@@ -143,6 +143,8 @@ def notifications_page(
     if not has_module(telegram_id, "notifications"):
         return RedirectResponse(url="/subscription?msg=notifications_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     ctx: dict = {
         "request": request,
@@ -235,6 +237,8 @@ def notifications_search_users(request: Request, q: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
@@ -313,6 +317,8 @@ def notifications_send(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     from subscription_utils import check_notifications_permission
     if not check_notifications_permission(telegram_id) and user.get("role") != "super_admin":
@@ -403,6 +409,8 @@ def notifications_delete_scheduled(
     try:
         telegram_id = int(user["sub"])
         org_db = user.get("org_db")
+        if not org_db:
+            return RedirectResponse("/dashboard", status_code=302)
         db = get_web_db(telegram_id, org_db)
         deleted = db.delete_scheduled_notification(notif_id)
         if deleted:

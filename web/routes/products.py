@@ -161,6 +161,8 @@ def products_page(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     _VALID_PROD_COLS = ("name", "category", "price", "stock")
     sort_col = sort_col if sort_col in _VALID_PROD_COLS else "name"
@@ -441,6 +443,8 @@ async def products_import_text(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -498,6 +502,8 @@ def products_import_confirm(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     sess = _import_sessions.pop(session_id, None)
     if not sess or sess.get("telegram_id") != telegram_id:
@@ -533,6 +539,8 @@ def products_new_form(request: Request):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
     try:
@@ -580,6 +588,8 @@ async def products_create(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
 
@@ -727,6 +737,8 @@ def products_edit_form(request: Request, product_id: int):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
     product = db.get_product(product_id)
     if not product:
@@ -807,6 +819,8 @@ async def products_update(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
     existing_photos = db.get_product_photos(product_id) or []
@@ -963,7 +977,10 @@ async def bulk_assign_articles(request: Request):
         csrf = ""
     if not verify_csrf_token(request, csrf):
         return JSONResponse({"ok": False, "error": "csrf"}, status_code=403)
-    db = get_web_db(int(user["sub"]), user.get("org_db") or "")
+    org_db = user.get("org_db") or ""
+    if not org_db:
+        return JSONResponse({"ok": False, "error": "no_org"}, status_code=403)
+    db = get_web_db(int(user["sub"]), org_db)
     try:
         count = db.bulk_assign_articles()
         return JSONResponse({"ok": True, "count": count})
@@ -1145,6 +1162,8 @@ def products_import_articles_confirm(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     sess = _article_sessions.pop(session_id, None)
     if not sess or sess.get("telegram_id") != telegram_id:
@@ -1192,7 +1211,10 @@ def api_product_by_article(request: Request, q: str = ""):
         return JSONResponse({"ok": False, "error": "subscription_required"}, status_code=403)
     if not q or not q.strip():
         return JSONResponse({"ok": False, "error": "q required"}, status_code=400)
-    db = get_web_db(int(user["sub"]), user.get("org_db") or "")
+    org_db = user.get("org_db") or ""
+    if not org_db:
+        return JSONResponse({"ok": False, "error": "no_org"}, status_code=403)
+    db = get_web_db(int(user["sub"]), org_db)
     q_clean = q.strip()
     row = db.get_product_by_article(q_clean)
     if not row:
@@ -1226,7 +1248,10 @@ async def product_photo_delete(request: Request, product_id: int, photo_id: int)
         csrf = ""
     if not verify_csrf_token(request, csrf):
         return JSONResponse({"ok": False, "error": "csrf"}, status_code=403)
-    db = get_web_db(int(user["sub"]), user.get("org_db") or "")
+    org_db = user.get("org_db") or ""
+    if not org_db:
+        return JSONResponse({"ok": False, "error": "no_org"}, status_code=403)
+    db = get_web_db(int(user["sub"]), org_db)
     try:
         url = db.delete_product_photo(photo_id)
         if url:
@@ -1256,7 +1281,10 @@ async def product_photos_reorder(request: Request, product_id: int):
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
     if not verify_csrf_token(request, csrf):
         return JSONResponse({"ok": False, "error": "csrf"}, status_code=403)
-    db = get_web_db(int(user["sub"]), user.get("org_db") or "")
+    org_db = user.get("org_db") or ""
+    if not org_db:
+        return JSONResponse({"ok": False, "error": "no_org"}, status_code=403)
+    db = get_web_db(int(user["sub"]), org_db)
     try:
         db.reorder_product_photos(photo_ids)
         remaining = db.get_product_photos(product_id) or []
@@ -1289,6 +1317,8 @@ def products_delete(
     try:
         telegram_id = int(user["sub"])
         org_db = user.get("org_db")
+        if not org_db:
+            return RedirectResponse("/dashboard", status_code=302)
         db = get_web_db(telegram_id, org_db)
         db.delete_product(product_id)
     except Exception as exc:
@@ -1875,6 +1905,8 @@ def products_label_design(request: Request):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         prods = db.get_all_products() or []
@@ -1975,6 +2007,8 @@ def product_label(request: Request, product_id: int, print: str = "",
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
     product = db.get_product(product_id)
     if not product:
@@ -2088,6 +2122,8 @@ async def products_labels_bulk(request: Request):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
     label_settings = _get_label_settings_safe(db)
 
@@ -2236,6 +2272,8 @@ async def save_label_settings(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
 
     logo_path = None
@@ -2348,7 +2386,10 @@ def _label_presets_guard(request: Request):
     if is_extension_denied(int(user["sub"]), "labels"):
         return Response(content="Subscription required", status_code=403)
     telegram_id = int(user["sub"])
-    db = get_web_db(telegram_id, user.get("org_db"))
+    org_db = user.get("org_db")
+    if not org_db:
+        return Response(content="No org assigned", status_code=403)
+    db = get_web_db(telegram_id, org_db)
     return db, telegram_id, user
 
 
@@ -2504,6 +2545,8 @@ async def save_org_logo(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
 
     if clear_org_logo == "1":
@@ -2555,6 +2598,8 @@ def product_detail(request: Request, product_id: int, year: int = 0, month: int 
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     # Resolve the scope month — use provided year/month or fall back to current
     today = date.today()
@@ -2755,7 +2800,10 @@ def products_bulk_action(
     if not product_ids:
         return RedirectResponse("/products?error=no_ids", status_code=303)
 
-    db = get_web_db(int(user["sub"]), user.get("org_db"))
+    org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
+    db = get_web_db(int(user["sub"]), org_db)
     changed = 0
 
     if action == "delete":
@@ -2835,8 +2883,11 @@ def api_update_product_price(
         return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
     if price < 0:
         return JSONResponse({"ok": False, "error": "Цена не может быть отрицательной"})
+    org_db = user.get("org_db")
+    if not org_db:
+        return JSONResponse({"ok": False, "error": "no_org"}, status_code=403)
     try:
-        db = get_web_db(int(user["sub"]), user.get("org_db"))
+        db = get_web_db(int(user["sub"]), org_db)
         conn = db.get_connection()
         try:
             # Read old price BEFORE updating

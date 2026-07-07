@@ -89,6 +89,8 @@ def motivation_page(request: Request, category: str = ""):
     if not has_module(telegram_id, "plans_motivation"):
         return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     today = date.today()
     prev_y, prev_m = _offset_month(-1)
@@ -246,6 +248,8 @@ def motivation_plan_coeff(
             status_code=303,
         )
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         _conn = db.get_connection()
@@ -286,6 +290,8 @@ def motivation_scope_values(request: Request, scope_type: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         opts = _load_scope_options(db, scope_type)
@@ -343,6 +349,8 @@ def motivation_set(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -400,6 +408,8 @@ def motivation_set_extra(
             status_code=303,
         )
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         ms = int(min_sellers.strip()) if min_sellers.strip() else None
@@ -459,6 +469,8 @@ def motivation_set_category(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -495,6 +507,8 @@ def motivation_remove(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -527,6 +541,8 @@ def motivation_rule_remove(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)

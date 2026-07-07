@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.414.0"
+CURRENT_VERSION = "1.415.0"
 
 ENTRIES = [
+    {
+        "version": "1.415.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Update user identification for module access checks",
+            "add org_db guard to all gated web route modules (no-org crash prevention)",
+        ],
+    },
     {
         "version": "1.414.0",
         "date": "7 июля 2026",

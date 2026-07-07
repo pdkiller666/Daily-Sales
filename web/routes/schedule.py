@@ -66,6 +66,8 @@ def schedule_page(
     if not has_module(telegram_id, "team"):
         return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     today = date.today()
     if not year:
@@ -199,6 +201,8 @@ def schedule_toggle_day(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -233,6 +237,8 @@ def schedule_set_time(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -272,6 +278,8 @@ def schedule_remove_day(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -303,6 +311,8 @@ def schedule_fill_month(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     added = 0
     try:
@@ -342,6 +352,8 @@ async def schedule_set_template_bulk(request: Request):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -384,6 +396,8 @@ def schedule_set_template(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)

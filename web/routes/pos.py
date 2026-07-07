@@ -80,6 +80,8 @@ def pos_page(request: Request):
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     ctx: dict = {
         "request": request,
@@ -143,6 +145,8 @@ def api_pos_meta(request: Request, shop: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         internal_uid = _get_internal_uid(db, telegram_id)
@@ -237,6 +241,8 @@ def api_pos_toggle_favorite(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         internal_uid = _get_internal_uid(db, telegram_id)
@@ -260,6 +266,8 @@ def api_pos_products(request: Request, shop: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         allowed_shops = _get_user_allowed_shops(telegram_id, db)
@@ -420,6 +428,8 @@ async def pos_checkout(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         items = json.loads(items_json)
         if not items:

@@ -99,6 +99,8 @@ def api_product_motivation(request: Request, product_id: int = 0):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         if not product_id:
             return JSONResponse({"none": True})
@@ -127,6 +129,8 @@ def api_products_for_shop(request: Request, shop: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         allowed_shops = _get_user_allowed_shops(telegram_id, db)
@@ -172,6 +176,8 @@ def sales_page(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     sort_order = sort_order if sort_order in ("asc", "desc") else "desc"
     sort_col = sort_col if sort_col in ("date", "amount", "qty", "product", "shop") else "date"
     ctx: dict = {
@@ -367,6 +373,8 @@ def sales_export_xlsx(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         import openpyxl
@@ -537,6 +545,8 @@ def sales_create(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         allowed_shops = _get_user_allowed_shops(telegram_id, db)
@@ -608,6 +618,8 @@ def api_get_sale(request: Request, sale_id: int):
     is_admin_role = user.get("role") in ("owner", "admin", "super_admin")
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         sale = db.get_sale_by_id(sale_id)
@@ -677,6 +689,8 @@ def sales_edit(
     is_admin_role = user.get("role") in ("owner", "admin", "super_admin")
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
 
@@ -768,6 +782,8 @@ def sales_delete(
     is_admin_role = user.get("role") in ("owner", "admin", "super_admin")
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         sale = db.get_sale_by_id(sale_id)
@@ -809,6 +825,8 @@ def api_sales_delete(
     is_admin_role = user.get("role") in ("owner", "admin", "super_admin")
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         sale = db.get_sale_by_id(sale_id)
@@ -844,6 +862,8 @@ def api_sales_audit(request: Request, sale_id: int):
     is_admin_role = user.get("role") in ("owner", "admin", "super_admin")
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         sale = db.get_sale_by_id(sale_id)
@@ -886,6 +906,8 @@ def api_recent_products(request: Request, shop: str = ""):
         return JSONResponse({"error": "Unauthorized", "products": []}, status_code=401)
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         uid = _get_internal_uid(db, telegram_id)
@@ -922,6 +944,8 @@ def api_favorite_products(request: Request, shop: str = ""):
         return JSONResponse({"error": "Unauthorized", "products": []}, status_code=401)
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         uid = _get_internal_uid(db, telegram_id)

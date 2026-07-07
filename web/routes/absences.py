@@ -306,6 +306,8 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
     if not has_module(telegram_id, "team"):
         return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
     today = date.today()
     if not year:  year = today.year
@@ -526,6 +528,8 @@ def absences_add(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
     today = date.today()
     if not year:  year = today.year
@@ -687,6 +691,8 @@ def absences_update(
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     today = date.today()
     if not year:  year = today.year
     if not month: month = today.month
@@ -856,6 +862,8 @@ def absences_merge(
     try:
         telegram_id = int(user["sub"])
         org_db = user.get("org_db")
+        if not org_db:
+            return RedirectResponse("/dashboard", status_code=302)
         db = get_web_db(telegram_id, org_db)
 
         keep_rec = db.get_absence_by_id(keep_id)
@@ -934,6 +942,8 @@ def absences_settings_page(request: Request):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     ctx: dict = {
         "request": request, "user": user,
         "csrf_token": get_csrf_token(request),
@@ -978,8 +988,11 @@ def absences_settings_update(
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/absences", status_code=302)
 
+    org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
-        db = get_web_db(int(user["sub"]), user.get("org_db"))
+        db = get_web_db(int(user["sub"]), org_db)
         db.set_absence_type_setting(atype, is_paid, annual_limit,
                                      penalty_mode, penalty_amount)
     except Exception as exc:
@@ -1005,9 +1018,12 @@ def absences_settings_threshold(
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/absences", status_code=302)
 
+    org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         threshold = max(1, min(int(heavy_threshold), 100))
-        db = get_web_db(int(user["sub"]), user.get("org_db"))
+        db = get_web_db(int(user["sub"]), org_db)
         db.set_org_config('heavy_absence_threshold', str(threshold))
     except Exception as exc:
         logging.error(f"absences_settings_threshold error: {exc}")

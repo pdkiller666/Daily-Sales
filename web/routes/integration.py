@@ -58,6 +58,8 @@ def integration_page(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     _purge_expired_device_flow()
     can_use, plan_name = _check_plan(telegram_id)
@@ -232,6 +234,8 @@ def integration_create(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     can_use, _ = _check_plan(telegram_id)
     if not can_use:
         return RedirectResponse(url="/integration", status_code=302)
@@ -329,6 +333,8 @@ async def integration_auth_poll(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     state = _device_flow.get(telegram_id)
     if not state or state.get("conn_id") != conn_id:
@@ -402,6 +408,8 @@ def integration_toggle(request: Request, cid: int, csrf_token: str = Form(defaul
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -430,6 +438,8 @@ def integration_delete(request: Request, cid: int, csrf_token: str = Form(defaul
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -462,6 +472,8 @@ def integration_move_exports(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     can_use, _ = _check_plan(telegram_id)
     if not can_use:
         return RedirectResponse(url="/integration", status_code=302)
@@ -520,6 +532,8 @@ def integration_motiv_cache(request: Request, cid: int):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -557,6 +571,8 @@ async def integration_sync_motiv(request: Request, cid: int, csrf_token: str = F
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     can_use, _ = _check_plan(telegram_id)
     if not can_use:
         return RedirectResponse(url="/integration", status_code=302)
@@ -629,6 +645,8 @@ async def integration_import(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     can_use, _ = _check_plan(telegram_id)
     if not can_use:
         return RedirectResponse(url="/integration", status_code=302)
@@ -708,6 +726,8 @@ def integration_edit(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     if not name.strip():
         return RedirectResponse(url="/integration?error=Название+обязательно", status_code=302)
@@ -747,6 +767,8 @@ async def integration_sheet_rows(request: Request, cid: int, sheet: str = "", ma
     max_rows = max(1, min(max_rows, 30))
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         conn_row = db.get_integration_connection(cid)
@@ -783,6 +805,8 @@ async def integration_sheet_headers(request: Request, cid: int, sheet: str = "",
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         conn_row = db.get_integration_connection(cid)
@@ -814,6 +838,8 @@ async def integration_test(request: Request, cid: int):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -870,6 +896,8 @@ def integration_export_create(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     can_use, _ = _check_plan(telegram_id)
     if not can_use:
         return RedirectResponse(url="/integration", status_code=302)
@@ -990,6 +1018,8 @@ def integration_export_toggle(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -1020,6 +1050,8 @@ def integration_export_delete(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -1064,6 +1096,8 @@ def integration_export_edit(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     if not target_sheet.strip():
         return RedirectResponse(url=f"/integration?error={quote('Укажите лист назначения')}", status_code=302)
@@ -1137,6 +1171,8 @@ async def integration_export_run(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     can_use, _ = _check_plan(telegram_id)
     if not can_use:
         return RedirectResponse(url="/integration", status_code=302)
@@ -1187,6 +1223,8 @@ async def integration_export_sync_week(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     can_use, _ = _check_plan(telegram_id)
     if not can_use:
         return JSONResponse({"ok": False, "error": "Модуль интеграций не подключён"})
@@ -1292,6 +1330,8 @@ def integration_export_alias_add(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         exp = db.get_integration_export(eid)
@@ -1330,6 +1370,8 @@ def integration_export_alias_delete(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
         exp = db.get_integration_export(eid)
@@ -1374,6 +1416,8 @@ def integration_motiv_save(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     can_use, _ = _check_plan(telegram_id)
     if not can_use:
         return RedirectResponse(url="/integration", status_code=302)
@@ -1458,6 +1502,8 @@ def integration_motiv_alias_add(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     if not alias_from.strip() or not alias_to.strip():
         return RedirectResponse(url=f"/integration?error={quote('Заполните оба поля псевдонима')}", status_code=302)
@@ -1505,6 +1551,8 @@ def integration_motiv_alias_delete(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -1550,6 +1598,8 @@ def integration_motiv_auto_sync_toggle(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)

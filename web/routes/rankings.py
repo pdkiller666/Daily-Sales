@@ -62,6 +62,8 @@ def rankings_page(
     if not has_module(telegram_id, "analytics"):
         return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     if date_from and date_to:
         period = "custom"
@@ -220,6 +222,8 @@ def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "
 
         telegram_id = int(user["sub"])
         org_db = user.get("org_db")
+        if not org_db:
+            return RedirectResponse("/dashboard", status_code=302)
         db = get_web_db(telegram_id, org_db)
 
         tz = db.get_user_timezone(telegram_id)

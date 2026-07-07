@@ -22,6 +22,8 @@ def shops_page(request: Request):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     ctx: dict = {
         "request": request,
@@ -78,6 +80,8 @@ def shops_create(
     try:
         telegram_id = int(user["sub"])
         org_db = user.get("org_db")
+        if not org_db:
+            return RedirectResponse("/dashboard", status_code=302)
         db = get_web_db(telegram_id, org_db)
 
         # Subscription limit: enforce shop cap in web layer (mirrors bot check_shop_limit)
@@ -124,6 +128,8 @@ def shop_stock_page(request: Request, shop_name: str, new: str = ""):
     shop_name = unquote(shop_name)
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     ctx: dict = {
         "request": request,
@@ -196,6 +202,8 @@ async def shop_stock_save(request: Request, shop_name: str):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -287,6 +295,8 @@ def shops_rename(
     try:
         telegram_id = int(user["sub"])
         org_db = user.get("org_db")
+        if not org_db:
+            return RedirectResponse("/dashboard", status_code=302)
         db = get_web_db(telegram_id, org_db)
         existing = db.get_all_shops()
         if new_clean in existing:
@@ -340,6 +350,8 @@ def shops_delete(
     try:
         telegram_id = int(user["sub"])
         org_db = user.get("org_db")
+        if not org_db:
+            return RedirectResponse("/dashboard", status_code=302)
         db = get_web_db(telegram_id, org_db)
         affected = db.delete_shop_everywhere(name_clean)
         msg = f"Магазин «{name_clean}» удалён."

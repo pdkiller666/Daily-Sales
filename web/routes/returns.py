@@ -119,6 +119,8 @@ def returns_page(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     # Дефолтный период — 30 дней. Если пришли по фильтру конкретной продажи
@@ -189,6 +191,8 @@ def api_returns_create(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     try:
         db = get_web_db(telegram_id, org_db)
 

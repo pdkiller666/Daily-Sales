@@ -117,6 +117,8 @@ def plans_new(request: Request):
     if not has_module(telegram_id, "plans_motivation"):
         return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
     sellers, shops, categories, products = _load_form_data(db)
 
@@ -167,6 +169,8 @@ def plans_create(
     if not has_module(telegram_id, "plans_motivation"):
         return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
     sellers, shops, categories, products = _load_form_data(db)
     error = None
@@ -271,6 +275,8 @@ def plans_page(request: Request, active_only: str = "1", status: str = ""):
     if not has_module(telegram_id, "plans_motivation"):
         return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     has_ai_plan_analysis = (
         has_module(telegram_id, "ai_assistant")
         and has_extension(telegram_id, "ai_plan_analysis")
@@ -409,6 +415,8 @@ def plans_edit(request: Request, plan_id: int):
     if not has_module(telegram_id, "plans_motivation"):
         return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
 
     all_plans = db.get_sales_plans(active_only=False) or []
@@ -492,6 +500,8 @@ def plans_update(
     if not has_module(telegram_id, "plans_motivation"):
         return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
     error = None
 
@@ -622,6 +632,8 @@ def plans_delete(
     if not has_module(telegram_id, "plans_motivation"):
         return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
 
     try:
@@ -658,6 +670,8 @@ def plans_toggle(
     if not has_module(telegram_id, "plans_motivation"):
         return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
 
     try:
@@ -726,6 +740,8 @@ def plan_detail(request: Request, plan_id: int, error: str = ""):
     if not has_module(telegram_id, "plans_motivation"):
         return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     has_ai_plan_analysis = (
         has_module(telegram_id, "ai_assistant")
         and has_extension(telegram_id, "ai_plan_analysis")

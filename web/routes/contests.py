@@ -71,6 +71,8 @@ def contests_page(
     if not has_extension(telegram_id, "contests"):
         return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     today = date.today()
 
     from web.auth import get_csrf_token
@@ -227,6 +229,8 @@ def contests_new(request: Request):
     if not has_extension(telegram_id, "contests"):
         return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
     shops, cities, categories, products = _load_contest_form_data(db)
 
@@ -300,6 +304,8 @@ def contests_create(
     if not has_extension(telegram_id, "contests"):
         return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
     shops, cities, categories, products = _load_contest_form_data(db)
     error = None
@@ -460,6 +466,8 @@ def contests_edit(request: Request, contest_id: int):
     if not has_extension(telegram_id, "contests"):
         return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
 
     try:
@@ -549,6 +557,8 @@ def contests_update(
     if not has_extension(telegram_id, "contests"):
         return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     org_db = user.get("org_db")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(telegram_id, org_db)
 
     try:
@@ -667,6 +677,8 @@ def contests_finish(
         return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     try:
         org_db = user.get("org_db")
+        if not org_db:
+            return RedirectResponse("/dashboard", status_code=302)
         db = get_web_db(telegram_id, org_db)
         row = db.get_contest(contest_id)
         if row and row[16] == "active":
@@ -702,6 +714,8 @@ def contests_delete(
         return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     try:
         org_db = user.get("org_db")
+        if not org_db:
+            return RedirectResponse("/dashboard", status_code=302)
         db = get_web_db(telegram_id, org_db)
         row = db.get_contest(contest_id)
         if row and row[16] in ("finished", "cancelled"):
@@ -737,6 +751,8 @@ def contests_clear_archive(
         return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     try:
         org_db = user.get("org_db")
+        if not org_db:
+            return RedirectResponse("/dashboard", status_code=302)
         db = get_web_db(telegram_id, org_db)
         db.clear_contests_archive()
     except Exception as exc:
@@ -770,6 +786,8 @@ def contests_cancel(
         return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     try:
         org_db = user.get("org_db")
+        if not org_db:
+            return RedirectResponse("/dashboard", status_code=302)
         db = get_web_db(telegram_id, org_db)
         row = db.get_contest(contest_id)
         if row and row[16] in ("active", "pending"):
