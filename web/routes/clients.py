@@ -60,10 +60,9 @@ def clients_list(request: Request, q: str = "", page: int = 1, tag: str = ""):
         return RedirectResponse("/subscription?msg=crm_locked", status_code=302)
 
     org_db = user.get("org_db", "")
-    db = get_web_db(tg_id, org_db)
     if not org_db:
         return RedirectResponse("/dashboard", status_code=302)
-
+    db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
         offset = (page - 1) * _PAGE_SIZE
@@ -102,7 +101,7 @@ def clients_list(request: Request, q: str = "", page: int = 1, tag: str = ""):
         ctx.update({
             "clients": clients, "total": total, "q": q, "tag": tag,
             "page": page, "total_pages": total_pages,
-            "all_tags": all_tags_list, "is_admin": user.get("role") in ("owner", "admin"),
+            "all_tags": all_tags_list, "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         })
         return request.app.state.templates.TemplateResponse(request, "clients/index.html", ctx)
     finally:
@@ -155,6 +154,8 @@ def clients_create(
 
     tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -185,6 +186,8 @@ def client_detail(request: Request, client_id: int):
 
     tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -231,7 +234,7 @@ def client_detail(request: Request, client_id: int):
         ctx.update({
             "client": client, "sales": sales, "sales_total": sales_total,
             "appts": appts, "appts_total": appts_total, "ltv": ltv,
-            "is_admin": user.get("role") in ("owner", "admin"),
+            "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
             "has_services": has_module(int(user.get("sub", 0)), "services"),
         })
         return request.app.state.templates.TemplateResponse(request, "clients/detail.html", ctx)
@@ -272,6 +275,8 @@ def client_edit(
 
     tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -297,13 +302,15 @@ def client_delete(request: Request, client_id: int, csrf_token: str = Form("")):
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(f"/clients/{client_id}?error=csrf", status_code=302)
-    if user.get("role") not in ("owner", "admin"):
+    if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(f"/clients/{client_id}", status_code=302)
     if not has_module(int(user.get("sub", 0)), "crm"):
         return RedirectResponse("/clients", status_code=302)
 
     tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -334,6 +341,8 @@ def clients_export(request: Request):
 
     tg_id = int(user.get("sub", 0))
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:

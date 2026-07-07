@@ -85,13 +85,13 @@ def appointments_list(request: Request, status: str = "", staff_id: int = 0,
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
-        is_admin = user.get("role") in ("owner", "admin")
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
         params = []
         where = "1=1"
 
         if not is_admin:
             my_user = conn.execute(
-                "SELECT id FROM users WHERE telegram_id=?", (user.get("telegram_id"),)
+                "SELECT id FROM users WHERE telegram_id=?", (int(user.get("sub", 0)),)
             ).fetchone()
             my_uid = my_user[0] if my_user else -1
             where += " AND a.staff_user_id=?"
@@ -281,9 +281,9 @@ def appointment_detail(request: Request, appt_id: int):
             return RedirectResponse("/appointments", status_code=302)
         appt = rows[0]
 
-        is_admin = user.get("role") in ("owner", "admin")
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
         if not is_admin:
-            my_user = conn.execute("SELECT id FROM users WHERE telegram_id=?", (user.get("telegram_id"),)).fetchone()
+            my_user = conn.execute("SELECT id FROM users WHERE telegram_id=?", (int(user.get("sub", 0)),)).fetchone()
             my_uid = my_user[0] if my_user else -1
             if appt["staff_user_id"] != my_uid:
                 return RedirectResponse("/appointments", status_code=302)
@@ -352,6 +352,15 @@ def appointment_change_status(
             return RedirectResponse("/appointments", status_code=302)
 
         old_status, service_id, staff_user_id, appt_price = old
+
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
+        if not is_admin:
+            my_user = conn.execute(
+                "SELECT id FROM users WHERE telegram_id=?", (int(user.get("sub", 0)),)
+            ).fetchone()
+            my_uid = my_user[0] if my_user else -1
+            if staff_user_id != my_uid:
+                return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
 
         conn.execute(
             "UPDATE appointments SET status=?, updated_at=datetime('now') WHERE id=?",
@@ -428,7 +437,7 @@ def appointment_edit(
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/appointments", status_code=302)
-    if user.get("role") not in ("owner", "admin"):
+    if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
 
     tg_id = int(user.get("sub", 0))
@@ -475,7 +484,7 @@ def appointment_delete(request: Request, appt_id: int, csrf_token: str = Form(""
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
-    if user.get("role") not in ("owner", "admin"):
+    if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(f"/appointments/{appt_id}", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/appointments", status_code=302)
@@ -523,11 +532,11 @@ def appointments_calendar(request: Request, year: int = 0, month: int = 0):
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
-        is_admin = user.get("role") in ("owner", "admin")
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
         params = [date_from, date_to]
         where = "a.start_time >= ? AND a.start_time <= ?"
         if not is_admin:
-            my_user = conn.execute("SELECT id FROM users WHERE telegram_id=?", (user.get("telegram_id"),)).fetchone()
+            my_user = conn.execute("SELECT id FROM users WHERE telegram_id=?", (int(user.get("sub", 0)),)).fetchone()
             my_uid = my_user[0] if my_user else -1
             where += " AND a.staff_user_id=?"
             params.append(my_uid)

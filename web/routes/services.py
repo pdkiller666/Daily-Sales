@@ -93,7 +93,7 @@ def services_list(request: Request, q: str = "", category_id: int = 0, page: int
         ctx.update({
             "services": services, "categories": cats, "total": total,
             "q": q, "category_id": category_id, "page": page, "total_pages": total_pages,
-            "is_admin": user.get("role") in ("owner", "admin"),
+            "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         })
         return request.app.state.templates.TemplateResponse(request, "services/index.html", ctx)
     finally:
@@ -110,7 +110,7 @@ def service_new_form(request: Request):
         return RedirectResponse("/login", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
-    if user.get("role") not in ("owner", "admin"):
+    if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse("/services", status_code=302)
 
     tg_id = int(user.get("sub", 0))
@@ -154,7 +154,7 @@ def service_create(
         return RedirectResponse("/services/new?error=csrf", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
-    if user.get("role") not in ("owner", "admin"):
+    if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse("/services", status_code=302)
     if not name.strip():
         return RedirectResponse("/services/new?error=name_required", status_code=302)
@@ -202,7 +202,7 @@ def service_edit_form(request: Request, service_id: int):
         return RedirectResponse("/login", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
-    if user.get("role") not in ("owner", "admin"):
+    if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse("/services", status_code=302)
 
     tg_id = int(user.get("sub", 0))
@@ -259,7 +259,7 @@ def service_update(
         return RedirectResponse(f"/services/{service_id}/edit?error=csrf", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
-    if user.get("role") not in ("owner", "admin"):
+    if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse("/services", status_code=302)
     if not name.strip():
         return RedirectResponse(f"/services/{service_id}/edit?error=name_required", status_code=302)
@@ -309,7 +309,7 @@ def service_delete(request: Request, service_id: int, csrf_token: str = Form("")
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse("/services?error=csrf", status_code=302)
-    if user.get("role") not in ("owner", "admin"):
+    if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse("/services", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
@@ -338,7 +338,7 @@ def service_categories_page(request: Request):
         return RedirectResponse("/login", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
-    if user.get("role") not in ("owner", "admin"):
+    if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse("/services", status_code=302)
 
     tg_id = int(user.get("sub", 0))
@@ -376,6 +376,8 @@ def service_category_create(
         return RedirectResponse("/services/categories", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse("/services/categories", status_code=302)
     if not name.strip():
         return RedirectResponse("/services/categories", status_code=302)
 
@@ -406,7 +408,7 @@ def service_category_delete(request: Request, cat_id: int, csrf_token: str = For
         return RedirectResponse("/login", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse("/services/categories", status_code=302)
-    if user.get("role") not in ("owner", "admin"):
+    if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse("/services/categories", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/services", status_code=302)
@@ -436,7 +438,7 @@ def service_motivation_page(request: Request, service_id: int):
         return RedirectResponse("/login", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/subscription?msg=services_locked", status_code=302)
-    if user.get("role") not in ("owner", "admin"):
+    if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse("/services", status_code=302)
 
     tg_id = int(user.get("sub", 0))
