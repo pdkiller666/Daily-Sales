@@ -142,7 +142,7 @@ def reports_page(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "analytics"):
-        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     org_db = user.get("org_db")
 
     ctx: dict = {
@@ -545,7 +545,7 @@ def reports_heatmap(
     telegram_id = int(user["sub"])
     from billing_utils import has_module, has_extension
     if not has_module(telegram_id, "analytics"):
-        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     if not has_extension(telegram_id, "heatmap"):
         return RedirectResponse(url="/reports?msg=ext_heatmap_required", status_code=302)
     org_db = user.get("org_db")
@@ -620,7 +620,7 @@ def reports_abc(
     telegram_id = int(user["sub"])
     from billing_utils import has_module, has_extension
     if not has_module(telegram_id, "analytics"):
-        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     if not has_extension(telegram_id, "abc_analysis"):
         return RedirectResponse(url="/reports?msg=ext_abc_required", status_code=302)
     org_db = user.get("org_db")
@@ -703,7 +703,7 @@ def reports_turnover(
     telegram_id = int(user["sub"])
     from billing_utils import has_module, has_extension
     if not has_module(telegram_id, "analytics"):
-        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     if not has_extension(telegram_id, "turnover"):
         return RedirectResponse(url="/reports?msg=ext_turnover_required", status_code=302)
     org_db = user.get("org_db")
@@ -769,7 +769,7 @@ def reports_dead_stock(
     telegram_id = int(user["sub"])
     from billing_utils import has_module, has_extension
     if not has_module(telegram_id, "analytics"):
-        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     if not has_extension(telegram_id, "dead_stock"):
         return RedirectResponse(url="/reports?msg=ext_dead_stock_required", status_code=302)
     org_db = user.get("org_db")
@@ -838,7 +838,7 @@ def reports_seller(
     telegram_id = int(user["sub"])
     from billing_utils import has_module, has_extension
     if not has_module(telegram_id, "analytics"):
-        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     org_db = user.get("org_db")
     ctx: dict = {
         "request": request, "user": user,

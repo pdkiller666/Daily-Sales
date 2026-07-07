@@ -67,7 +67,7 @@ def contests_page(
     telegram_id = int(user["sub"])
     from billing_utils import has_extension
     if not has_extension(telegram_id, "contests"):
-        return RedirectResponse(url="/dashboard?msg=ext_contests_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=contests_locked", status_code=302)
     org_db = user.get("org_db")
     today = date.today()
 

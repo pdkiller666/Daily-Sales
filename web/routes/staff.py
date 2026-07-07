@@ -188,7 +188,7 @@ def staff_page(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
 
     _VALID_STAFF_COLS = ("role", "name", "shop", "city", "month_sales", "month_revenue")
@@ -418,7 +418,7 @@ def staff_rotate_invite(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
@@ -459,7 +459,7 @@ def staff_set_role(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
@@ -505,7 +505,7 @@ def staff_remove(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
@@ -554,7 +554,7 @@ def staff_set_shop(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
@@ -605,7 +605,7 @@ def staff_detail(request: Request, user_id: int, year: int = 0, month: int = 0):
 
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
 
     today = date.today()
     if not year:
@@ -933,7 +933,7 @@ def staff_set_scope(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
@@ -985,7 +985,7 @@ def staff_set_custom_title(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
@@ -1043,7 +1043,7 @@ def staff_set_department(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
@@ -1080,7 +1080,7 @@ def staff_set_org_role(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
     try:
         if org_structure_level(telegram_id) != "full":
@@ -1120,7 +1120,7 @@ def staff_set_module_access(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
     try:
         if org_structure_level(telegram_id) != "full":

@@ -197,10 +197,25 @@
 <div class="mb-5 px-4 py-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium">
     ✅ Скриншот оплаты прикреплён к заявке. Администратор получит уведомление и рассмотрит заявку.
 </div>
-{% elif msg == 'services_locked' %}
+{% elif msg in ('services_locked', 'crm_locked', 'analytics_locked', 'plans_motivation_locked', 'team_locked', 'notifications_locked', 'contests_locked') %}
+{% set _locked_info = {
+    'services_locked':          ('🔒', 'Услуги', 'Подключите модуль «Услуги», чтобы вести каталог услуг и записи клиентов.'),
+    'crm_locked':               ('📇', 'CRM', 'Подключите модуль «CRM», чтобы вести базу клиентов, историю контактов и воронку продаж.'),
+    'analytics_locked':         ('📊', 'Аналитика', 'Подключите модуль «Аналитика», чтобы получить доступ к отчётам, рейтингам и тепловым картам.'),
+    'plans_motivation_locked':  ('🎯', 'Планы и мотивация', 'Подключите модуль «Планы и мотивация», чтобы ставить цели, отслеживать выполнение и настраивать бонусы.'),
+    'team_locked':              ('👥', 'Команда', 'Подключите модуль «Команда», чтобы вести расписание, управлять зарплатами и учитывать отсутствия.'),
+    'notifications_locked':     ('🔔', 'Уведомления', 'Подключите модуль «Уведомления», чтобы отправлять персональные сообщения и рассылки сотрудникам.'),
+    'contests_locked':          ('🏆', 'Конкурсы', 'Подключите расширение «Конкурсы» (входит в модуль «Планы и мотивация»), чтобы проводить соревнования среди продавцов.'),
+} %}
+{% set _li = _locked_info.get(msg, ('🔒', 'Модуль', 'Подключите модуль ниже.')) %}
 <div class="mb-5 px-4 py-4 rounded-2xl bg-amber-50 border border-amber-200">
-    <p class="font-bold text-amber-800 mb-1">🔒 Модуль «Услуги» не подключён</p>
-    <p class="text-sm text-amber-700">Этот раздел доступен по подписке. Подключите модуль «Услуги» ниже, чтобы вести каталог услуг и записи клиентов.</p>
+    <p class="font-bold text-amber-800 mb-1">{{ _li[0] }} Модуль «{{ _li[1] }}» не подключён</p>
+    <p class="text-sm text-amber-700">{{ _li[2] }}</p>
+    {% if msg == 'contests_locked' %}
+    <p class="text-xs text-amber-600 mt-1.5">💡 Откройте вкладку <strong>Модули</strong> ниже и найдите раздел «Планы и мотивация».</p>
+    {% else %}
+    <p class="text-xs text-amber-600 mt-1.5">💡 Прокрутите вниз до вкладки <strong>Модули</strong>, чтобы подключить.</p>
+    {% endif %}
 </div>
 {% elif msg in ('csrf_error', 'user_not_found', 'invalid_plan', 'no_file', 'bad_file_type', 'file_too_large') %}
 <div class="mb-5 px-4 py-3 rounded-2xl bg-red-50 text-red-700 border border-red-200 text-sm font-medium">

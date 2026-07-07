@@ -55,7 +55,7 @@ def clients_list(request: Request, q: str = "", page: int = 1, tag: str = ""):
         return RedirectResponse("/login", status_code=302)
     tg_id = user.get("telegram_id", 0)
     if not has_module(tg_id, "crm"):
-        return RedirectResponse("/dashboard?msg=crm_locked", status_code=302)
+        return RedirectResponse("/subscription?msg=crm_locked", status_code=302)
 
     org_db = user.get("org_db", "")
     db = get_web_db(tg_id, org_db)

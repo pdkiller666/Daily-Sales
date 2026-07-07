@@ -115,7 +115,7 @@ def plans_new(request: Request):
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "plans_motivation"):
-        return RedirectResponse(url="/dashboard?msg=module_plans_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
     sellers, shops, categories, products = _load_form_data(db)
@@ -165,7 +165,7 @@ def plans_create(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "plans_motivation"):
-        return RedirectResponse(url="/dashboard?msg=module_plans_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
     sellers, shops, categories, products = _load_form_data(db)
@@ -269,7 +269,7 @@ def plans_page(request: Request, active_only: str = "1", status: str = ""):
     telegram_id = int(user["sub"])
     from billing_utils import has_module, has_extension
     if not has_module(telegram_id, "plans_motivation"):
-        return RedirectResponse(url="/dashboard?msg=module_plans_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
     has_ai_plan_analysis = (
         has_module(telegram_id, "ai_assistant")
@@ -407,7 +407,7 @@ def plans_edit(request: Request, plan_id: int):
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "plans_motivation"):
-        return RedirectResponse(url="/dashboard?msg=module_plans_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
 
@@ -490,7 +490,7 @@ def plans_update(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "plans_motivation"):
-        return RedirectResponse(url="/dashboard?msg=module_plans_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
     error = None
@@ -620,7 +620,7 @@ def plans_delete(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "plans_motivation"):
-        return RedirectResponse(url="/dashboard?msg=module_plans_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
 
@@ -656,7 +656,7 @@ def plans_toggle(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "plans_motivation"):
-        return RedirectResponse(url="/dashboard?msg=module_plans_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
 
@@ -724,7 +724,7 @@ def plan_detail(request: Request, plan_id: int, error: str = ""):
     telegram_id = int(user["sub"])
     from billing_utils import has_module, has_extension
     if not has_module(telegram_id, "plans_motivation"):
-        return RedirectResponse(url="/dashboard?msg=module_plans_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=plans_motivation_locked", status_code=302)
     org_db = user.get("org_db")
     has_ai_plan_analysis = (
         has_module(telegram_id, "ai_assistant")

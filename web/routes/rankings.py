@@ -60,7 +60,7 @@ def rankings_page(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "analytics"):
-        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     org_db = user.get("org_db")
 
     if date_from and date_to:
@@ -210,7 +210,7 @@ def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "
 
     from billing_utils import has_module
     if not has_module(int(user["sub"]), "analytics"):
-        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
 
     try:
         import openpyxl

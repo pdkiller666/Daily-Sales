@@ -64,7 +64,7 @@ def schedule_page(
     telegram_id = int(user["sub"])
     from billing_utils import has_module
     if not has_module(telegram_id, "team"):
-        return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
+        return RedirectResponse(url="/subscription?msg=team_locked", status_code=302)
     org_db = user.get("org_db")
 
     today = date.today()
