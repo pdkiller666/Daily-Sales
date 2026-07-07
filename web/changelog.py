@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.427.0"
+CURRENT_VERSION = "1.428.0"
 
 ENTRIES = [
+    {
+        "version": "1.428.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Update appointment routing and fix salary calculation errors",
+        ],
+    },
     {
         "version": "1.427.0",
         "date": "7 июля 2026",

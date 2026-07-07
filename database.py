@@ -19573,6 +19573,57 @@ class Database:
         finally:
             conn.close()
 
+    def get_service_sales_report(self, start_date=None, end_date=None,
+                                  shop_name=None, shop_names=None,
+                                  city=None, cities=None,
+                                  trade_network=None, trade_networks=None,
+                                  user_id=None) -> list:
+        """POS service sales from appointments table.
+        Returns rows shaped like get_sales_report() + extra column [12]='service'.
+        id[0] None[1] shop_name[2] qty=1[3] price[4] user_id[5] sale_date[6]
+        svc_name[7] 'Услуга'[8] first_name[9] last_name[10] 0[11] 'service'[12]
+        """
+        conn = self.get_connection()
+        try:
+            query = """
+                SELECT a.id, NULL, a.shop_name, 1, a.price,
+                       a.staff_user_id, a.start_time,
+                       COALESCE(sv.name, '—'), 'Услуга',
+                       u.first_name, u.last_name, 0, 'service'
+                FROM appointments a
+                LEFT JOIN services sv ON sv.id = a.service_id
+                LEFT JOIN users u ON u.id = a.staff_user_id
+                WHERE a.source = 'pos_sale'
+            """
+            params = []
+            if start_date and end_date:
+                query += ' AND date(a.start_time) BETWEEN ? AND ?'
+                params.extend([start_date, end_date])
+            elif start_date:
+                query += ' AND date(a.start_time) >= ?'
+                params.append(start_date)
+            elif end_date:
+                query += ' AND date(a.start_time) <= ?'
+                params.append(end_date)
+            if shop_name:
+                query += ' AND a.shop_name = ?'
+                params.append(shop_name)
+            elif shop_names:
+                ph = ','.join('?' * len(shop_names))
+                query += f' AND a.shop_name IN ({ph})'
+                params.extend(shop_names)
+            if user_id:
+                query += ' AND a.staff_user_id = ?'
+                params.append(user_id)
+            query += ' ORDER BY a.start_time DESC'
+            rows = conn.execute(query, params).fetchall()
+            return [tuple(r) for r in rows]
+        except Exception as exc:
+            logger.error("get_service_sales_report: %s", exc)
+            return []
+        finally:
+            conn.close()
+
     def get_service_sales_ranking(self, start_date=None, end_date=None) -> list:
         """Staff ranking by POS service revenue.
         Returns: first_name[0] last_name[1] shop_name[2] cnt[3]

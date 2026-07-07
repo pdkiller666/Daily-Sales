@@ -272,7 +272,19 @@ def sales_page(
         if product_id:
             kwargs["product_id"] = product_id
 
-        all_sales = db.get_sales_report(**kwargs) or []
+        all_sales = list(db.get_sales_report(**kwargs) or [])
+
+        # Merge POS service sales if services module is active
+        try:
+            from billing_utils import has_module as _hm
+            if not product_id and _hm(telegram_id, "services"):
+                _svc_kwargs = {k: v for k, v in kwargs.items()
+                               if k in ("start_date", "end_date", "shop_name",
+                                        "shop_names", "user_id")}
+                _svc_rows = db.get_service_sales_report(**_svc_kwargs) or []
+                all_sales = all_sales + list(_svc_rows)
+        except Exception:
+            pass
 
         # Backdated filter: keep only sales whose date != today in user's timezone
         if only_backdated:
@@ -347,7 +359,17 @@ def sales_page(
             _rev = sum(float(s[3] or 0) * float(s[4] or 0) for s in all_sales)
             ctx["summary"] = (_cnt, _qty, _rev, (_rev / _cnt if _cnt else 0))
         else:
-            ctx["summary"] = db.get_sales_summary(**sum_kwargs) or _summary_empty()
+            _base = list(db.get_sales_summary(**sum_kwargs) or _summary_empty())
+            # Add service POS revenue to summary
+            _svc_in_list = [s for s in all_sales if len(s) > 12 and s[12] == 'service']
+            if _svc_in_list:
+                _s_cnt = len(_svc_in_list)
+                _s_rev = sum(float(s[4] or 0) for s in _svc_in_list)
+                _total_cnt = (_base[0] or 0) + _s_cnt
+                _total_rev = (_base[2] or 0) + _s_rev
+                _base = [_total_cnt, (_base[1] or 0) + _s_cnt,
+                         _total_rev, (_total_rev / _total_cnt if _total_cnt else 0)]
+            ctx["summary"] = tuple(_base)
 
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."

@@ -592,13 +592,14 @@
                          user_id[5] sale_date[6]
                   then  product_name[7] category[8] first_name[9] last_name[10] returned_qty[11]
                 #}
-                {% set _ret_qty = (s[11] | int) if s|length > 11 else 0 %}
+                {% set _is_service = (s|length > 12 and s[12] == 'service') %}
+                {% set _ret_qty = (s[11] | int) if (s|length > 11 and not _is_service) else 0 %}
                 {% set _is_full_return = _ret_qty > 0 and _ret_qty >= (s[3] | int) %}
                 {% set _is_partial_return = _ret_qty > 0 and _ret_qty < (s[3] | int) %}
                 <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-700/30 transition-colors {% if _is_full_return %}opacity-70{% endif %}" data-sale-id="{{ s[0] }}">
                     <td class="px-3 sm:px-5 py-3 text-xs text-slate-400 dark:text-slate-500 hidden sm:table-cell">{{ page_offset + loop.index }}</td>
                     <td class="px-3 py-2.5">
-                        {% if s[1] %}
+                        {% if s[1] and not _is_service %}
                         <a href="/products/{{ s[1] }}" class="group inline-block">
                             <p class="font-medium text-slate-800 dark:text-slate-100 max-w-[160px] sm:max-w-[200px] truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:underline decoration-blue-300 underline-offset-2 transition-colors text-sm flex items-center gap-1" title="{{ s[7] }}">
                                 <span class="truncate">{{ s[7] }}</span>
@@ -609,11 +610,15 @@
                         <p class="font-medium text-slate-800 dark:text-slate-100 max-w-[160px] sm:max-w-[200px] truncate text-sm" title="{{ s[7] }}">{{ s[7] }}</p>
                         {% endif %}
                         <p class="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1 flex-wrap">
+                            {% if _is_service %}
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400">✂️ Услуга</span>
+                            {% else %}
                             <span>{{ s[8] or '—' }}</span>
                             {% if _is_full_return %}
                             <a href="/returns?sale_id={{ s[0] }}" title="Открыть в истории возвратов" class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors">↩️ Возврат</a>
                             {% elif _is_partial_return %}
                             <a href="/returns?sale_id={{ s[0] }}" title="Открыть в истории возвратов" class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors">↩️ Частично ({{ _ret_qty }} из {{ s[3] }})</a>
+                            {% endif %}
                             {% endif %}
                         </p>
                         <!-- Mobile: date badge + time + shop + seller -->
@@ -658,7 +663,13 @@
                         <span class="block">{{ s[6]|fmt_sale_dt(user_tz, '%d.%m.%Y') if s[6] else '—' }}</span>
                         <span class="block text-slate-300 dark:text-slate-600">{{ s[6]|fmt_sale_time(user_tz) if s[6] else '' }}</span>
                     </td>
-                    {% if is_admin or s[5] == current_user_id %}
+                    {% if _is_service %}
+                    <td class="px-2 py-2.5 text-right">
+                        <a href="/appointments?date={{ s[6][:10] if s[6] else '' }}"
+                           class="text-xs text-violet-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/20 px-1.5 py-1 rounded transition-colors"
+                           title="Открыть запись">📋</a>
+                    </td>
+                    {% elif is_admin or s[5] == current_user_id %}
                     <td class="px-2 py-2.5 text-right">
                         <div class="flex items-center justify-end gap-0.5">
                             <button type="button"
