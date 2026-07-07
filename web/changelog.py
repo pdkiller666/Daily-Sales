@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.420.0"
+CURRENT_VERSION = "1.421.0"
 
 ENTRIES = [
+    {
+        "version": "1.421.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Fix cart visibility on subscription page",
+        ],
+    },
     {
         "version": "1.420.0",
         "date": "7 июля 2026",

@@ -30,9 +30,11 @@ _STATUSES = {
 
 
 def _get_ctx(request: Request):
+    from web.auth import get_session_user, get_csrf_token
+    user = get_session_user(request) or {}
     return {
-        "user": request.session.get("user", {}),
-        "csrf_token": request.session.get("csrf_token", ""),
+        "user": user,
+        "csrf_token": get_csrf_token(request),
     }
 
 
