@@ -136,6 +136,34 @@ def rankings_page(
                 })
             ctx["ranking"] = ranking
 
+        elif tab == "services":
+            raw = db.get_service_sales_ranking(**kwargs) or []
+            # first_name[0] last_name[1] shop_name[2] cnt[3]
+            # revenue[4] commission[5] user_id[6] username[7]
+            max_rev = float(raw[0][4]) if raw else 1.0
+            ranking = []
+            own_uid = _get_own_db_uid(db, telegram_id)
+            for i, r in enumerate(raw):
+                fname = (r[0] or "").strip()
+                lname = (r[1] or "").strip()
+                name = f"{fname} {lname}".strip() or (f"@{r[7]}" if r[7] else "—")
+                rev = float(r[4] or 0)
+                is_me = (own_uid is not None and r[6] == own_uid)
+                entry = {
+                    "pos": i + 1, "medal": MEDALS[i] if i < 3 else "",
+                    "label": name, "sub": r[2] or "—",
+                    "username": r[7] or "",
+                    "user_db_id": r[6],
+                    "qty": int(r[3] or 0), "revenue": rev,
+                    "count": int(r[3] or 0), "earnings": float(r[5] or 0),
+                    "pct": round(rev / max_rev * 100) if max_rev else 0,
+                    "is_me": is_me,
+                }
+                ranking.append(entry)
+                if is_me:
+                    ctx["own_rank"] = entry
+            ctx["ranking"] = ranking
+
         else:  # sellers
             raw = db.get_sales_ranking(**kwargs) or []
             # first_name[0] last_name[1] shop_name[2] total_sold[3] total_revenue[4]

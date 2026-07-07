@@ -114,6 +114,13 @@ def pos_page(request: Request):
             pass
         ctx["default_shop"] = default_shop
 
+        # Check if org has any services (for mode toggle)
+        try:
+            svc_list = db.get_all_services_for_pos() or []
+            ctx["has_services"] = len(svc_list) > 0
+        except Exception:
+            ctx["has_services"] = False
+
         # Subscription limit: warn early if monthly sale cap reached
         try:
             from subscription_utils import check_sales_limit
@@ -127,6 +134,7 @@ def pos_page(request: Request):
     except Exception as e:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
         ctx["default_shop"] = ""
+        ctx["has_services"] = False
         ctx["sales_limit_reached"] = False
         ctx["sales_limit_msg"] = ""
 
@@ -407,14 +415,92 @@ async def _post_sale_async(db, telegram_id: int, internal_uid: int, shop_name: s
         logging.warning(f"web pos GS trigger error: {_gs_err}")
 
 
+@router.get("/api/pos/services")
+def api_pos_services(request: Request):
+    """Return active services grouped by category for POS service mode."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    from billing_utils import has_module
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized", "services": []}, status_code=401)
+
+    telegram_id = int(user["sub"])
+    if not has_module(telegram_id, "services"):
+        return JSONResponse({"error": "Модуль услуг недоступен", "services": [], "categories": {}}, status_code=403)
+
+    org_db = user.get("org_db")
+    if not org_db:
+        return JSONResponse({"error": "Нет организации", "services": [], "categories": {}}, status_code=400)
+    try:
+        db = get_web_db(telegram_id, org_db)
+        raw = db.get_all_services_for_pos() or []
+        services = [
+            {
+                "id": r[0], "name": r[1],
+                "category": r[2] or "Услуги",
+                "price": float(r[3] or 0),
+                "duration": int(r[4] or 60),
+                "type": "service",
+            }
+            for r in raw
+        ]
+        categories: dict = {}
+        for s in services:
+            cat = s["category"]
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append(s)
+        return JSONResponse({"services": services, "categories": categories})
+    except Exception as exc:
+        logging.error(f"api_pos_services error: {exc}")
+        return JSONResponse({"error": "Внутренняя ошибка", "services": [], "categories": {}})
+
+
+@router.get("/api/pos/clients")
+def api_pos_clients(request: Request, q: str = ""):
+    """Quick client search for POS client selector (CRM module required)."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    from billing_utils import has_module
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"clients": []}, status_code=401)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    if not org_db:
+        return JSONResponse({"clients": []})
+    try:
+        db = get_web_db(telegram_id, org_db)
+        if not q or len(q) < 1:
+            return JSONResponse({"clients": []})
+        rows = db.search_clients_for_pos(q.strip(), limit=10) or []
+        clients = [
+            {
+                "id": r[0],
+                "name": f"{r[1] or ''} {r[2] or ''}".strip() or "—",
+                "phone": r[3] or "",
+            }
+            for r in rows
+        ]
+        return JSONResponse({"clients": clients})
+    except Exception as exc:
+        logging.error(f"api_pos_clients error: {exc}")
+        return JSONResponse({"clients": []})
+
+
 @router.post("/pos/checkout")
 async def pos_checkout(
     request: Request,
     items_json: Annotated[str, Form()],
     shop_name: Annotated[str, Form()],
     csrf_token: str = Form(default=""),
+    client_id: int = Form(default=0),
 ):
-    """Process a POS cart checkout — records multiple sales at once."""
+    """Process a POS cart checkout — records multiple sales and/or services at once."""
     import json
     import asyncio
     from web.auth import get_session_user, verify_csrf_token
@@ -454,34 +540,64 @@ async def pos_checkout(
         if not _ok:
             return JSONResponse({"ok": False, "error": _msg or "Достигнут лимит продаж по тарифу"}, status_code=403)
 
-        # Запись продаж — синхронный БД-цикл; уносим в поток, чтобы не блокировать
-        # event loop на время N INSERT'ов (check_same_thread=False + thread-local пул).
+        _client_id = int(client_id) if client_id and int(client_id) > 0 else None
+
         def _write_sales():
             _sold, _sold_items, _errors = [], [], []
             for item in items:
-                product_id = int(item.get("id", 0))
-                qty = int(item.get("qty", 1))
-                price = float(item.get("price", 0))
+                item_type = item.get("type", "product")
                 name = item.get("name", "")
+                price = float(item.get("price", 0))
 
-                if qty < 1 or product_id < 1:
-                    continue
-
-                try:
-                    result = db.add_sale(
-                        product_id=product_id,
-                        shop_name=shop_name,
-                        quantity_sold=qty,
-                        user_id=internal_uid,
-                        sale_price=price,
-                    )
-                    if result is None:
-                        _errors.append(f"«{name}»: недостаточно на складе")
-                    else:
-                        _sold.append(name)
-                        _sold_items.append({"name": name, "qty": qty, "price": price, "total": qty * price})
-                except Exception as e:
-                    _errors.append(f"«{name}»: {e}")
+                if item_type == "service":
+                    service_id = int(item.get("id", 0))
+                    qty = int(item.get("qty", 1))
+                    if service_id < 1:
+                        continue
+                    try:
+                        for _ in range(qty):
+                            appt_id = db.add_service_sale(
+                                service_id=service_id,
+                                staff_user_id=internal_uid,
+                                price=price,
+                                client_id=_client_id,
+                                shop_name=shop_name,
+                            )
+                        if appt_id:
+                            _sold.append(name)
+                            _sold_items.append({
+                                "name": name, "qty": qty,
+                                "price": price, "total": qty * price,
+                                "type": "service",
+                            })
+                        else:
+                            _errors.append(f"«{name}»: ошибка записи услуги")
+                    except Exception as e:
+                        _errors.append(f"«{name}»: {e}")
+                else:
+                    product_id = int(item.get("id", 0))
+                    qty = int(item.get("qty", 1))
+                    if qty < 1 or product_id < 1:
+                        continue
+                    try:
+                        result = db.add_sale(
+                            product_id=product_id,
+                            shop_name=shop_name,
+                            quantity_sold=qty,
+                            user_id=internal_uid,
+                            sale_price=price,
+                        )
+                        if result is None:
+                            _errors.append(f"«{name}»: недостаточно на складе")
+                        else:
+                            _sold.append(name)
+                            _sold_items.append({
+                                "name": name, "qty": qty,
+                                "price": price, "total": qty * price,
+                                "type": "product",
+                            })
+                    except Exception as e:
+                        _errors.append(f"«{name}»: {e}")
             return _sold, _sold_items, _errors
 
         from anyio import to_thread
@@ -490,14 +606,14 @@ async def pos_checkout(
         if not sold:
             return JSONResponse({"ok": False, "error": "; ".join(errors) or "Ошибка записи"}, status_code=400)
 
-        # Запускаем пост-обработку (нотификации + GS) в фоне — не блокируем ответ
-        if sold_items:
+        product_items = [i for i in sold_items if i.get("type") != "service"]
+        if product_items:
             try:
-                asyncio.create_task(_post_sale_async(db, telegram_id, internal_uid, shop_name, sold_items))
+                asyncio.create_task(_post_sale_async(db, telegram_id, internal_uid, shop_name, product_items))
             except Exception:
                 pass
 
-        msg = f"Продано {len(sold)} поз."
+        msg = f"Оформлено {len(sold)} поз."
         if errors:
             msg += f" Ошибки: {'; '.join(errors)}"
         return JSONResponse({"ok": True, "message": msg, "sold_count": len(sold), "errors": errors})

@@ -674,12 +674,30 @@
         </div>
         {% endif %}
 
+        <!-- Комиссия за услуги -->
+        {% if detail_service_commission is defined and detail_service_commission > 0 %}
+        <div class="flex justify-between items-center py-2 border-b border-slate-50">
+            <span class="font-medium text-slate-800">Комиссия за услуги</span>
+            <span class="font-semibold text-teal-600 ml-4 shrink-0">+{{ detail_service_commission|int|fmt_currency }}</span>
+        </div>
+        {% if detail_service_earnings_rows is defined and detail_service_earnings_rows %}
+        <div class="pl-4 pb-1">
+            {% for row in detail_service_earnings_rows %}
+            <div class="flex justify-between items-center py-1 text-xs text-slate-500">
+                <span>💆 {{ row.service_name or '—' }}</span>
+                <span class="text-teal-600 font-medium">+{{ row.commission_amount|int|fmt_currency }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endif %}
+
         <!-- К выплате -->
         <div class="flex justify-between items-center pt-3 mt-1">
             <div>
                 <span class="font-bold text-slate-900 text-base">К выплате</span>
                 <p class="text-xs text-slate-400 mt-0.5">
-                    {{ detail_user.base_salary|int|fmt_currency }}{% if detail_user.motivation > 0 %} + {{ detail_user.motivation|int|fmt_currency }}{% endif %}{% if detail_user.adj_sum > 0 %} + {{ detail_user.adj_sum|int|fmt_currency }}{% elif detail_user.adj_sum < 0 %} {{ detail_user.adj_sum|int|fmt_currency }}{% endif %}{% if detail_contest_rewards > 0 %} + {{ detail_contest_rewards|int|fmt_currency }}{% endif %}
+                    {{ detail_user.base_salary|int|fmt_currency }}{% if detail_user.motivation > 0 %} + {{ detail_user.motivation|int|fmt_currency }}{% endif %}{% if detail_user.adj_sum > 0 %} + {{ detail_user.adj_sum|int|fmt_currency }}{% elif detail_user.adj_sum < 0 %} {{ detail_user.adj_sum|int|fmt_currency }}{% endif %}{% if detail_contest_rewards > 0 %} + {{ detail_contest_rewards|int|fmt_currency }}{% endif %}{% if detail_service_commission is defined and detail_service_commission > 0 %} + {{ detail_service_commission|int|fmt_currency }}{% endif %}
                 </p>
             </div>
             <span class="text-xl font-bold text-emerald-600 ml-4 shrink-0">{{ detail_user.total|int|fmt_currency }}</span>

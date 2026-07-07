@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.424.0"
+CURRENT_VERSION = "1.425.0"
 
 ENTRIES = [
+    {
+        "version": "1.425.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Add service revenue tracking and integrate it into salary and reports views",
+        ],
+    },
     {
         "version": "1.424.0",
         "date": "7 июля 2026",

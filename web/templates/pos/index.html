@@ -71,12 +71,28 @@
     <a href="/sales" class="lg:hidden text-xs text-slate-400 hover:text-blue-600 transition-colors shrink-0">← Журнал</a>
 </div>
 
+<!-- ── Переключатель режима: Товары / Услуги ── -->
+<template x-if="hasServices">
+<div class="flex gap-2 mb-3">
+    <button @click="switchMode('products')"
+            :class="mode === 'products' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border transition-colors">
+        📦 Товары
+    </button>
+    <button @click="switchMode('services')"
+            :class="mode === 'services' ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border transition-colors">
+        💆 Услуги
+    </button>
+</div>
+</template>
+
 <!-- ── Основной POS-лэйаут ── -->
 <!-- На мобайле: pb учитывает нав (56px) + строка поиска (~52px) + корзина (~60px) = ~168px -->
 <div class="flex gap-4 items-start pb-4 lg:pb-4" style="padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 11rem)" id="pos-main-grid">
 
     <!-- ── ЛЕВАЯ ПАНЕЛЬ: категории (только десктоп) ── -->
-    <div class="hidden lg:flex flex-col gap-1 w-44 shrink-0">
+    <div class="hidden lg:flex flex-col gap-1 w-44 shrink-0" x-show="mode === 'products'">
         <!-- Спецкатегории -->
         <template x-if="recent.length > 0">
             <button @click="activeCat = '__recent__'"
@@ -114,9 +130,11 @@
         </template>
     </div>
 
-    <!-- ── ЦЕНТРАЛЬНАЯ ПАНЕЛЬ: товары ── -->
+    <!-- ── ЦЕНТРАЛЬНАЯ ПАНЕЛЬ: товары / услуги ── -->
     <div class="flex-1 min-w-0 flex flex-col gap-3">
 
+        <!-- ─── РЕЖИМ ТОВАРОВ ─── -->
+        <div class="flex flex-col gap-3" x-show="mode === 'products'">
         <!-- Поиск + категории (только десктоп) -->
         <div class="hidden lg:flex gap-2 items-center">
             <div class="relative flex-1">
@@ -274,7 +292,93 @@
 
         <!-- Отступ снизу для мобильного бара корзины -->
         <div class="h-20 lg:hidden"></div>
-    </div>
+        </div><!-- /products mode -->
+
+        <!-- ─── РЕЖИМ УСЛУГ ─── -->
+        <div class="flex flex-col gap-3" x-show="mode === 'services'">
+
+            <!-- Поиск услуг (десктоп) -->
+            <div class="hidden lg:flex gap-2 items-center">
+                <div class="relative flex-1">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+                    </svg>
+                    <input type="text" x-model="serviceSearch" placeholder="Поиск услуги…"
+                           class="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <button x-show="serviceSearch" @click="serviceSearch=''"
+                            class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+                </div>
+            </div>
+
+            <!-- Загрузка услуг -->
+            <div x-show="allServices.length === 0 && mode === 'services'" class="flex items-center justify-center py-16">
+                <div class="flex flex-col items-center gap-3 text-slate-400">
+                    <svg class="animate-spin w-8 h-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.37 0 0 5.37 0 12h4z"/>
+                    </svg>
+                    <span class="text-sm">Загружаю услуги…</span>
+                </div>
+            </div>
+
+            <!-- Пусто -->
+            <div x-show="allServices.length > 0 && filteredServices.length === 0"
+                 class="flex flex-col items-center justify-center py-20 text-center px-4">
+                <div class="text-4xl mb-3">💆</div>
+                <p class="text-slate-500 text-sm"
+                   x-text="serviceSearch ? 'Ничего не найдено по «' + serviceSearch + '»' : 'Нет активных услуг'"></p>
+            </div>
+
+            <!-- Сетка услуг -->
+            <div x-show="filteredServices.length > 0"
+                 class="grid gap-3"
+                 style="grid-template-columns: repeat(auto-fill, minmax(150px, 1fr))">
+                <template x-for="s in filteredServices" :key="s.id">
+                    <div class="group relative bg-white border border-slate-200 rounded-2xl p-3.5 transition-all duration-150 hover:border-teal-400 hover:shadow-md cursor-pointer"
+                         :class="isSvcInCart(s.id) ? 'border-teal-400 bg-teal-50/40 shadow-sm' : ''"
+                         @click="addServiceToCart(s)">
+
+                        <!-- Бейдж количества в корзине -->
+                        <div x-show="isSvcInCart(s.id)"
+                             class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-teal-600 text-white text-xs font-bold flex items-center justify-center shadow"
+                             x-text="svcCartQty(s.id)"></div>
+
+                        <!-- Длительность -->
+                        <div class="absolute top-2.5 right-2.5 text-[10px] text-slate-400 font-medium"
+                             x-text="s.duration + ' мин'"></div>
+
+                        <!-- Контент -->
+                        <div class="mt-2">
+                            <p class="text-[10px] text-slate-400 uppercase tracking-wide mb-1 pr-1 truncate" x-text="s.category"></p>
+                            <p class="text-sm font-semibold text-slate-800 leading-tight mb-2 line-clamp-2 group-hover:text-teal-700 transition-colors"
+                               x-text="s.name" :title="s.name"></p>
+                            <p class="text-base font-bold text-teal-600" x-text="fmtPrice(s.price)"></p>
+                        </div>
+
+                        <!-- ✕ Убрать из корзины -->
+                        <button x-show="isSvcInCart(s.id)"
+                                @click.stop="removeSvcFromCart(s.id)"
+                                class="absolute bottom-2 right-2 w-5 h-5 rounded-full bg-red-100 text-red-500 hover:bg-red-200 text-xs font-bold flex items-center justify-center z-10 transition-colors"
+                                title="Убрать из корзины">✕</button>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Поиск услуг (мобайл) -->
+            <div class="lg:hidden sticky bottom-16 z-10 px-1 pb-2">
+                <div class="relative">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+                    </svg>
+                    <input type="text" x-model="serviceSearch" placeholder="Поиск услуги…"
+                           inputmode="search"
+                           class="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm bg-white shadow focus:outline-none focus:ring-2 focus:ring-teal-500">
+                </div>
+            </div>
+
+            <div class="h-20 lg:hidden"></div>
+        </div><!-- /services mode -->
+    </div><!-- /central panel -->
 
     <!-- ── ПРАВАЯ ПАНЕЛЬ: корзина (только десктоп) ── -->
     <div class="hidden lg:flex w-80 shrink-0 flex-col gap-3 sticky top-20">
@@ -343,6 +447,35 @@
                     </div>
                 </template>
             </div>
+            <!-- Выбор клиента -->
+            <div x-show="cart.length > 0" class="px-4 py-2 border-t border-slate-100">
+                <p class="text-xs text-slate-400 mb-1">Клиент (необязательно)</p>
+                <div class="relative">
+                    <input type="text" x-model="clientSearch"
+                           @input="searchClients($event.target.value); showClientDropdown = true"
+                           @focus="if(clientResults.length) showClientDropdown = true"
+                           @click.outside="showClientDropdown = false"
+                           placeholder="Поиск по имени или телефону…"
+                           class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400">
+                    <button x-show="clientId > 0" @click="clearClient()"
+                            class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500 text-base leading-none">×</button>
+                    <!-- Dropdown -->
+                    <div x-show="showClientDropdown && clientResults.length > 0" x-cloak
+                         class="absolute left-0 right-0 mt-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 max-h-40 overflow-y-auto">
+                        <template x-for="c in clientResults" :key="c.id">
+                            <button @click="selectClient(c)"
+                                    class="w-full text-left px-3 py-2 text-sm hover:bg-teal-50 flex items-center gap-2">
+                                <span class="font-medium text-slate-800" x-text="c.name"></span>
+                                <span class="text-xs text-slate-400" x-text="c.phone || ''"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+                <p x-show="clientId > 0" class="text-xs text-teal-600 mt-1">
+                    ✓ Клиент привязан к продаже
+                </p>
+            </div>
+
             <!-- Итог -->
             <div x-show="cart.length > 0" class="px-4 py-3 border-t border-slate-100 bg-slate-50">
                 <div class="flex items-center justify-between mb-1">
@@ -711,6 +844,22 @@ function posApp() {
         extraCoeffNote: '', /* активный коэф. смены, если задан */
         quickQtys: [1, 2, 3, 5, 10, 20, 50],
 
+        // ── Режим Услуги ──
+        mode: 'products',
+        hasServices: {{ 'true' if has_services else 'false' }},
+        allServices: [],
+        serviceCategories: {},
+        activeSrvCat: '',
+        serviceSearch: '',
+
+        // ── Клиент (CRM привязка) ──
+        clientId: 0,
+        clientName: '',
+        clientSearch: '',
+        clientResults: [],
+        showClientDropdown: false,
+        _clientSearchTimer: null,
+
         init() {
             this.favorites = new Set();
             /* ── Восстановление корзины из localStorage ── */
@@ -828,6 +977,97 @@ function posApp() {
                     this.extraCoeffNote = data.extra_coeff_note || '';
                 })
                 .catch(() => {});
+        },
+
+        // ── Методы режима «Услуги» ──────────────────────────────────────
+
+        loadServices() {
+            fetch('/api/pos/services')
+                .then(r => r.json())
+                .then(data => {
+                    this.allServices = data.services || [];
+                    this.serviceCategories = data.categories || {};
+                })
+                .catch(() => {});
+        },
+
+        get filteredServices() {
+            let list = this.activeSrvCat
+                ? (this.serviceCategories[this.activeSrvCat] || [])
+                : this.allServices;
+            if (this.serviceSearch.trim()) {
+                const q = this.serviceSearch.toLowerCase();
+                list = list.filter(s => s.name.toLowerCase().includes(q));
+            }
+            return list;
+        },
+
+        switchMode(m) {
+            this.mode = m;
+            if (m === 'services' && this.allServices.length === 0) {
+                this.loadServices();
+            }
+        },
+
+        addServiceToCart(service) {
+            const cartId = 'svc_' + service.id;
+            const existing = this.cart.find(i => i.id === cartId);
+            if (existing) {
+                existing.qty++;
+            } else {
+                this.cart.push({
+                    id: cartId,
+                    svcId: service.id,
+                    name: service.name,
+                    price: service.price,
+                    qty: 1,
+                    stock: 9999,
+                    type: 'service',
+                });
+            }
+            this._saveCart();
+        },
+
+        isSvcInCart(svcId) {
+            return this.cart.some(i => i.id === 'svc_' + svcId);
+        },
+
+        svcCartQty(svcId) {
+            const item = this.cart.find(i => i.id === 'svc_' + svcId);
+            return item ? item.qty : 0;
+        },
+
+        removeSvcFromCart(svcId) {
+            const idx = this.cart.findIndex(i => i.id === 'svc_' + svcId);
+            if (idx !== -1) { this.cart.splice(idx, 1); this._saveCart(); }
+        },
+
+        // ── Методы клиентской CRM-привязки ─────────────────────────────
+
+        searchClients(q) {
+            clearTimeout(this._clientSearchTimer);
+            if (!q || q.length < 1) { this.clientResults = []; return; }
+            this._clientSearchTimer = setTimeout(() => {
+                fetch('/api/pos/clients?q=' + encodeURIComponent(q))
+                    .then(r => r.json())
+                    .then(data => { this.clientResults = data.clients || []; })
+                    .catch(() => {});
+            }, 250);
+        },
+
+        selectClient(c) {
+            this.clientId = c.id;
+            this.clientName = c.name + (c.phone ? ' · ' + c.phone : '');
+            this.clientSearch = this.clientName;
+            this.clientResults = [];
+            this.showClientDropdown = false;
+        },
+
+        clearClient() {
+            this.clientId = 0;
+            this.clientName = '';
+            this.clientSearch = '';
+            this.clientResults = [];
         },
 
         /* ── Мотивация ── */
@@ -984,13 +1224,18 @@ function posApp() {
             const motivationTotal = this.totalMotivation;
 
             const items = this.cart.map(i => ({
-                id: i.id, name: i.name, qty: i.qty, price: i.price,
+                id: i.type === 'service' ? i.svcId : i.id,
+                name: i.name,
+                qty: i.qty,
+                price: i.price,
+                type: i.type || 'product',
             }));
 
             const body = new URLSearchParams({
                 csrf_token: this.csrfToken,
                 shop_name: this.shop,
                 items_json: JSON.stringify(items),
+                client_id: this.clientId || 0,
             });
 
             try {

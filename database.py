@@ -1954,6 +1954,19 @@ class Database:
             except Exception as _exc:
                 logger.debug("create_tables: sales.client_id подавлено: %s", _exc)
 
+        # ── POS: ALTER TABLE appointments ADD source + shop_name ─────────────────
+        _appt_cols = {r[1] for r in cursor.execute("PRAGMA table_info(appointments)").fetchall()}
+        if 'source' not in _appt_cols:
+            try:
+                cursor.execute("ALTER TABLE appointments ADD COLUMN source TEXT DEFAULT 'appointment'")
+            except Exception as _exc:
+                logger.debug("create_tables: appointments.source подавлено: %s", _exc)
+        if 'shop_name' not in _appt_cols:
+            try:
+                cursor.execute("ALTER TABLE appointments ADD COLUMN shop_name TEXT DEFAULT NULL")
+            except Exception as _exc:
+                logger.debug("create_tables: appointments.shop_name подавлено: %s", _exc)
+
         conn.commit()
 
         # Удаляем осиротевшие записи motivation_schedule (товар уже удалён)
@@ -19485,6 +19498,133 @@ class Database:
         except Exception as exc:
             logger.error('prune_ai_tool_stats: %s', exc)
             return 0
+
+    # ── Services POS methods ──────────────────────────────────────────────────
+
+    def get_all_services_for_pos(self) -> list:
+        """Return active services with category for POS service mode."""
+        conn = self.get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT s.id, s.name, COALESCE(sc.name, 'Услуги') as category, "
+                "s.price, s.duration_minutes "
+                "FROM services s "
+                "LEFT JOIN service_categories sc ON s.category_id = sc.id "
+                "WHERE s.is_active = 1 "
+                "ORDER BY category, s.name"
+            ).fetchall()
+            return rows
+        except Exception as exc:
+            logger.debug("get_all_services_for_pos: %s", exc)
+            return []
+        finally:
+            conn.close()
+
+    def add_service_sale(self, service_id: int, staff_user_id: int, price: float,
+                         client_id, shop_name: str) -> int | None:
+        """Create a completed POS appointment and record service_earnings."""
+        from datetime import datetime as _dt
+        now = _dt.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                "INSERT INTO appointments (service_id, client_id, staff_user_id, "
+                "start_time, end_time, status, price, created_by, source, shop_name) "
+                "VALUES (?,?,?,?,?,'completed',?,?,'pos_sale',?)",
+                (service_id, client_id or 0, staff_user_id,
+                 now, now, price, staff_user_id, shop_name)
+            )
+            appt_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            commission = 0.0
+            motiv_type = 'percentage'
+            motiv_value = 0.0
+            try:
+                rule = conn.execute(
+                    "SELECT type, value FROM service_motivation_rules "
+                    "WHERE is_active=1 AND (service_id=? OR service_id IS NULL) "
+                    "ORDER BY (service_id IS NOT NULL) DESC LIMIT 1",
+                    (service_id,)
+                ).fetchone()
+                if rule:
+                    motiv_type, motiv_value = rule[0], float(rule[1])
+                    commission = price * motiv_value / 100 if motiv_type == 'percentage' else motiv_value
+            except Exception:
+                pass
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO service_earnings "
+                    "(appointment_id, user_id, service_id, commission_amount, "
+                    "motivation_type, motivation_value, motivation_source) "
+                    "VALUES (?,?,?,?,?,?,'pos_sale')",
+                    (appt_id, staff_user_id, service_id,
+                     commission, motiv_type, motiv_value)
+                )
+            except Exception:
+                pass
+            conn.commit()
+            return appt_id
+        except Exception as exc:
+            logger.error("add_service_sale: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return None
+        finally:
+            conn.close()
+
+    def get_service_sales_ranking(self, start_date=None, end_date=None) -> list:
+        """Staff ranking by POS service revenue.
+        Returns: first_name[0] last_name[1] shop_name[2] cnt[3]
+                 revenue[4] commission[5] user_id[6] username[7]
+        """
+        conn = self.get_connection()
+        try:
+            sql = (
+                "SELECT u.first_name, u.last_name, u.shop_name, "
+                "COUNT(a.id) as cnt, "
+                "COALESCE(SUM(a.price), 0) as revenue, "
+                "COALESCE(SUM(se.commission_amount), 0) as commission, "
+                "u.id, u.username "
+                "FROM appointments a "
+                "JOIN users u ON a.staff_user_id = u.id "
+                "LEFT JOIN service_earnings se ON se.appointment_id = a.id "
+                "WHERE a.source = 'pos_sale' AND a.status = 'completed'"
+            )
+            params: list = []
+            if start_date:
+                sql += " AND date(a.start_time) >= ?"
+                params.append(start_date)
+            if end_date:
+                sql += " AND date(a.start_time) <= ?"
+                params.append(end_date)
+            sql += " GROUP BY u.id ORDER BY revenue DESC"
+            return conn.execute(sql, params).fetchall()
+        except Exception as exc:
+            logger.debug("get_service_sales_ranking: %s", exc)
+            return []
+        finally:
+            conn.close()
+
+    def search_clients_for_pos(self, query: str, limit: int = 10) -> list:
+        """Quick client search for POS client selector.
+        Returns: id[0] first_name[1] last_name[2] phone[3]
+        """
+        conn = self.get_connection()
+        try:
+            q = f"%{query}%"
+            rows = conn.execute(
+                "SELECT id, first_name, last_name, phone FROM clients "
+                "WHERE first_name LIKE ? OR last_name LIKE ? OR phone LIKE ? "
+                "ORDER BY first_name LIMIT ?",
+                (q, q, q, limit)
+            ).fetchall()
+            return rows
+        except Exception as exc:
+            logger.debug("search_clients_for_pos: %s", exc)
+            return []
+        finally:
+            conn.close()
 
     def get_billing_stats(self) -> dict:
         """Статистика биллинга для super admin панели."""

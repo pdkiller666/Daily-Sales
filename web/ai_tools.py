@@ -928,6 +928,37 @@ def _tool_get_seller_stats(db, params: dict) -> str:
         return "Ошибка получения данных о продавце."
 
 
+def _tool_get_service_sales_period(db, params: dict) -> str:
+    """Get POS service sales summary and top staff for a date range."""
+    today     = _dt.date.today()
+    date_from = str(params.get("date_from", today.replace(day=1).isoformat()))
+    date_to   = str(params.get("date_to",   today.isoformat()))
+    try:
+        raw = db.get_service_sales_ranking(start_date=date_from, end_date=date_to) or []
+        if not raw:
+            return f"Продаж услуг через кассу за {date_from} — {date_to} нет."
+        total_rev = sum(float(r[4] or 0) for r in raw)
+        total_cnt = sum(int(r[3] or 0) for r in raw)
+        result = (
+            f"Услуги (POS) {date_from} — {date_to}:\n"
+            f"  Всего услуг: {total_cnt}, выручка: {int(total_rev):,} ₽\n"
+            "Топ мастеров:"
+        )
+        for i, r in enumerate(raw[:5]):
+            fname = (r[0] or "").strip()
+            lname = (r[1] or "").strip()
+            name = f"{fname} {lname}".strip() or "—"
+            result += (
+                f"\n  {i+1}. {name}: {int(r[3])} услуг, "
+                f"{int(float(r[4] or 0)):,} ₽ выручки, "
+                f"комиссия {int(float(r[5] or 0)):,} ₽"
+            )
+        return result
+    except Exception as exc:
+        logger.warning("ai_tool get_service_sales_period: %s", exc)
+        return "Ошибка получения данных об услугах."
+
+
 def _tool_get_plans_detail(db, params: dict) -> str:
     """Active plans with per-shop progress bars."""
     try:
@@ -1159,6 +1190,14 @@ TOOLS: dict[str, dict] = {
             "Параметры: нет."
         ),
         "fn": _tool_get_plans_detail,
+    },
+    "get_service_sales_period": {
+        "description": (
+            "Продажи услуг через кассу (POS) за период: выручка и топ мастеров по оказанным услугам. "
+            "Используй когда спрашивают об услугах, записях, мастерах или сервисной выручке. "
+            "Параметры: date_from (ГГГГ-ММ-ДД), date_to (ГГГГ-ММ-ДД)."
+        ),
+        "fn": _tool_get_service_sales_period,
     },
 }
 
