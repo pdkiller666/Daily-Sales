@@ -140,7 +140,7 @@ def reports_page(
         return RedirectResponse(url="/login", status_code=302)
 
     telegram_id = int(user["sub"])
-    from billing_utils import has_module
+    from billing_utils import has_module, has_extension
     if not has_module(telegram_id, "analytics"):
         return RedirectResponse(url="/subscription?msg=analytics_locked", status_code=302)
     org_db = user.get("org_db")
@@ -158,6 +158,10 @@ def reports_page(
         "groups": [], "all_sales": [], "error": None,
         "chart_labels": [], "chart_data": [], "chart_dates": [],
         "prev_revenue": None, "growth_pct": None,
+        "has_abc": has_extension(telegram_id, "abc_analysis"),
+        "has_heatmap": has_extension(telegram_id, "heatmap"),
+        "has_turnover": has_extension(telegram_id, "turnover"),
+        "has_dead_stock": has_extension(telegram_id, "dead_stock"),
     }
 
     try:

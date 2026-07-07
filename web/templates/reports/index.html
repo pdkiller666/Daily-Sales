@@ -445,6 +445,7 @@ window._aiReportData = {
 
 <!-- Analytics links: ABC + Heatmap + Turnover + Dead Stock -->
 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+    {% if has_abc %}
     <a href="/reports/abc?period={{ period }}&shop={{ shop|urlencode }}"
        class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700 transition-colors shadow-sm">
         <span class="text-xl">📐</span>
@@ -453,6 +454,18 @@ window._aiReportData = {
             <div class="text-xs font-normal text-slate-400">Товары A/B/C по выручке</div>
         </div>
     </a>
+    {% else %}
+    <a href="/subscription?tab=modules"
+       class="flex items-center gap-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-400 shadow-sm cursor-pointer hover:border-blue-300 transition-colors">
+        <span class="text-xl opacity-40">📐</span>
+        <div class="leading-tight flex-1">
+            <div class="flex items-center gap-1.5">ABC-анализ <span class="text-xs font-normal bg-slate-200 text-slate-500 rounded px-1.5 py-0.5">🔒 Не подключён</span></div>
+            <div class="text-xs font-normal text-slate-400">Товары A/B/C по выручке</div>
+        </div>
+    </a>
+    {% endif %}
+
+    {% if has_heatmap %}
     <a href="/reports/heatmap?period={{ period }}&shop={{ shop|urlencode }}"
        class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700 transition-colors shadow-sm">
         <span class="text-xl">🔥</span>
@@ -461,6 +474,18 @@ window._aiReportData = {
             <div class="text-xs font-normal text-slate-400">Активность День × Час</div>
         </div>
     </a>
+    {% else %}
+    <a href="/subscription?tab=modules"
+       class="flex items-center gap-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-400 shadow-sm cursor-pointer hover:border-blue-300 transition-colors">
+        <span class="text-xl opacity-40">🔥</span>
+        <div class="leading-tight flex-1">
+            <div class="flex items-center gap-1.5">Тепловая карта <span class="text-xs font-normal bg-slate-200 text-slate-500 rounded px-1.5 py-0.5">🔒 Не подключён</span></div>
+            <div class="text-xs font-normal text-slate-400">Активность День × Час</div>
+        </div>
+    </a>
+    {% endif %}
+
+    {% if has_turnover %}
     <a href="/reports/turnover?shop={{ shop|urlencode }}"
        class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700 transition-colors shadow-sm">
         <span class="text-xl">⏳</span>
@@ -469,6 +494,18 @@ window._aiReportData = {
             <div class="text-xs font-normal text-slate-400">Когда кончится товар</div>
         </div>
     </a>
+    {% else %}
+    <a href="/subscription?tab=modules"
+       class="flex items-center gap-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-400 shadow-sm cursor-pointer hover:border-blue-300 transition-colors">
+        <span class="text-xl opacity-40">⏳</span>
+        <div class="leading-tight flex-1">
+            <div class="flex items-center gap-1.5">Оборачиваемость <span class="text-xs font-normal bg-slate-200 text-slate-500 rounded px-1.5 py-0.5">🔒 Не подключён</span></div>
+            <div class="text-xs font-normal text-slate-400">Когда кончится товар</div>
+        </div>
+    </a>
+    {% endif %}
+
+    {% if has_dead_stock %}
     <a href="/reports/dead-stock?shop={{ shop|urlencode }}"
        class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:border-amber-300 hover:text-amber-700 transition-colors shadow-sm">
         <span class="text-xl">🪦</span>
@@ -477,6 +514,16 @@ window._aiReportData = {
             <div class="text-xs font-normal text-slate-400">Нет продаж за период</div>
         </div>
     </a>
+    {% else %}
+    <a href="/subscription?tab=modules"
+       class="flex items-center gap-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-400 shadow-sm cursor-pointer hover:border-blue-300 transition-colors">
+        <span class="text-xl opacity-40">🪦</span>
+        <div class="leading-tight flex-1">
+            <div class="flex items-center gap-1.5">Залежалые товары <span class="text-xs font-normal bg-slate-200 text-slate-500 rounded px-1.5 py-0.5">🔒 Не подключён</span></div>
+            <div class="text-xs font-normal text-slate-400">Нет продаж за период</div>
+        </div>
+    </a>
+    {% endif %}
 </div>
 
 <!-- Group by tabs -->
