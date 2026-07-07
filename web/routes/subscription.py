@@ -58,6 +58,41 @@ def _notify_admin_async(plan_type: str, amount: int, user_display: str, telegram
     t.start()
 
 
+def _notify_admin_batch_async(plan_types: list, total_amount: int, user_display: str, telegram_id: int) -> None:
+    """Одно сводное уведомление при пакетной заявке (несколько позиций за раз)."""
+    def _send() -> None:
+        token = os.environ.get("BOT_TOKEN", "")
+        admin_id = os.environ.get("ADMIN_CHAT_ID", "")
+        if not token or not admin_id:
+            return
+        lines = "\n".join(f"  • {_html.escape(_plan_type_label(pt))}" for pt in plan_types)
+        text = (
+            "🛒 <b>Пакетная заявка из веб-кабинета!</b>\n\n"
+            f"👤 <b>Пользователь:</b> {_html.escape(str(user_display))}\n"
+            f"🆔 <b>Telegram ID:</b> {telegram_id}\n"
+            f"📦 <b>Позиции ({len(plan_types)}):</b>\n{lines}\n"
+            f"💰 <b>Итого:</b> {total_amount}\u00a0₽/мес.\n\n"
+            "⏰ Заявки ожидают рассмотрения в боте (/pending_payments)."
+        )
+        payload = json.dumps({"chat_id": admin_id, "text": text, "parse_mode": "HTML"}).encode()
+        try:
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+        except Exception as exc:
+            _is_timeout = "timeout" in type(exc).__name__.lower() or "timed out" in str(exc).lower()
+            if _is_timeout:
+                logging.warning("_notify_admin_batch_async: timeout")
+            else:
+                logging.warning("_notify_admin_batch_async: %s", exc)
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 def _plan_type_label(plan_type: str) -> str:
     if not plan_type:
         return "—"
@@ -353,6 +388,37 @@ def _has_pending_request(user_id: int) -> bool:
         return row is not None
     except Exception:
         return False
+
+
+def _get_pending_plan_types(user_id: int) -> set:
+    """Возвращает множество plan_type строк с pending-заявками для этого пользователя."""
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        try:
+            rows = conn.execute(
+                "SELECT plan_type FROM payment_requests WHERE user_id = ? AND status = 'pending'",
+                (user_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        return {r[0] for r in rows if r[0]}
+    except Exception:
+        return set()
+
+
+def _calc_monthly_total(user_mod_subs: dict, modules: list, extensions: list, bundles: list) -> int:
+    """Суммирует месячную стоимость всех активных платных подписок."""
+    price_map: dict = {}
+    for m in modules:
+        price_map[m["key"]] = m.get("price_monthly", 0)
+    for e in extensions:
+        price_map[e["key"]] = e.get("price_monthly", 0)
+    for b in bundles:
+        price_map[b["key"]] = b.get("price_monthly", 0)
+    total = 0
+    for key in user_mod_subs:
+        total += price_map.get(key, 0)
+    return total
 
 
 def _fmt_cap(value) -> str:
@@ -669,6 +735,9 @@ def _load_shop_bot_data(telegram_id: int) -> dict:
         "requisites": "",
         "user_mod_subs": {},
         "has_pending": False,
+        "pending_plan_types": set(),
+        "monthly_total": 0,
+        "monthly_total_fmt": "0\u00a0₽",
         "history": [],
         "history_has_more": False,
         "trial": None,
@@ -719,15 +788,15 @@ def _load_shop_bot_data(telegram_id: int) -> dict:
             ).fetchall()
 
             # user-specific: pending, history, trial (only if user_id known)
-            pending_row = None
+            pending_pt_rows = []
             hist_total = 0
             hist_rows = []
             trial_row = None
             if user_id:
-                pending_row = conn.execute(
-                    "SELECT id FROM payment_requests WHERE user_id=? AND status='pending' LIMIT 1",
+                pending_pt_rows = conn.execute(
+                    "SELECT plan_type FROM payment_requests WHERE user_id=? AND status='pending'",
                     (user_id,),
-                ).fetchone()
+                ).fetchall()
                 hist_total = conn.execute(
                     "SELECT COUNT(*) FROM payment_requests WHERE user_id=?", (user_id,)
                 ).fetchone()[0]
@@ -827,7 +896,8 @@ def _load_shop_bot_data(telegram_id: int) -> dict:
                 "days_remaining": days_remaining,
             }
 
-        has_pending = pending_row is not None
+        pending_plan_types: set = {r[0] for r in pending_pt_rows if r[0]}
+        has_pending = bool(pending_plan_types)
 
         # History rows
         _STATUS_LABELS = {
@@ -858,6 +928,12 @@ def _load_shop_bot_data(telegram_id: int) -> dict:
         if trial_row:
             trial = {"end_date": str(trial_row[0] or "")[:10], "is_trial": True}
 
+        monthly_total = _calc_monthly_total(user_mod_subs, modules, extensions, bundles)
+        if monthly_total > 0:
+            monthly_total_fmt = f"{monthly_total:,}".replace(",", "\u00a0") + "\u00a0₽/мес."
+        else:
+            monthly_total_fmt = "0\u00a0₽"
+
         return {
             "user_id": user_id,
             "modules": modules,
@@ -867,6 +943,9 @@ def _load_shop_bot_data(telegram_id: int) -> dict:
             "requisites": requisites,
             "user_mod_subs": user_mod_subs,
             "has_pending": has_pending,
+            "pending_plan_types": pending_plan_types,
+            "monthly_total": monthly_total,
+            "monthly_total_fmt": monthly_total_fmt,
             "history": history,
             "history_has_more": history_has_more,
             "trial": trial,
@@ -911,6 +990,9 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
                 "user_mod_subs": {"*": {"item_type": "all", "end_date": "∞"}},
                 "active_items": {"modules": ["*"], "extensions": ["*"], "bundles": ["*"]},
                 "has_pending": False,
+                "pending_plan_types": set(),
+                "monthly_total": 0,
+                "monthly_total_fmt": "0\u00a0₽",
                 "history": [],
                 "history_has_more": False,
                 "requisites": data["requisites"],
@@ -976,6 +1058,9 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
             "user_mod_subs": data["user_mod_subs"],
             "active_items": active_items,
             "has_pending": data["has_pending"],
+            "pending_plan_types": data["pending_plan_types"],
+            "monthly_total": data["monthly_total"],
+            "monthly_total_fmt": data["monthly_total_fmt"],
             "history": data["history"],
             "history_has_more": data["history_has_more"],
             "requisites": data["requisites"],
@@ -985,6 +1070,107 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
             "addon_options": addon_options,
             "addon_all_unlimited": addon_all_unlimited,
         },
+    )
+
+
+@router.post("/subscription/batch-request")
+def subscription_batch_request(
+    request: Request,
+    plan_types_json: str = Form(...),
+    csrf_token: str = Form(default=""),
+):
+    """Пакетная заявка: несколько модулей/расширений/пакетов за один раз.
+
+    Клиент передаёт JSON-массив plan_type строк в скрытом поле plan_types_json.
+    Каждый элемент валидируется и получает отдельную строку в payment_requests,
+    но админу уходит одно сводное уведомление."""
+    from web.auth import get_session_user, verify_csrf_token
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/subscription?msg=csrf_error", status_code=303)
+
+    try:
+        raw_list = json.loads(plan_types_json)
+    except Exception:
+        return RedirectResponse(url="/subscription?msg=invalid_plan", status_code=303)
+
+    if not isinstance(raw_list, list) or not raw_list:
+        return RedirectResponse(url="/subscription?msg=invalid_plan", status_code=303)
+
+    valid_prefixes = ("module_", "bundle_", "extension_", "addon_")
+    seen_keys: set = set()
+    validated: list = []  # list of (plan_type, amount)
+
+    for pt in raw_list[:20]:  # hard cap — 20 позиций за раз
+        pt = str(pt).strip()
+        if not any(pt.startswith(p) for p in valid_prefixes):
+            continue
+        if pt in seen_keys:
+            continue
+        seen_keys.add(pt)
+        amount = _get_item_price(pt)
+        if amount is None:
+            continue
+        # Годовая цена = 0 значит цена не задана → пропускаем
+        if "_annual_" in pt and not amount:
+            continue
+        validated.append((pt, amount))
+
+    if not validated:
+        return RedirectResponse(url="/subscription?msg=invalid_plan", status_code=303)
+
+    telegram_id = int(user["sub"])
+    user_id = _get_user_id_in_shop_bot(telegram_id)
+    if not user_id:
+        return RedirectResponse(url="/subscription?msg=user_not_found", status_code=303)
+
+    # Пропускаем позиции, по которым уже есть pending-заявка
+    existing_pending = _get_pending_plan_types(user_id)
+    to_create = [(pt, amt) for pt, amt in validated if pt not in existing_pending]
+
+    if not to_create:
+        # Все выбранные позиции уже ожидают обработки
+        return RedirectResponse(url="/subscription?msg=already_pending", status_code=303)
+
+    # Создаём все payment_requests в одной транзакции
+    created_ids: list = []
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        try:
+            for pt, amt in to_create:
+                cur = conn.execute(
+                    """INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id)
+                       VALUES (?, ?, ?, 'web_module_request')""",
+                    (user_id, pt, amt),
+                )
+                created_ids.append(cur.lastrowid)
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logging.error("subscription_batch_request error: %s", exc)
+        return RedirectResponse(url="/subscription?msg=error", status_code=303)
+
+    # Одно уведомление администратору
+    user_display = user.get("first_name", user.get("email", "—"))
+    if len(to_create) == 1:
+        _notify_admin_async(to_create[0][0], to_create[0][1], user_display, telegram_id)
+    else:
+        total_amount = sum(amt for _, amt in to_create)
+        _notify_admin_batch_async(
+            [pt for pt, _ in to_create], total_amount, user_display, telegram_id
+        )
+
+    first_req_id = created_ids[0] if created_ids else ""
+    batch_count = len(to_create)
+    return RedirectResponse(
+        url=f"/subscription?msg=module_request_sent&req_id={first_req_id}&batch_count={batch_count}",
+        status_code=303,
     )
 
 

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.406.0"
+CURRENT_VERSION = "1.407.0"
 
 ENTRIES = [
+    {
+        "version": "1.407.0",
+        "date": "7 июля 2026",
+        "items": [
+            "Make free modules available in the navigation and update the client icon",
+        ],
+    },
     {
         "version": "1.406.0",
         "date": "7 июля 2026",
