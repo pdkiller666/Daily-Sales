@@ -53,6 +53,8 @@ def services_list(request: Request, q: str = "", category_id: int = 0, page: int
         return RedirectResponse("/subscription?msg=services_locked", status_code=302)
 
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -111,6 +113,8 @@ def service_new_form(request: Request):
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -169,6 +173,8 @@ def service_create(
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -199,6 +205,8 @@ def service_edit_form(request: Request, service_id: int):
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -271,6 +279,8 @@ def service_update(
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -304,6 +314,8 @@ def service_delete(request: Request, service_id: int, csrf_token: str = Form("")
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -329,6 +341,8 @@ def service_categories_page(request: Request):
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -365,6 +379,8 @@ def service_category_create(
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -395,6 +411,8 @@ def service_category_delete(request: Request, cat_id: int, csrf_token: str = For
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -427,6 +445,8 @@ def service_motivation_page(request: Request, service_id: int):
         return request.app.state.templates.TemplateResponse(request, "services/motivation.html", ctx)
 
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -482,6 +502,8 @@ def service_motivation_save(
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:

@@ -78,6 +78,8 @@ def appointments_list(request: Request, status: str = "", staff_id: int = 0,
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -144,6 +146,8 @@ def appointment_new_form(request: Request):
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -202,6 +206,8 @@ def appointment_create(
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -263,6 +269,8 @@ def appointment_detail(request: Request, appt_id: int):
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -332,6 +340,8 @@ def appointment_change_status(
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -421,6 +431,8 @@ def appointment_edit(
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -468,6 +480,8 @@ def appointment_delete(request: Request, appt_id: int, csrf_token: str = Form(""
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -502,6 +516,8 @@ def appointments_calendar(request: Request, year: int = 0, month: int = 0):
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return RedirectResponse("/dashboard", status_code=302)
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
@@ -561,6 +577,8 @@ def staff_slots_api(request: Request, staff_id: int = 0, date: str = ""):
 
     tg_id = user.get("telegram_id", 0)
     org_db = user.get("org_db", "")
+    if not org_db:
+        return JSONResponse({"slots": []})
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:

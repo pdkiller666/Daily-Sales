@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.409.0"
+CURRENT_VERSION = "1.410.0"
 
 ENTRIES = [
+    {
+        "version": "1.410.0",
+        "date": "7 июля 2026",
+        "items": [
+            "extend module-gate upgrade prompts to all gated sections",
+            "prevent 500 crashes on services/appointments pages for users with no org",
+        ],
+    },
     {
         "version": "1.409.0",
         "date": "7 июля 2026",
