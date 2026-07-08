@@ -95,6 +95,7 @@ def packages_list(request: Request):
     finally:
         conn.close()
 
+    from web.auth import get_csrf_token
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
     return request.app.state.templates.TemplateResponse(
         request, "packages/index.html",
@@ -103,6 +104,7 @@ def packages_list(request: Request):
             "is_admin": is_admin, "total_sold": total_sold,
             "total_active": total_active, "stats_map": stats_map,
             "error": request.query_params.get("error", ""),
+            "csrf_token": get_csrf_token(request),
         },
     )
 
@@ -342,6 +344,7 @@ def packages_sold(
     finally:
         conn.close()
 
+    from web.auth import get_csrf_token
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
     return request.app.state.templates.TemplateResponse(
         request, "packages/sold.html",
@@ -351,6 +354,7 @@ def packages_sold(
             "package_id": package_id, "all_packages": all_packages,
             "statuses": _PKG_STATUSES, "is_admin": is_admin,
             "error": request.query_params.get("error", ""),
+            "csrf_token": get_csrf_token(request),
         },
     )
 

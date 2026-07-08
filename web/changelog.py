@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.432.0"
+CURRENT_VERSION = "1.433.0"
 
 ENTRIES = [
+    {
+        "version": "1.433.0",
+        "date": "8 июля 2026",
+        "items": [
+            "Update appointment and package templates with styling improvements and add documentation images",
+        ],
+    },
     {
         "version": "1.432.0",
         "date": "8 июля 2026",
