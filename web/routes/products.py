@@ -1935,7 +1935,8 @@ def _get_user_label_size(telegram_id: int) -> str:
             c.close()
         size = row[0] if row else "58x40"
         return size if size in _VALID_LABEL_SIZES else "58x40"
-    except Exception:
+    except Exception as exc:
+        logging.warning(f"_get_user_label_size(tg={telegram_id}) failed, using default: {exc}")
         return "58x40"
 
 

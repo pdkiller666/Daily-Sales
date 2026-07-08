@@ -79,6 +79,14 @@ Sales/inventory/daily reports · multi-org with invite codes & roles · sales pl
 
 Полный список фич с деталями — `PROJECT_MAP.md` §10.3.
 
+## Replit environment (dev)
+
+- Единый процесс `python main.py` запускает и Telegram-бота (polling), и веб (uvicorn, порт 5000) через `asyncio.gather` — workflow `Start application` настроен на эту команду.
+- Секреты в Replit: `BOT_TOKEN`, `ADMIN_CHAT_ID` (запрошены у пользователя), `WEB_SECRET_KEY` (сгенерирован автоматически), `WEB_PORT=5000`, `SESSION_SECRET` (не используется кодом напрямую — legacy/не удалять).
+- Зависимости из `requirements.txt` установлены через Replit package manager (python-3.11 module).
+- Продакшн по-прежнему деплоится на Amvera через `bash deploy.sh "commit message"` (см. gotchas в README/AGENT_HANDOFF.md) — Replit используется как среда разработки, это не меняет прод-процесс.
+- Не заданы (опционально, для доп. функций): PAYMENT_CARD_NUMBER/PAYMENT_RECIPIENT_NAME/PAYMENT_BANK_NAME (реквизиты для ручных платежей), DEEPSEEK/GEMINI/OPENROUTER API-ключи (AI-фичи), VAPID_* (Web Push), GOOGLE_SERVICE_ACCOUNT_JSON/GOOGLE_OAUTH_* (Google Sheets/OAuth), YANDEX_EMAIL/YANDEX_SMTP_PASSWORD (email), GITHUB_TOKEN (APK-доставка).
+
 ## User Preferences
 
 - Deploy always goes to GitHub + Amvera directly (`--no-amvera` to skip Amvera push)

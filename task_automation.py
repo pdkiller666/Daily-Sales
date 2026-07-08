@@ -147,6 +147,15 @@ def match_conditions(conditions: dict, task: dict) -> bool:
 
 
 # ─── notification dispatch (dedup, thread-based, async-safe) ─────────────────
+def _tg_deliver(req, tg_id: int) -> None:
+    """Runs on a daemon thread — logs delivery failures instead of losing them
+    to Python's default unhandled-thread-exception hook."""
+    try:
+        urllib.request.urlopen(req, timeout=10)
+    except Exception as exc:
+        logger.warning("task_automation._tg_send: delivery to tg=%s failed: %s", tg_id, exc)
+
+
 def _tg_send(tg_id: int, text: str) -> None:
     token = os.environ.get("BOT_TOKEN", "")
     if not token or not tg_id:
@@ -164,10 +173,18 @@ def _tg_send(tg_id: int, text: str) -> None:
         req = urllib.request.Request(
             url, data=payload, headers={"Content-Type": "application/json"})
         threading.Thread(
-            target=lambda: urllib.request.urlopen(req, timeout=10), daemon=True
+            target=_tg_deliver, args=(req, tg_id), daemon=True
         ).start()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("task_automation._tg_send: setup for tg=%s failed: %s", tg_id, exc)
+
+
+def _push_deliver(tg_id: int, title: str, body: str) -> None:
+    try:
+        from web.push_utils import send_web_push
+        send_web_push(int(tg_id), title, body, "/tasks")
+    except Exception as exc:
+        logger.warning("task_automation._push_send: delivery to tg=%s failed: %s", tg_id, exc)
 
 
 def _push_send(tg_id: int, title: str, body: str) -> None:
@@ -176,14 +193,13 @@ def _push_send(tg_id: int, title: str, body: str) -> None:
     if not tg_id:
         return
     try:
-        from web.push_utils import send_web_push
         threading.Thread(
-            target=send_web_push,
-            args=(int(tg_id), title, body, "/tasks"),
+            target=_push_deliver,
+            args=(int(tg_id), title, body),
             daemon=True,
         ).start()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("task_automation._push_send: setup for tg=%s failed: %s", tg_id, exc)
 
 
 def notify_recipients(db, recipients, tg_text: str, push_title: str,

@@ -403,11 +403,18 @@ async def push_subscribe(request: Request):
 
     CSRF note: JSON endpoint protected by samesite=lax session cookie — no CSRF
     token needed. Service Worker's pushsubscriptionchange handler also calls this
-    and cannot attach DOM-derived tokens.
+    and cannot attach DOM-derived tokens. Origin check below is defense-in-depth,
+    mirroring push_unsubscribe.
     """
     from web.auth import get_session_user
     from database import Database
     import json as _json
+
+    origin = request.headers.get("origin")
+    if origin:
+        from urllib.parse import urlparse
+        if urlparse(origin).netloc != request.headers.get("host", ""):
+            return JSONResponse({"ok": False}, status_code=403)
 
     user = get_session_user(request)
     if not user:

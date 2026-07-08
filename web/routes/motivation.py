@@ -109,7 +109,7 @@ def motivation_page(request: Request, category: str = ""):
         "products": [],
         "categories": [],
         "selected_category": category,
-        "error": None,
+        "error": request.query_params.get("error") or None,
         "saved": request.query_params.get("saved") == "1",
         "removed": request.query_params.get("removed") == "1",
         "month_labels": month_labels,
@@ -118,6 +118,7 @@ def motivation_page(request: Request, category: str = ""):
         "plan_coeff_enabled": False,
         "plan_coeff_cap": True,
         "coeff_saved": request.query_params.get("coeff_saved") == "1",
+        "saved_category": request.query_params.get("saved_category") or None,
     }
 
     try:
@@ -476,15 +477,26 @@ def motivation_set_category(
         db = get_web_db(telegram_id, org_db)
         products = db.get_products_by_category(category_name) or []
         count = 0
+        failed = 0
         for product in products:
-            db.set_product_motivation(product[0], motivation_type, val, telegram_id)
-            count += 1
-        logger.info(f"Category motivation set: category={category_name} type={motivation_type} val={val} products={count} by={telegram_id}")
+            try:
+                db.set_product_motivation(product[0], motivation_type, val, telegram_id)
+                count += 1
+            except Exception as exc:
+                failed += 1
+                logger.error(f"motivation_set_category: product={product[0]} category={category_name} failed: {exc}")
+        logger.info(f"Category motivation set: category={category_name} type={motivation_type} val={val} products={count} failed={failed} by={telegram_id}")
     except Exception as exc:
         logger.error(f"motivation_set_category error: {exc}")
         return RedirectResponse(url="/motivation?error=Ошибка+сохранения.+Попробуйте+позже.", status_code=303)
 
     from urllib.parse import quote
+    if failed:
+        # Partial failure: be honest with the admin instead of reporting full success.
+        return RedirectResponse(
+            url=f"/motivation?saved_category={count}&category={quote(category_name)}&error={quote(f'{failed} из {count + failed} товаров не удалось обновить')}",
+            status_code=303,
+        )
     return RedirectResponse(url=f"/motivation?saved_category={count}&category={quote(category_name)}", status_code=303)
 
 

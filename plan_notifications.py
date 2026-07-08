@@ -2,12 +2,15 @@
 Модуль для отправки уведомлений пользователям об изменениях в тарифных планах
 """
 import asyncio
+import logging
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import datetime
 from env_manager import env_manager
 from utils import he
 from notif_utils import add_read_btn
+
+logger = logging.getLogger(__name__)
 
 async def send_plan_deletion_notifications(bot: Bot, affected_users, plan_name):
     """Отправка уведомлений о удалении тарифного плана"""
@@ -53,8 +56,8 @@ async def send_plan_deletion_notifications(bot: Bot, affected_users, plan_name):
             # Небольшая пауза между отправками
             await asyncio.sleep(0.5)
             
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("send_plan_deletion_notifications: tg=%s failed: %s", user[1] if len(user) > 1 else "?", exc)
 
 async def send_plan_deactivation_notifications(bot: Bot, affected_users, plan_name):
     """Отправка уведомлений о деактивации тарифного плана"""
@@ -101,8 +104,8 @@ async def send_plan_deactivation_notifications(bot: Bot, affected_users, plan_na
             # Небольшая пауза между отправками
             await asyncio.sleep(0.5)
             
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("send_plan_deactivation_notifications: tg=%s failed: %s", user[1] if len(user) > 1 else "?", exc)
 
 async def send_plan_reactivation_notifications(bot: Bot, affected_users, plan_name):
     """Отправка уведомлений о восстановлении тарифного плана"""
@@ -138,8 +141,8 @@ async def send_plan_reactivation_notifications(bot: Bot, affected_users, plan_na
             # Небольшая пауза между отправками
             await asyncio.sleep(0.5)
             
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("send_plan_reactivation_notifications: tg=%s failed: %s", user[1] if len(user) > 1 else "?", exc)
 
 async def send_admin_notification(bot: Bot, action_type, plan_name, affected_count, admin_id):
     """Отправка уведомления администратору о выполненном действии"""
@@ -172,5 +175,5 @@ async def send_admin_notification(bot: Bot, action_type, plan_name, affected_cou
             parse_mode="HTML"
         )
         
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("send_admin_notification: admin=%s action=%s failed: %s", admin_id, action_type, exc)

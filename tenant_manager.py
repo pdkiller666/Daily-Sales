@@ -385,8 +385,13 @@ class TenantManager:
         if db_path and os.path.exists(db_path):
             try:
                 os.remove(db_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                import logging as _log
+                _log.error(
+                    "delete_organization: FAILED to remove tenant db file %s for org_id=%s "
+                    "(org already removed from main.db — orphaned file needs manual cleanup): %s",
+                    db_path, org_id, exc,
+                )
 
         # Анонимизируем ПДн в shop_bot.db: удаляем web_credentials для
         # email-only пользователей; затираем имена в users (платёжная история
