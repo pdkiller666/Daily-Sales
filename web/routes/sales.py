@@ -326,10 +326,32 @@ def sales_page(
             except Exception:
                 pass
 
-        # Apply sorting: DB returns DESC by date by default
+        # Apply sorting.  After merging product + service + package blocks, each DB
+        # query returns its own DESC slice; we must globally re-sort so rows from
+        # different types interleave correctly.
+        #
+        # For the default date sort, rows from the same POS checkout (same
+        # receipt_id) can have slightly different second-level timestamps because
+        # product/service/package writes happen in sequence within one request.
+        # A plain datetime sort therefore does not guarantee they end up adjacent.
+        # Instead, we group by receipt_id first, sort groups by their latest
+        # datetime, then emit each group contiguously.  This is what the
+        # receipt-grouping template logic (loop.previtem / loop.nextitem) relies on.
         if sort_col == "date":
-            if sort_order == "asc":
-                all_sales = list(reversed(all_sales))
+            from collections import defaultdict as _dd
+            _rcpt_groups: dict = _dd(list)
+            _group_order: list = []
+            for _s in all_sales:
+                _rid = (_s[13] if len(_s) > 13 else None) or None
+                _gk  = _rid if _rid else id(_s)   # singleton rows get unique key
+                if _gk not in _rcpt_groups:
+                    _group_order.append(_gk)
+                _rcpt_groups[_gk].append(_s)
+            _group_order.sort(
+                key=lambda k: max(r[6] or "" for r in _rcpt_groups[k]),
+                reverse=(sort_order == "desc"),
+            )
+            all_sales = [row for k in _group_order for row in _rcpt_groups[k]]
         elif sort_col == "amount":
             all_sales = sorted(
                 all_sales,
@@ -473,6 +495,20 @@ def sales_export_xlsx(
                     sales = sales + list(_pkg_rows)
         except Exception:
             pass
+
+        # Global merge-sort: same receipt-aware grouping as the /sales list view —
+        # keeps same-checkout rows contiguous in the export.
+        from collections import defaultdict as _xdd
+        _xg: dict = _xdd(list)
+        _xo: list = []
+        for _xs in sales:
+            _xrid = (_xs[13] if len(_xs) > 13 else None) or None
+            _xk   = _xrid if _xrid else id(_xs)
+            if _xk not in _xg:
+                _xo.append(_xk)
+            _xg[_xk].append(_xs)
+        _xo.sort(key=lambda k: max(r[6] or "" for r in _xg[k]), reverse=True)
+        sales = [row for k in _xo for row in _xg[k]]
 
         wb = openpyxl.Workbook()
         ws = wb.active

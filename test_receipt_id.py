@@ -239,7 +239,25 @@ def main():
         check("get_package_sales_report: s[12]='package'", row_k[12] == "package", f"s[12]={row_k[12]!r}")
         check("get_package_sales_report: s[13]=receipt_id",  row_k[13] == rid2, f"s[13]={row_k[13]!r}")
 
-    # ── 6. XLSX-экспорт не падает ─────────────────────────────────────────
+    # ── 6. Смешанный чек отображается смежными строками на /sales ────────
+    # На странице /sales строки сортируются (datetime DESC, receipt_id);
+    # все три строки одного чека должны оказаться рядом.
+    r = c.get("/sales")
+    check("GET /sales: 200 OK (2-я проверка)", r.status_code == 200)
+    # Собираем data-receipt атрибуты в порядке появления в HTML
+    import re as _re
+    receipt_attrs = _re.findall(r'data-receipt="([^"]+)"', r.text)
+    if receipt_attrs and rid2:
+        rid2_positions = [i for i, v in enumerate(receipt_attrs) if v == rid2]
+        check(
+            "Смешанный чек: все 3 строки смежны на /sales",
+            len(rid2_positions) >= 3 and rid2_positions[-1] - rid2_positions[0] == len(rid2_positions) - 1,
+            f"positions={rid2_positions} total_rows={len(receipt_attrs)}"
+        )
+    else:
+        check("Смешанный чек: data-receipt найдены в HTML", bool(receipt_attrs), "нет data-receipt атрибутов")
+
+    # ── 7. XLSX-экспорт не падает ─────────────────────────────────────────
     r = c.get("/sales/export.xlsx")
     check("GET /sales/export.xlsx: 200 OK", r.status_code == 200, f"status={r.status_code}")
 
