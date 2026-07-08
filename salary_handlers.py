@@ -1446,16 +1446,26 @@ async def my_payslip(callback: CallbackQuery, state: FSMContext):
     _slip_end = f"{year}-{month:02d}-{_slip_last}"
     gross_motivation = 0.0
     return_deduction = 0.0
+    service_commission = 0.0
+    package_commission = 0.0
     try:
         gross_motivation, return_deduction = await current_db.get_seller_motivation_summary(
             user_id, _slip_start, _slip_end)
     except Exception:
         pass
+    try:
+        unified = await current_db.get_unified_commission_for_user(user_id, _slip_start, _slip_end)
+        service_commission = unified.get('service_commission', 0.0)
+        package_commission = unified.get('package_commission', 0.0)
+    except Exception:
+        pass
 
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
-    shifts_pay = net_worked_count * daily_rate
-    abs_pay = non_vac_paid_abs * daily_rate
-    total = shifts_pay + abs_pay + vac_pay + adj_sum + gross_motivation + return_deduction
+    shifts_pay = net_worked_count * (daily_rate or 0)
+    abs_pay = non_vac_paid_abs * (daily_rate or 0)
+    total = (shifts_pay + abs_pay + vac_pay + adj_sum
+             + gross_motivation + return_deduction
+             + service_commission + package_commission)
 
     lines = [
         f"📄 <b>Мой расчётный листок</b>",
@@ -1463,20 +1473,24 @@ async def my_payslip(callback: CallbackQuery, state: FSMContext):
         "",
         f"💼 Ставка: {rate_str}",
         "",
-        f"📊 Смен отработано: {net_worked_count} × {format_price(daily_rate)}₽ = <b>{format_price(shifts_pay)}₽</b>",
+        f"📊 Смен отработано: {net_worked_count} × {format_price(daily_rate or 0)}₽ = <b>{format_price(shifts_pay)}₽</b>",
     ]
     if non_vac_paid_abs > 0:
         lines.append(
-            f"🏥 Оплач. отсутствия: {non_vac_paid_abs} × {format_price(daily_rate)}₽ = <b>{format_price(abs_pay)}₽</b>"
+            f"🏥 Оплач. отсутствия: {non_vac_paid_abs} × {format_price(daily_rate or 0)}₽ = <b>{format_price(abs_pay)}₽</b>"
         )
     if vac_cal_days > 0:
         lines.append(
             f"🌴 Отпускные: {vac_cal_days} кал.дн. × {format_price(avg_daily)}₽/дн. = <b>{format_price(vac_pay)}₽</b>"
         )
     if gross_motivation != 0:
-        lines.append(f"🎯 Мотивация: <b>+{format_price(gross_motivation)}₽</b>")
+        lines.append(f"🎯 Мотивация (товары): <b>+{format_price(gross_motivation)}₽</b>")
     if return_deduction < 0:
         lines.append(f"↩️ Вычет возвратов: <b>{format_price(return_deduction)}₽</b>")
+    if service_commission != 0:
+        lines.append(f"💆 Комиссия за услуги: <b>+{format_price(service_commission)}₽</b>")
+    if package_commission != 0:
+        lines.append(f"📦 Комиссия за абонементы: <b>+{format_price(package_commission)}₽</b>")
     if adj_rows:
         lines.append("")
         lines.append("✏️ <b>Корректировки:</b>")

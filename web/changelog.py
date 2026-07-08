@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.434.0"
+CURRENT_VERSION = "1.435.0"
 
 ENTRIES = [
+    {
+        "version": "1.435.0",
+        "date": "8 июля 2026",
+        "items": [
+            "Add unified analytics system with database persistence and comprehensive test coverage",
+            "Fix my_payslip to include service and package commissions in total",
+        ],
+    },
     {
         "version": "1.434.0",
         "date": "8 июля 2026",
