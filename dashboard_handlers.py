@@ -514,39 +514,114 @@ def _on_shift_details(db_file: str, today: str,
 
 def _today_total_earnings(db_file: str, today: str,
                           scope_type: str = None, scope_values: list = None) -> float:
-    """Суммарные мотивационные выплаты за сегодня с учётом scope (поддерживает multi-scope)."""
+    """Суммарные мотивационные выплаты за сегодня по всем трём источникам:
+    seller_earnings (товары) + service_earnings (услуги) +
+    package_sale_earnings (абонементы).
+    Учитывает scope: shop / city / network.
+    """
     try:
         conn = Database(db_file).get_connection()
-        cursor = conn.cursor()
         vals = scope_values or []
+        total = 0.0
+
+        # ── 1. Товарные комиссии (seller_earnings → sales) ────────────────────
         if scope_type == 'shop' and vals:
             ph = ','.join('?' * len(vals))
-            cursor.execute(f'''
-                SELECT COALESCE(SUM(se.commission_amount), 0.0)
-                FROM seller_earnings se
-                JOIN sales s ON s.id = se.sale_id
-                WHERE s.sale_date = ? AND s.shop_name IN ({ph})
-            ''', [today] + vals)
+            row = conn.execute(
+                f"SELECT COALESCE(SUM(se.commission_amount), 0.0) "
+                f"FROM seller_earnings se JOIN sales s ON s.id = se.sale_id "
+                f"WHERE s.sale_date = ? AND s.shop_name IN ({ph})",
+                [today] + vals,
+            ).fetchone()
         elif scope_type in ('city', 'network') and vals:
             field = 'city' if scope_type == 'city' else 'trade_network'
             ph = ','.join('?' * len(vals))
-            cursor.execute(f'''
-                SELECT COALESCE(SUM(se.commission_amount), 0.0)
-                FROM seller_earnings se
-                JOIN sales s ON s.id = se.sale_id
-                JOIN users u ON s.user_id = u.id
-                WHERE s.sale_date = ? AND u.{field} IN ({ph})
-            ''', [today] + vals)
+            row = conn.execute(
+                f"SELECT COALESCE(SUM(se.commission_amount), 0.0) "
+                f"FROM seller_earnings se JOIN sales s ON s.id = se.sale_id "
+                f"JOIN users u ON s.user_id = u.id "
+                f"WHERE s.sale_date = ? AND u.{field} IN ({ph})",
+                [today] + vals,
+            ).fetchone()
         else:
-            cursor.execute('''
-                SELECT COALESCE(SUM(se.commission_amount), 0.0)
-                FROM seller_earnings se
-                JOIN sales s ON s.id = se.sale_id
-                WHERE s.sale_date = ?
-            ''', (today,))
-        result = cursor.fetchone()
+            row = conn.execute(
+                "SELECT COALESCE(SUM(se.commission_amount), 0.0) "
+                "FROM seller_earnings se JOIN sales s ON s.id = se.sale_id "
+                "WHERE s.sale_date = ?",
+                (today,),
+            ).fetchone()
+        total += float(row[0] or 0) if row else 0.0
+
+        # ── 2. Сервисные комиссии (service_earnings → appointments) ──────────
+        try:
+            if scope_type == 'shop' and vals:
+                ph = ','.join('?' * len(vals))
+                svc = conn.execute(
+                    f"SELECT COALESCE(SUM(se.commission_amount), 0.0) "
+                    f"FROM service_earnings se "
+                    f"LEFT JOIN appointments a ON se.appointment_id = a.id "
+                    f"WHERE date(a.start_time) = ? AND a.shop_name IN ({ph})",
+                    [today] + vals,
+                ).fetchone()
+            elif scope_type in ('city', 'network') and vals:
+                field = 'city' if scope_type == 'city' else 'trade_network'
+                ph = ','.join('?' * len(vals))
+                svc = conn.execute(
+                    f"SELECT COALESCE(SUM(se.commission_amount), 0.0) "
+                    f"FROM service_earnings se "
+                    f"LEFT JOIN appointments a ON se.appointment_id = a.id "
+                    f"JOIN users u ON se.user_id = u.id "
+                    f"WHERE date(a.start_time) = ? AND u.{field} IN ({ph})",
+                    [today] + vals,
+                ).fetchone()
+            else:
+                svc = conn.execute(
+                    "SELECT COALESCE(SUM(se.commission_amount), 0.0) "
+                    "FROM service_earnings se "
+                    "LEFT JOIN appointments a ON se.appointment_id = a.id "
+                    "WHERE date(a.start_time) = ?",
+                    (today,),
+                ).fetchone()
+            total += float(svc[0] or 0) if svc else 0.0
+        except Exception:
+            pass
+
+        # ── 3. Комиссии за абонементы (package_sale_earnings → client_packages)
+        try:
+            if scope_type == 'shop' and vals:
+                ph = ','.join('?' * len(vals))
+                pkg = conn.execute(
+                    f"SELECT COALESCE(SUM(pse.commission_amount), 0.0) "
+                    f"FROM package_sale_earnings pse "
+                    f"LEFT JOIN client_packages cp ON pse.client_package_id = cp.id "
+                    f"WHERE date(cp.purchased_at) = ? AND cp.shop_name IN ({ph})",
+                    [today] + vals,
+                ).fetchone()
+            elif scope_type in ('city', 'network') and vals:
+                field = 'city' if scope_type == 'city' else 'trade_network'
+                ph = ','.join('?' * len(vals))
+                pkg = conn.execute(
+                    f"SELECT COALESCE(SUM(pse.commission_amount), 0.0) "
+                    f"FROM package_sale_earnings pse "
+                    f"LEFT JOIN client_packages cp ON pse.client_package_id = cp.id "
+                    f"JOIN users u ON pse.user_id = u.id "
+                    f"WHERE date(cp.purchased_at) = ? AND u.{field} IN ({ph})",
+                    [today] + vals,
+                ).fetchone()
+            else:
+                pkg = conn.execute(
+                    "SELECT COALESCE(SUM(pse.commission_amount), 0.0) "
+                    "FROM package_sale_earnings pse "
+                    "LEFT JOIN client_packages cp ON pse.client_package_id = cp.id "
+                    "WHERE date(cp.purchased_at) = ?",
+                    (today,),
+                ).fetchone()
+            total += float(pkg[0] or 0) if pkg else 0.0
+        except Exception:
+            pass
+
         conn.close()
-        return float(result[0]) if result else 0.0
+        return round(total, 2)
     except Exception:
         return 0.0
 
@@ -600,7 +675,7 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
         [
             current_db.get_salary_rate(user_id),
             current_db.get_worked_days_count(user_id, year, month),
-            current_db.get_seller_total_earnings(user_id, start_date=month_start, end_date=today),
+            current_db.get_unified_commission_for_user(user_id, start_date=month_start, end_date=today),
             current_db.get_user_contest_rewards(telegram_id, month_start, today),
             current_db.get_paid_absence_days_count(user_id, year, month, exclude_vacation=True),
             current_db.get_salary_adjustments_sum(user_id, year, month),

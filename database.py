@@ -11872,6 +11872,68 @@ class Database:
             if conn is not None:
                 conn.close()
 
+    def get_unified_commission_for_user(self, user_id, start_date=None, end_date=None):
+        """Суммарная комиссия сотрудника из всех трёх источников за период:
+        seller_earnings (товары) + service_earnings (услуги) +
+        package_sale_earnings (абонементы).
+
+        Совместим с get_seller_total_earnings: те же ключи + 'service_commission'
+        и 'package_commission'. Для организаций без услуг/абонементов результат
+        идентичен get_seller_total_earnings (service_commission = package_commission = 0).
+        """
+        base = self.get_seller_total_earnings(user_id, start_date, end_date)
+        svc_comm = 0.0
+        pkg_comm = 0.0
+        conn = None
+        try:
+            conn = self.get_connection()
+
+            # Service commissions (service_earnings → appointments)
+            svc_q = (
+                "SELECT COALESCE(SUM(se.commission_amount), 0.0) "
+                "FROM service_earnings se "
+                "LEFT JOIN appointments a ON se.appointment_id = a.id "
+                "WHERE se.user_id = ?"
+            )
+            svc_p: list = [user_id]
+            if start_date:
+                svc_q += " AND date(a.start_time) >= ?"
+                svc_p.append(start_date)
+            if end_date:
+                svc_q += " AND date(a.start_time) <= ?"
+                svc_p.append(end_date)
+            svc_row = conn.execute(svc_q, svc_p).fetchone()
+            svc_comm = round(float(svc_row[0] or 0), 2)
+
+            # Package commissions (package_sale_earnings → client_packages)
+            pkg_q = (
+                "SELECT COALESCE(SUM(pse.commission_amount), 0.0) "
+                "FROM package_sale_earnings pse "
+                "LEFT JOIN client_packages cp ON pse.client_package_id = cp.id "
+                "WHERE pse.user_id = ?"
+            )
+            pkg_p: list = [user_id]
+            if start_date:
+                pkg_q += " AND date(cp.purchased_at) >= ?"
+                pkg_p.append(start_date)
+            if end_date:
+                pkg_q += " AND date(cp.purchased_at) <= ?"
+                pkg_p.append(end_date)
+            pkg_row = conn.execute(pkg_q, pkg_p).fetchone()
+            pkg_comm = round(float(pkg_row[0] or 0), 2)
+        except Exception as _exc:
+            logger.debug("get_unified_commission_for_user extras uid=%s: %s", user_id, _exc)
+        finally:
+            if conn is not None:
+                conn.close()
+
+        return {
+            **base,
+            'service_commission': svc_comm,
+            'package_commission': pkg_comm,
+            'total_earnings': round(base.get('total_earnings', 0.0) + svc_comm + pkg_comm, 2),
+        }
+
     def get_seller_motivation_summary(self, user_id: int, start_date: str, end_date: str):
         """Gross positive motivation and return_reversal deduction for the period.
 
@@ -13752,6 +13814,78 @@ class Database:
                 conn.close()
 
         return result
+
+    def get_unified_commission_bulk(
+        self,
+        uids: list,
+        start_date: str,
+        end_date: str,
+        year: int,
+        month: int,
+    ) -> dict:
+        """Bulk-версия get_unified_commission_for_user.
+
+        Возвращает {uid: {'total_earnings': float, 'total_sales': int,
+                          'plan_coeff': float|None,
+                          'service_commission': float, 'package_commission': float}}
+        для каждого uid из списка.
+
+        Использует get_seller_total_earnings_bulk для товарных комиссий
+        (joint-бонус и план-коэффициент учтены там), затем добавляет
+        service_earnings и package_sale_earnings двумя GROUP-BY запросами.
+        Для организаций без услуг/абонементов результат идентичен
+        get_seller_total_earnings_bulk (нулевые доп. поля).
+        """
+        base = self.get_seller_total_earnings_bulk(uids, start_date, end_date, year, month)
+        if not uids:
+            return base
+
+        ph = ','.join('?' * len(uids))
+        svc_by_uid: dict = {}
+        pkg_by_uid: dict = {}
+        conn = None
+        try:
+            conn = self.get_connection()
+
+            # Service commissions per user
+            for uid, amt in conn.execute(
+                f"SELECT se.user_id, COALESCE(SUM(se.commission_amount), 0.0) "
+                f"FROM service_earnings se "
+                f"LEFT JOIN appointments a ON se.appointment_id = a.id "
+                f"WHERE se.user_id IN ({ph}) "
+                f"AND date(a.start_time) >= ? AND date(a.start_time) <= ? "
+                f"GROUP BY se.user_id",
+                uids + [start_date, end_date],
+            ).fetchall():
+                svc_by_uid[uid] = round(float(amt or 0), 2)
+
+            # Package commissions per user
+            for uid, amt in conn.execute(
+                f"SELECT pse.user_id, COALESCE(SUM(pse.commission_amount), 0.0) "
+                f"FROM package_sale_earnings pse "
+                f"LEFT JOIN client_packages cp ON pse.client_package_id = cp.id "
+                f"WHERE pse.user_id IN ({ph}) "
+                f"AND date(cp.purchased_at) >= ? AND date(cp.purchased_at) <= ? "
+                f"GROUP BY pse.user_id",
+                uids + [start_date, end_date],
+            ).fetchall():
+                pkg_by_uid[uid] = round(float(amt or 0), 2)
+        except Exception as _exc:
+            logger.debug("get_unified_commission_bulk extras: %s", _exc)
+        finally:
+            if conn is not None:
+                conn.close()
+
+        for uid in uids:
+            svc = svc_by_uid.get(uid, 0.0)
+            pkg = pkg_by_uid.get(uid, 0.0)
+            entry = base.setdefault(uid, {
+                'total_earnings': 0.0, 'total_sales': 0, 'plan_coeff': None,
+            })
+            entry['service_commission'] = svc
+            entry['package_commission'] = pkg
+            entry['total_earnings'] = round(entry.get('total_earnings', 0.0) + svc + pkg, 2)
+        return base
 
     def delete_salary_adjustment(self, adjustment_id, user_id=None):
         """Удалить корректировку по id.

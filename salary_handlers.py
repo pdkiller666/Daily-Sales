@@ -1240,12 +1240,21 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
     summary = [r for r in raw_summary
                if not env_manager.is_super_admin(r[7])]
     if summary:
-        # Параллельно: мотивация, оплаченные отсутствия, отпускные, конкурсы
-        motivation_results = await asyncio.gather(
-            *[current_db.get_seller_total_earnings(row[0], start_date=month_start, end_date=month_end)
-              for row in summary],
-            return_exceptions=True
-        )
+        # Единый агрегатор комиссий: товары + услуги + абонементы за один вызов
+        _uids_sum = [row[0] for row in summary]
+        try:
+            _unified_bulk = await current_db.get_unified_commission_bulk(
+                _uids_sum, month_start, month_end, year, month
+            )
+        except Exception:
+            _unified_bulk = {}
+        motivation_results = [
+            _unified_bulk.get(row[0], {
+                'total_earnings': 0.0, 'total_sales': 0, 'plan_coeff': None,
+                'service_commission': 0.0, 'package_commission': 0.0,
+            })
+            for row in summary
+        ]
         paid_abs_results = await asyncio.gather(
             *[current_db.get_paid_absence_days_count(row[0], year, month, exclude_vacation=True)
               for row in summary],
