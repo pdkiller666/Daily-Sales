@@ -29,7 +29,7 @@
       Проданные
     </a>
     {% if is_admin %}
-    <button onclick="document.getElementById('new-modal').classList.remove('hidden')"
+    <button data-modal-open="new-modal"
             class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
       + Создать шаблон
     </button>
@@ -92,7 +92,7 @@
       <span class="text-xs text-slate-400">Продано: {{ p.sold_count }}</span>
       {% if is_admin %}
       <div class="flex items-center gap-1">
-        <button onclick="openEdit({{ p.id }}, {{ p.name | tojson }}, {{ p.service_id | tojson if p.service_id else 'null' }}, {{ p.visits_total }}, {{ p.price }}, {{ p.validity_days | tojson if p.validity_days else 'null' }}, {{ p.description | tojson }})"
+        <button data-action="openEditPackage" data-id="{{ p.id }}"
                 class="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" title="Редактировать">✏️</button>
         <form method="post" action="/packages/{{ p.id }}/toggle" class="inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -101,7 +101,7 @@
         </form>
         <form method="post" action="/packages/{{ p.id }}/delete" class="inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button type="submit" onclick="return confirm('Удалить шаблон «{{ p.name }}»?')"
+          <button type="submit" data-confirm="Удалить шаблон «{{ p.name }}»?"
                   class="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Удалить">🗑</button>
         </form>
       </div>
@@ -116,7 +116,7 @@
   <p class="text-base font-medium mb-1">Шаблонов абонементов пока нет</p>
   <p class="text-sm mb-4">Создайте первый шаблон — абонемент на 5, 10 или любое число занятий</p>
   {% if is_admin %}
-  <button onclick="document.getElementById('new-modal').classList.remove('hidden')"
+  <button data-modal-open="new-modal"
           class="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
     + Создать первый шаблон
   </button>
@@ -130,7 +130,7 @@
   <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 w-full max-w-md p-6">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Новый шаблон абонемента</h2>
-      <button onclick="document.getElementById('new-modal').classList.add('hidden')"
+      <button data-modal-close="new-modal"
               class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">✕</button>
     </div>
     <form method="post" action="/packages/new" class="space-y-3">
@@ -172,7 +172,7 @@
                   class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
       </div>
       <div class="flex gap-2 pt-1">
-        <button type="button" onclick="document.getElementById('new-modal').classList.add('hidden')"
+        <button type="button" data-modal-close="new-modal"
                 class="flex-1 px-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Отмена</button>
         <button type="submit" class="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">Создать</button>
       </div>
@@ -185,7 +185,7 @@
   <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 w-full max-w-md p-6">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Редактировать шаблон</h2>
-      <button onclick="document.getElementById('edit-modal').classList.add('hidden')"
+      <button data-modal-close="edit-modal"
               class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">✕</button>
     </div>
     <form id="edit-form" method="post" action="" class="space-y-3">
@@ -226,7 +226,7 @@
                   class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
       </div>
       <div class="flex gap-2 pt-1">
-        <button type="button" onclick="document.getElementById('edit-modal').classList.add('hidden')"
+        <button type="button" data-modal-close="edit-modal"
                 class="flex-1 px-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Отмена</button>
         <button type="submit" class="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">Сохранить</button>
       </div>
@@ -235,17 +235,33 @@
 </div>
 
 <script nonce="{{ csp_nonce }}">
-function openEdit(id, name, serviceId, visits, price, validityDays, desc) {
+var DS_PACKAGES = {
+  {% for p in packages %}
+  "{{ p.id }}": {
+    name: {{ p.name | tojson }},
+    serviceId: {{ p.service_id | tojson if p.service_id else 'null' }},
+    visits: {{ p.visits_total | tojson }},
+    price: {{ p.price | tojson }},
+    validityDays: {{ p.validity_days | tojson if p.validity_days else 'null' }},
+    description: {{ p.description | tojson }}
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+};
+function openEditPackage(el) {
+  var id = el.dataset.id;
+  var p = DS_PACKAGES[id];
+  if (!p) return;
   document.getElementById('edit-form').action = '/packages/' + id + '/edit';
-  document.getElementById('edit-name').value = name;
-  document.getElementById('edit-visits').value = visits;
-  document.getElementById('edit-price').value = price;
-  document.getElementById('edit-validity').value = validityDays || '';
-  document.getElementById('edit-desc').value = desc || '';
+  document.getElementById('edit-name').value = p.name || '';
+  document.getElementById('edit-visits').value = p.visits;
+  document.getElementById('edit-price').value = p.price;
+  document.getElementById('edit-validity').value = p.validityDays || '';
+  document.getElementById('edit-desc').value = p.description || '';
   var sel = document.getElementById('edit-service');
-  sel.value = serviceId !== null ? String(serviceId) : '';
+  sel.value = p.serviceId !== null && p.serviceId !== undefined ? String(p.serviceId) : '';
   document.getElementById('edit-modal').classList.remove('hidden');
 }
+window.openEditPackage = openEditPackage;
 </script>
 {% endif %}
 

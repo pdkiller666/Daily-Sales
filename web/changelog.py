@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.431.0"
+CURRENT_VERSION = "1.432.0"
 
 ENTRIES = [
+    {
+        "version": "1.432.0",
+        "date": "8 июля 2026",
+        "items": [
+            "Add reports endpoint and enhance appointment, salary, and database functionality",
+        ],
+    },
     {
         "version": "1.431.0",
         "date": "7 июля 2026",

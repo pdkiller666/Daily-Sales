@@ -75,7 +75,7 @@
       <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
         {% for a in appts %}
         <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors"
-            onclick="window.location='/appointments/{{ a.id }}'">
+            data-href="/appointments/{{ a.id }}">
           <td class="px-4 py-3">
             <a href="/appointments/{{ a.id }}" class="font-medium text-slate-800 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400">
               {{ a.client_name }}
