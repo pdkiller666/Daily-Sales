@@ -16,6 +16,12 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from packages_utils import (
+    find_consumable_package as _find_consumable_package,
+    consume_package_visit as _consume_package_visit,
+    already_consumed_for_appointment as _already_consumed_for_appointment,
+)
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -453,11 +459,11 @@ def appointment_change_status(
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
-        old = conn.execute("SELECT status, service_id, staff_user_id, price FROM appointments WHERE id=?", (appt_id,)).fetchone()
+        old = conn.execute("SELECT status, service_id, staff_user_id, price, client_id FROM appointments WHERE id=?", (appt_id,)).fetchone()
         if not old:
             return RedirectResponse("/appointments", status_code=302)
 
-        old_status, service_id, staff_user_id, appt_price = old
+        old_status, service_id, staff_user_id, appt_price, client_id = old
 
         is_admin = user.get("role") in ("owner", "admin", "super_admin")
         if not is_admin:
@@ -479,8 +485,9 @@ def appointment_change_status(
         )
 
         if new_status == "completed" and old_status != "completed":
-            if staff_user_id and has_extension(int(user.get("sub", 0)), "services", "services_motivation"):
+            if staff_user_id and has_extension(int(user.get("sub", 0)), "services_motivation"):
                 _calc_service_commission(conn, appt_id, service_id, staff_user_id, appt_price or 0)
+            _auto_consume_client_package(conn, appt_id, client_id, service_id, int(user.get("sub", 0)))
 
         conn.commit()
         return RedirectResponse(f"/appointments/{appt_id}", status_code=303)
@@ -518,6 +525,24 @@ def _calc_service_commission(conn, appt_id: int, service_id: int, staff_user_id:
         )
     except Exception as e:
         logger.warning("_calc_service_commission appt_id=%s: %s", appt_id, e)
+
+
+def _auto_consume_client_package(conn, appt_id: int, client_id, service_id, tg_id: int):
+    """При завершении записи автоматически списывает визит с подходящего
+    активного абонемента клиента (если найден). Идемпотентно: если для этой
+    записи уже было списание (авто или ручное), повторно не списывает.
+    """
+    try:
+        if not client_id:
+            return
+        if _already_consumed_for_appointment(conn, appt_id):
+            return
+        cp_id = _find_consumable_package(conn, client_id, service_id)
+        if not cp_id:
+            return
+        _consume_package_visit(conn, cp_id, tg_id, appointment_id=appt_id, note="Автосписание при завершении записи")
+    except Exception as e:
+        logger.warning("_auto_consume_client_package appt_id=%s: %s", appt_id, e)
 
 
 @router.post("/appointments/{appt_id}/edit")

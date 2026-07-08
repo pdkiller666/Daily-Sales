@@ -17,6 +17,12 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from packages_utils import (
+    auto_expire_packages as _auto_expire_packages,
+    sell_package as _sell_package,
+    consume_package_visit as _consume_package_visit,
+)
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -27,24 +33,15 @@ _PKG_STATUSES = {
     "expired":  "Истёк",
 }
 
+_SELL_ERROR_MAP = {
+    "pkg_not_found": "pkg_not_found",
+    "client_not_found": "client_not_found",
+    "invalid_price": "invalid_price",
+}
+
 
 def _pkg_status_label(status: str) -> str:
     return _PKG_STATUSES.get(status, status)
-
-
-def _auto_expire_packages(conn) -> None:
-    """Автоматически переводит истёкшие абонементы в статус expired."""
-    try:
-        conn.execute(
-            "UPDATE client_packages SET status='expired' "
-            "WHERE status='active' AND expires_at IS NOT NULL AND expires_at < datetime('now')"
-        )
-        conn.execute(
-            "UPDATE client_packages SET status='exhausted' "
-            "WHERE status IN ('active','frozen') AND visits_used >= visits_total"
-        )
-    except Exception as e:
-        logger.warning("_auto_expire_packages: %s", e)
 
 
 # ─── Список шаблонов ─────────────────────────────────────────────────────────
@@ -318,7 +315,7 @@ def packages_sold(
         offset = (page - 1) * page_size
 
         rows = conn.execute(
-            f"SELECT cp.id, c.name, sp.name, cp.visits_total, cp.visits_used, "
+            f"SELECT cp.id, (c.first_name || ' ' || COALESCE(c.last_name,'')), sp.name, cp.visits_total, cp.visits_used, "
             f"cp.price_paid, cp.purchased_at, cp.expires_at, cp.status, cp.notes "
             f"FROM client_packages cp "
             f"JOIN clients c ON c.id=cp.client_id "
@@ -389,25 +386,9 @@ def package_sell(
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
-        pkg = conn.execute(
-            "SELECT visits_total, price, validity_days FROM service_packages WHERE id=? AND is_active=1",
-            (package_id,),
-        ).fetchone()
-        if not pkg:
-            return RedirectResponse("/packages/sold?error=pkg_not_found", status_code=302)
-
-        visits_total, pkg_price, validity_days = pkg
-        paid = float(price_paid) if price_paid.strip() else pkg_price
-        expires_at = None
-        if validity_days:
-            expires_at = (datetime.now() + timedelta(days=int(validity_days))).strftime("%Y-%m-%d %H:%M:%S")
-
-        conn.execute(
-            "INSERT INTO client_packages "
-            "(package_id, client_id, visits_total, visits_used, price_paid, expires_at, sold_by, notes) "
-            "VALUES (?, ?, ?, 0, ?, ?, ?, ?)",
-            (package_id, client_id, visits_total, paid, expires_at, tg_id, notes.strip()),
-        )
+        cp_id, err = _sell_package(conn, package_id, client_id, price_paid, tg_id, notes)
+        if err:
+            return RedirectResponse(f"/packages/sold?error={_SELL_ERROR_MAP.get(err, err)}", status_code=302)
         conn.commit()
     finally:
         conn.close()
@@ -464,6 +445,7 @@ def package_use(
     cp_id: int,
     csrf_token: str = Form(""),
     note: str = Form(""),
+    appt_id: str = Form(""),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -475,39 +457,22 @@ def package_use(
         return JSONResponse({"error": "csrf"}, status_code=403)
     if not has_module(int(user.get("sub", 0)), "crm"):
         return JSONResponse({"error": "locked"}, status_code=403)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
 
     org_db = user.get("org_db", "")
     tg_id = int(user.get("sub", 0))
     db = get_web_db(tg_id, org_db)
     conn = db.get_connection()
     try:
-        cp = conn.execute(
-            "SELECT client_id, visits_total, visits_used, status FROM client_packages WHERE id=?",
-            (cp_id,),
-        ).fetchone()
-        if not cp:
-            return JSONResponse({"error": "not_found"}, status_code=404)
-        client_id, visits_total, visits_used, status = cp
-        if status not in ("active",):
-            return JSONResponse({"error": "not_active", "status": status}, status_code=400)
-        if visits_used >= visits_total:
-            return JSONResponse({"error": "exhausted"}, status_code=400)
-
-        new_used = visits_used + 1
-        new_status = "exhausted" if new_used >= visits_total else "active"
-        conn.execute(
-            "UPDATE client_packages SET visits_used=?, status=? WHERE id=?",
-            (new_used, new_status, cp_id),
-        )
-        conn.execute(
-            "INSERT INTO client_package_uses (client_package_id, used_by, note) VALUES (?, ?, ?)",
-            (cp_id, tg_id, note.strip()),
-        )
+        appointment_id = int(appt_id) if appt_id.strip().isdigit() else None
+        _auto_expire_packages(conn)
+        result = _consume_package_visit(conn, cp_id, tg_id, appointment_id=appointment_id, note=note)
+        if result.get("error"):
+            status_code = 404 if result["error"] == "not_found" else 400
+            return JSONResponse(result, status_code=status_code)
         conn.commit()
-        return JSONResponse({
-            "ok": True, "visits_used": new_used, "visits_left": visits_total - new_used,
-            "status": new_status,
-        })
+        return JSONResponse(result)
     finally:
         conn.close()
 

@@ -447,7 +447,7 @@ async def appt_change_status(callback: CallbackQuery, state: FSMContext):
 
         if new_status == "completed" and old_status != "completed" and staff_user_id:
             from billing_utils import has_extension
-            if has_extension(tg_id, "services", "services_motivation"):
+            if has_extension(tg_id, "services_motivation"):
                 _calc_commission(conn, appt_id, service_id, staff_user_id, appt_price or 0)
 
         conn.commit()

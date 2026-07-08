@@ -2016,6 +2016,31 @@ class Database:
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_cpu_cp ON client_package_uses(client_package_id)')
 
+        # ── CRM: client_packages.expiry_notified (дедуп уведомлений об истечении) ─
+        _cp_cols = {r[1] for r in cursor.execute("PRAGMA table_info(client_packages)").fetchall()}
+        if 'expiry_notified' not in _cp_cols:
+            try:
+                cursor.execute("ALTER TABLE client_packages ADD COLUMN expiry_notified INTEGER DEFAULT 0")
+            except Exception as _exc:
+                logger.debug("create_tables: client_packages.expiry_notified подавлено: %s", _exc)
+
+        # ── CRM: package_sale_earnings (комиссия продавца за продажу абонемента) ─
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS package_sale_earnings (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_package_id   INTEGER NOT NULL UNIQUE,
+                user_id             INTEGER NOT NULL,
+                service_id          INTEGER DEFAULT NULL,
+                commission_amount   REAL    DEFAULT 0,
+                motivation_type     TEXT    DEFAULT 'percentage',
+                motivation_value    REAL    DEFAULT 0,
+                motivation_source   TEXT    DEFAULT 'global',
+                created_at          TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_pse_user ON package_sale_earnings(user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_pse_cp ON package_sale_earnings(client_package_id)')
+
         # ── POS: ALTER TABLE appointments ADD source + shop_name ─────────────────
         _appt_cols = {r[1] for r in cursor.execute("PRAGMA table_info(appointments)").fetchall()}
         if 'source' not in _appt_cols:

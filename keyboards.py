@@ -63,6 +63,13 @@ def main_menu(chat_id: int, user_shop: str = None):
         buttons.append([InlineKeyboardButton(text="📦 Остатки", callback_data="user_inventory_menu")])
         buttons.append([InlineKeyboardButton(text="📝 Мои продажи", callback_data="edit_sales_start")])
 
+    try:
+        from billing_utils import has_module as _hm_pkg_menu
+        if _hm_pkg_menu(chat_id, "crm"):
+            buttons.append([InlineKeyboardButton(text="🎫 Абонементы", callback_data="packages_hub")])
+    except Exception:
+        pass
+
     web_url = _get_web_interface_url()
     buttons.extend([
         [InlineKeyboardButton(text="📊 Аналитика", callback_data="analytics_hub")],

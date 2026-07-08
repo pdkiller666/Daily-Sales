@@ -193,6 +193,20 @@
 </div>
 {% endif %}
 
+<!-- Package (абонементы) revenue strip -->
+{% if package_revenue is defined and package_revenue.count > 0 %}
+<div class="card p-4 mb-5 flex items-center gap-4 border-l-4 border-violet-200 dark:border-violet-700">
+    <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-sm" style="background:linear-gradient(135deg,#ede9fe,#f5f3ff)">🎫</div>
+    <div class="min-w-0 flex-1">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Выручка от абонементов</p>
+        <p class="text-lg font-bold text-violet-600 leading-tight">{{ package_revenue.revenue|int|fmt_currency }}</p>
+        <p class="text-[11px] text-slate-400 mt-0.5">{{ package_revenue.count }} проданных абонементов ·
+            <a href="/packages/sold" class="text-blue-500 hover:underline">Абонементы →</a>
+        </p>
+    </div>
+</div>
+{% endif %}
+
 <!-- Daily revenue chart -->
 {% if chart_labels and chart_labels|length > 1 %}
 {% set week_sum = chart_data | sum %}

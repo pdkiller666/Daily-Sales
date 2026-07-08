@@ -30,6 +30,10 @@ class ProductStates(StatesGroup):
 class AddonStates(StatesGroup):
     waiting_for_proof = State()
 
+class PackageStates(StatesGroup):
+    waiting_sell_client_query = State()
+    waiting_view_client_query = State()
+
 class InventoryStates(StatesGroup):
     choosing_product = State()
     entering_quantity = State()

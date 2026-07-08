@@ -255,6 +255,29 @@ def reports_page(
         except Exception:
             pass
 
+        # Package (абонементы) sale revenue for the same period (CRM module)
+        ctx["package_revenue"] = {"revenue": 0.0, "count": 0}
+        try:
+            from billing_utils import has_module as _hm_pkg
+            if _hm_pkg(telegram_id, "crm"):
+                _pkg_conn = db.get_connection()
+                try:
+                    _pkg_row = _pkg_conn.execute(
+                        "SELECT COUNT(*), COALESCE(SUM(price_paid),0)"
+                        " FROM client_packages"
+                        " WHERE date(purchased_at) BETWEEN ? AND ?",
+                        (df, dt),
+                    ).fetchone()
+                finally:
+                    _pkg_conn.close()
+                if _pkg_row:
+                    ctx["package_revenue"] = {
+                        "revenue": float(_pkg_row[1] or 0),
+                        "count": int(_pkg_row[0] or 0),
+                    }
+        except Exception:
+            pass
+
         try:
             _ly, _lm = int(date_from[:4]), int(date_from[5:7])
         except Exception:
@@ -293,6 +316,24 @@ def reports_page(
                                 daily_rev[_cr[0]] += float(_cr[1] or 0)
                     finally:
                         _conn_c.close()
+            except Exception:
+                pass
+            # Add package (абонементы) sale revenue per day
+            try:
+                from billing_utils import has_module as _hm_pkgchart
+                if _hm_pkgchart(telegram_id, "crm"):
+                    _conn_p = db.get_connection()
+                    try:
+                        for _pr in _conn_p.execute(
+                            "SELECT date(purchased_at), COALESCE(SUM(price_paid),0)"
+                            " FROM client_packages WHERE date(purchased_at) BETWEEN ? AND ?"
+                            " GROUP BY date(purchased_at)",
+                            (df, dt),
+                        ).fetchall():
+                            if _pr[0]:
+                                daily_rev[_pr[0]] += float(_pr[1] or 0)
+                    finally:
+                        _conn_p.close()
             except Exception:
                 pass
             sorted_days = sorted(daily_rev.keys())

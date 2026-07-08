@@ -451,7 +451,7 @@ def service_motivation_page(request: Request, service_id: int):
         return RedirectResponse("/services", status_code=302)
 
     tg_id = int(user.get("sub", 0))
-    if not has_extension(tg_id, "services", "services_motivation"):
+    if not has_extension(tg_id, "services_motivation"):
         ctx = _get_ctx(request)
         ctx["upsell"] = True
         ctx["service_id"] = service_id
@@ -505,7 +505,7 @@ def service_motivation_save(
         return RedirectResponse(f"/services/{service_id}/motivation", status_code=302)
     if not has_module(int(user.get("sub", 0)), "services"):
         return RedirectResponse("/subscription?msg=services_locked", status_code=302)
-    if not has_extension(int(user.get("sub", 0)), "services", "services_motivation"):
+    if not has_extension(int(user.get("sub", 0)), "services_motivation"):
         return RedirectResponse(f"/services/{service_id}/motivation", status_code=302)
 
     try:

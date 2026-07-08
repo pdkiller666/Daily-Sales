@@ -201,6 +201,8 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         "contest_details": [],
         "service_commission": 0.0,
         "service_earnings_rows": [],
+        "package_commission": 0.0,
+        "package_earnings_rows": [],
         "grand_total": 0.0,
         "worked_days": 0,
         "paid_absence_days": 0,
@@ -331,6 +333,38 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         except Exception:
             pass
 
+        # Package (абонементы) sale commissions
+        package_commission = 0.0
+        package_earnings_rows = []
+        try:
+            _pc = db.get_connection()
+            try:
+                _pkg_rows = _pc.execute(
+                    "SELECT pse.commission_amount, pse.motivation_type, pse.motivation_value,"
+                    " COALESCE(sp.name,'—'), cp.price_paid, cp.purchased_at"
+                    " FROM package_sale_earnings pse"
+                    " LEFT JOIN client_packages cp ON pse.client_package_id=cp.id"
+                    " LEFT JOIN service_packages sp ON cp.package_id=sp.id"
+                    " WHERE pse.user_id=? AND date(cp.purchased_at) BETWEEN ? AND ?",
+                    (user_db_id, start_date, end_date),
+                ).fetchall()
+            finally:
+                _pc.close()
+            for _pr in _pkg_rows:
+                _pcm = float(_pr[0] or 0)
+                package_commission += _pcm
+                package_earnings_rows.append({
+                    "date": str(_pr[5] or "")[:10],
+                    "package": _pr[3] or "—",
+                    "price": float(_pr[4] or 0),
+                    "mtype": _pr[1] or "percentage",
+                    "mval": float(_pr[2] or 0),
+                    "commission": _pcm,
+                })
+            package_commission = round(package_commission, 2)
+        except Exception:
+            pass
+
         # Коэффициент выполнения недельных планов
         plan_coeff = None
         plan_coeff_details = []
@@ -417,7 +451,9 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
             "contest_details": contest_details,
             "service_commission": service_commission,
             "service_earnings_rows": service_earnings_rows,
-            "grand_total": round(base_salary + total_commission + adj_sum + contest_rewards + service_commission, 2),
+            "package_commission": package_commission,
+            "package_earnings_rows": package_earnings_rows,
+            "grand_total": round(base_salary + total_commission + adj_sum + contest_rewards + service_commission + package_commission, 2),
             "worked_days": worked,
             "paid_absence_days": paid_abs,
             "daily_rate": rate,
@@ -578,6 +614,26 @@ def salary_page(
         except Exception:
             pass
 
+        # Package (абонементы) sale commissions bulk for all users
+        package_bulk: dict = {}
+        try:
+            _pbconn = db.get_connection()
+            try:
+                _pb_rows = _pbconn.execute(
+                    "SELECT pse.user_id, SUM(pse.commission_amount)"
+                    " FROM package_sale_earnings pse"
+                    " LEFT JOIN client_packages cp ON pse.client_package_id=cp.id"
+                    " WHERE date(cp.purchased_at) BETWEEN ? AND ?"
+                    " GROUP BY pse.user_id",
+                    (start_date, end_date),
+                ).fetchall()
+            finally:
+                _pbconn.close()
+            for _pbr in _pb_rows:
+                package_bulk[_pbr[0]] = round(float(_pbr[1] or 0), 2)
+        except Exception:
+            pass
+
         for row in all_rates:
             try:
                 if env_manager.is_super_admin(row[4]):
@@ -594,7 +650,8 @@ def salary_page(
                 motivation = round(float((earnings_bulk.get(uid) or {}).get('total_earnings', 0.0) or 0), 2)
                 contest_rewards = round(float(contest_bulk.get(row[4], 0.0) or 0), 2)
                 svc_comm = service_bulk.get(uid, 0.0)
-                total = base + adj_sum + motivation + contest_rewards + svc_comm
+                pkg_comm = package_bulk.get(uid, 0.0)
+                total = base + adj_sum + motivation + contest_rewards + svc_comm + pkg_comm
                 total_fund += total
 
                 staff_salary.append({
@@ -614,6 +671,7 @@ def salary_page(
                     "motivation": motivation,
                     "contest_rewards": contest_rewards,
                     "service_commission": svc_comm,
+                    "package_commission": pkg_comm,
                     "total": total,
                     "shop": "",
                 })
@@ -754,6 +812,34 @@ def salary_page(
             except Exception:
                 pass
 
+            # Package (абонементы) sale commissions for selected user
+            detail_package_commission = 0.0
+            detail_package_earnings_rows = []
+            try:
+                _pc2 = db.get_connection()
+                try:
+                    _pkg2 = _pc2.execute(
+                        "SELECT pse.commission_amount, COALESCE(sp.name,'—'), cp.purchased_at"
+                        " FROM package_sale_earnings pse"
+                        " LEFT JOIN client_packages cp ON pse.client_package_id=cp.id"
+                        " LEFT JOIN service_packages sp ON cp.package_id=sp.id"
+                        " WHERE pse.user_id=? AND date(cp.purchased_at) BETWEEN ? AND ?",
+                        (user_id, start_date, end_date),
+                    ).fetchall()
+                finally:
+                    _pc2.close()
+                for _pr2 in _pkg2:
+                    _pc2v = float(_pr2[0] or 0)
+                    detail_package_commission += _pc2v
+                    detail_package_earnings_rows.append({
+                        "date": str(_pr2[2] or "")[:10],
+                        "package": _pr2[1] or "—",
+                        "commission": _pc2v,
+                    })
+                detail_package_commission = round(detail_package_commission, 2)
+            except Exception:
+                pass
+
             # Pagination for detail earnings
             detail_total_count = len(detail_earnings)
             detail_total_pages = max(1, (detail_total_count + EARNINGS_PAGE_SIZE - 1) // EARNINGS_PAGE_SIZE)
@@ -811,6 +897,8 @@ def salary_page(
             ctx["detail_contest_details"] = detail_contest_details
             ctx["detail_service_commission"] = detail_service_commission
             ctx["detail_service_earnings_rows"] = detail_service_earnings_rows
+            ctx["detail_package_commission"] = detail_package_commission
+            ctx["detail_package_earnings_rows"] = detail_package_earnings_rows
             ctx["detail_absences"] = detail_absences
             ctx["rate_history"] = rate_history
           except Exception as _uid_exc:

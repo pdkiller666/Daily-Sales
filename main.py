@@ -47,6 +47,7 @@ from absence_handlers import absence_router
 from tasks_handlers import tasks_router as tasks_bot_router
 from clients_handlers import clients_router as clients_bot_router
 from services_handlers import services_router as services_bot_router
+from packages_handlers import packages_router as packages_bot_router
 import scheduler_module
 from jobs.registry import register_inline_jobs
 from utils import he
@@ -149,6 +150,7 @@ dp.include_router(absence_router)
 dp.include_router(tasks_bot_router)
 dp.include_router(clients_bot_router)
 dp.include_router(services_bot_router)
+dp.include_router(packages_bot_router)
 
 # Создаем папку data если не существует
 if not os.path.exists('data'):
@@ -1269,7 +1271,8 @@ async def notify_expiring_packages(bot: Bot):
                         "JOIN service_packages sp ON sp.id=cp.package_id "
                         "WHERE cp.status='active' "
                         "AND cp.expires_at IS NOT NULL "
-                        "AND cp.expires_at BETWEEN datetime('now') AND datetime('now', '+3 days')"
+                        "AND cp.expires_at BETWEEN datetime('now') AND datetime('now', '+3 days') "
+                        "AND (cp.expiry_notified IS NULL OR cp.expiry_notified=0)"
                     ).fetchall()
                     if not expiring:
                         continue
@@ -1281,6 +1284,7 @@ async def notify_expiring_packages(bot: Bot):
                 finally:
                     conn.close()
 
+                notified_ids = []
                 for ep in expiring:
                     cp_id, cfn, cln, pkg_name, expires_at, total, used = ep
                     client_name = _he(f"{cfn} {cln or ''}".strip())
@@ -1301,6 +1305,29 @@ async def notify_expiring_packages(bot: Bot):
                             await bot.send_message(chat_id=tg_id, text=text, parse_mode="HTML")
                         except Exception:
                             pass
+                        try:
+                            from web.push_utils import apush as _apush
+                            await _apush(
+                                tg_id, "Абонемент истекает",
+                                f"{client_name} · {pkg_name} · до {exp_date}",
+                                url="/packages/sold",
+                            )
+                        except Exception:
+                            pass
+                    notified_ids.append(cp_id)
+
+                if notified_ids:
+                    try:
+                        conn2 = db.get_connection()
+                        placeholders = ",".join("?" * len(notified_ids))
+                        conn2.execute(
+                            f"UPDATE client_packages SET expiry_notified=1 WHERE id IN ({placeholders})",
+                            notified_ids,
+                        )
+                        conn2.commit()
+                        conn2.close()
+                    except Exception:
+                        pass
             except Exception:
                 continue
     except Exception as e:
