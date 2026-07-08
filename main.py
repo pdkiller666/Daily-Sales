@@ -1241,7 +1241,8 @@ async def send_appointment_reminders(bot: Bot):
 
 
 async def notify_expiring_packages(bot: Bot):
-    """Уведомления об абонементах, истекающих в ближайшие 3 дня."""
+    """Уведомления об абонементах, истекающих в ближайшие 3 дня либо
+    у которых осталось ≤1 занятия (что наступит раньше)."""
     try:
         import glob as _glob
         from database import Database
@@ -1269,10 +1270,12 @@ async def notify_expiring_packages(bot: Bot):
                         "FROM client_packages cp "
                         "JOIN clients c ON c.id=cp.client_id "
                         "JOIN service_packages sp ON sp.id=cp.package_id "
-                        "WHERE cp.status='active' "
-                        "AND cp.expires_at IS NOT NULL "
-                        "AND cp.expires_at BETWEEN datetime('now') AND datetime('now', '+3 days') "
-                        "AND (cp.expiry_notified IS NULL OR cp.expiry_notified=0)"
+                        "WHERE cp.status IN ('active','frozen') "
+                        "AND (cp.expiry_notified IS NULL OR cp.expiry_notified=0) "
+                        "AND ("
+                        "  (cp.expires_at IS NOT NULL AND cp.expires_at BETWEEN datetime('now') AND datetime('now', '+3 days'))"
+                        "  OR (cp.visits_total - cp.visits_used) <= 1"
+                        ")"
                     ).fetchall()
                     if not expiring:
                         continue
@@ -1290,12 +1293,17 @@ async def notify_expiring_packages(bot: Bot):
                     client_name = _he(f"{cfn} {cln or ''}".strip())
                     exp_date = str(expires_at or "")[:10]
                     left = total - used
+                    reasons = []
+                    if exp_date:
+                        reasons.append(f"истекает {exp_date}")
+                    if left <= 1:
+                        reasons.append(f"осталось занятий: {left} / {total}")
+                    reason_line = "; ".join(reasons) or f"осталось занятий: {left} / {total}"
                     text = (
-                        f"⚠️ <b>Абонемент истекает!</b>\n\n"
+                        f"⚠️ <b>Абонемент скоро закончится!</b>\n\n"
                         f"Клиент: <b>{client_name}</b>\n"
                         f"Абонемент: {_he(pkg_name)}\n"
-                        f"Истекает: {exp_date}\n"
-                        f"Осталось занятий: {left} / {total}"
+                        f"{reason_line}"
                     )
                     for ar in admin_rows:
                         tg_id = ar[0]
@@ -1308,8 +1316,8 @@ async def notify_expiring_packages(bot: Bot):
                         try:
                             from web.push_utils import apush as _apush
                             await _apush(
-                                tg_id, "Абонемент истекает",
-                                f"{client_name} · {pkg_name} · до {exp_date}",
+                                tg_id, "Абонемент скоро закончится",
+                                f"{client_name} · {pkg_name} · {reason_line}",
                                 url="/packages/sold",
                             )
                         except Exception:

@@ -286,6 +286,18 @@ def sales_page(
         except Exception:
             pass
 
+        # Merge package (абонементы) sales if CRM module is active
+        try:
+            from billing_utils import has_module as _hm_pkg
+            if not product_id and _hm_pkg(telegram_id, "crm"):
+                _pkg_kwargs = {k: v for k, v in kwargs.items()
+                               if k in ("start_date", "end_date", "shop_name",
+                                        "shop_names", "user_id")}
+                _pkg_rows = db.get_package_sales_report(**_pkg_kwargs) or []
+                all_sales = all_sales + list(_pkg_rows)
+        except Exception:
+            pass
+
         # Backdated filter: keep only sales whose date != today in user's timezone
         if only_backdated:
             import zoneinfo as _zi
@@ -369,6 +381,15 @@ def sales_page(
                 _total_rev = (_base[2] or 0) + _s_rev
                 _base = [_total_cnt, (_base[1] or 0) + _s_cnt,
                          _total_rev, (_total_rev / _total_cnt if _total_cnt else 0)]
+            # Add package (абонементы) revenue to summary
+            _pkg_in_list = [s for s in all_sales if len(s) > 12 and s[12] == 'package']
+            if _pkg_in_list:
+                _p_cnt = len(_pkg_in_list)
+                _p_rev = sum(float(s[4] or 0) for s in _pkg_in_list)
+                _total_cnt = (_base[0] or 0) + _p_cnt
+                _total_rev = (_base[2] or 0) + _p_rev
+                _base = [_total_cnt, (_base[1] or 0) + _p_cnt,
+                         _total_rev, (_total_rev / _total_cnt if _total_cnt else 0)]
             ctx["summary"] = tuple(_base)
 
     except Exception as exc:
@@ -437,6 +458,19 @@ def sales_export_xlsx(
                 _svc_rows = db.get_service_sales_report(**_svc_kw) or []
                 if _svc_rows:
                     sales = sales + list(_svc_rows)
+        except Exception:
+            pass
+
+        # Merge package (абонементы) sales — same column layout as /sales list,
+        # keeps xlsx export in parity with the on-screen report.
+        try:
+            from billing_utils import has_module as _hm_pkg_xls
+            if _hm_pkg_xls(telegram_id, "crm"):
+                _pkg_kw = {k: v for k, v in kwargs.items()
+                           if k in ("start_date", "end_date", "shop_name", "shop_names", "user_id")}
+                _pkg_rows = db.get_package_sales_report(**_pkg_kw) or []
+                if _pkg_rows:
+                    sales = sales + list(_pkg_rows)
         except Exception:
             pass
 

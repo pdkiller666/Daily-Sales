@@ -88,7 +88,7 @@ async def crm_list(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         total = conn.execute("SELECT COUNT(*) FROM clients").fetchone()[0]
         rows = conn.execute(
             "SELECT id, first_name, last_name, phone FROM clients ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -154,7 +154,7 @@ async def crm_search_query(message: Message, state: FSMContext):
 
     try:
         like = f"%{query.lower()}%"
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         rows = conn.execute(
             "SELECT id, first_name, last_name, phone FROM clients "
             "WHERE lower(first_name||' '||last_name) LIKE ? OR phone LIKE ? OR email LIKE ? "
@@ -211,7 +211,7 @@ async def crm_card(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         r = conn.execute(
             "SELECT id, first_name, last_name, phone, email, birth_date, source, notes, tags_json "
             "FROM clients WHERE id=?", (client_id,)
@@ -277,7 +277,7 @@ async def crm_delete(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         conn.execute("UPDATE sales SET client_id=NULL WHERE client_id=?", (client_id,))
         conn.execute("DELETE FROM clients WHERE id=?", (client_id,))
         conn.commit()
@@ -398,7 +398,7 @@ async def _finish_add_client(tg_id: int, msg, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         cur = conn.execute(
             "INSERT INTO clients (first_name, last_name, phone, created_by) VALUES (?, ?, ?, ?)",
             (first_name, last_name, phone, tg_id),

@@ -262,12 +262,21 @@ def reports_page(
             if _hm_pkg(telegram_id, "crm"):
                 _pkg_conn = db.get_connection()
                 try:
-                    _pkg_row = _pkg_conn.execute(
+                    _pkg_sql = (
                         "SELECT COUNT(*), COALESCE(SUM(price_paid),0)"
                         " FROM client_packages"
-                        " WHERE date(purchased_at) BETWEEN ? AND ?",
-                        (df, dt),
-                    ).fetchone()
+                        " WHERE date(purchased_at) BETWEEN ? AND ?"
+                        " AND (status != 'refunded' OR status IS NULL)"
+                    )
+                    _pkg_params: list = [df, dt]
+                    if shop:
+                        _pkg_sql += " AND shop_name = ?"
+                        _pkg_params.append(shop)
+                    elif _scoped and allowed_shops:
+                        _ph = ",".join("?" * len(allowed_shops))
+                        _pkg_sql += f" AND shop_name IN ({_ph})"
+                        _pkg_params.extend(allowed_shops)
+                    _pkg_row = _pkg_conn.execute(_pkg_sql, _pkg_params).fetchone()
                 finally:
                     _pkg_conn.close()
                 if _pkg_row:
@@ -275,6 +284,20 @@ def reports_page(
                         "revenue": float(_pkg_row[1] or 0),
                         "count": int(_pkg_row[0] or 0),
                     }
+        except Exception:
+            pass
+
+        # Package (абонементы) refunds for the same period (CRM module)
+        ctx["package_returns"] = {"count": 0, "total_amount": 0.0}
+        try:
+            from billing_utils import has_module as _hm_pkgret
+            if _hm_pkgret(telegram_id, "crm"):
+                _pkg_ret_kw: dict = {"start_date": df, "end_date": dt}
+                if shop:
+                    _pkg_ret_kw["shop_name"] = shop
+                elif _scoped and allowed_shops:
+                    _pkg_ret_kw["shop_names"] = allowed_shops
+                ctx["package_returns"] = db.get_package_returns_summary(**_pkg_ret_kw) or {"count": 0, "total_amount": 0.0}
         except Exception:
             pass
 
@@ -324,12 +347,18 @@ def reports_page(
                 if _hm_pkgchart(telegram_id, "crm"):
                     _conn_p = db.get_connection()
                     try:
-                        for _pr in _conn_p.execute(
-                            "SELECT date(purchased_at), COALESCE(SUM(price_paid),0)"
-                            " FROM client_packages WHERE date(purchased_at) BETWEEN ? AND ?"
-                            " GROUP BY date(purchased_at)",
-                            (df, dt),
-                        ).fetchall():
+                        _qp = ("SELECT date(purchased_at), COALESCE(SUM(price_paid),0)"
+                               " FROM client_packages WHERE date(purchased_at) BETWEEN ? AND ?"
+                               " AND (status != 'refunded' OR status IS NULL)")
+                        _pp = [df, dt]
+                        if shop:
+                            _qp += " AND shop_name=?"
+                            _pp.append(shop)
+                        elif _scoped and allowed_shops:
+                            _qp += f" AND shop_name IN ({','.join('?'*len(allowed_shops))})"
+                            _pp.extend(allowed_shops)
+                        _qp += " GROUP BY date(purchased_at)"
+                        for _pr in _conn_p.execute(_qp, _pp).fetchall():
                             if _pr[0]:
                                 daily_rev[_pr[0]] += float(_pr[1] or 0)
                     finally:

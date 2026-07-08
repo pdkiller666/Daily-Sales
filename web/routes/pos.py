@@ -121,6 +121,17 @@ def pos_page(request: Request):
         except Exception:
             ctx["has_services"] = False
 
+        # Check if org has the packages (CRM) module + active package templates
+        try:
+            from billing_utils import has_module
+            if has_module(telegram_id, "crm"):
+                pkg_list = db.get_all_packages_for_pos() or []
+                ctx["has_packages"] = len(pkg_list) > 0
+            else:
+                ctx["has_packages"] = False
+        except Exception:
+            ctx["has_packages"] = False
+
         # Subscription limit: warn early if monthly sale cap reached
         try:
             from subscription_utils import check_sales_limit
@@ -135,6 +146,7 @@ def pos_page(request: Request):
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
         ctx["default_shop"] = ""
         ctx["has_services"] = False
+        ctx["has_packages"] = False
         ctx["sales_limit_reached"] = False
         ctx["sales_limit_msg"] = ""
 
@@ -458,6 +470,50 @@ def api_pos_services(request: Request):
         return JSONResponse({"error": "Внутренняя ошибка", "services": [], "categories": {}})
 
 
+@router.get("/api/pos/packages")
+def api_pos_packages(request: Request):
+    """Return active package templates grouped by category for POS package mode."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    from billing_utils import has_module
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized", "packages": []}, status_code=401)
+
+    telegram_id = int(user["sub"])
+    if not has_module(telegram_id, "crm"):
+        return JSONResponse({"error": "Модуль абонементов недоступен", "packages": [], "categories": {}}, status_code=403)
+
+    org_db = user.get("org_db")
+    if not org_db:
+        return JSONResponse({"error": "Нет организации", "packages": [], "categories": {}}, status_code=400)
+    try:
+        db = get_web_db(telegram_id, org_db)
+        raw = db.get_all_packages_for_pos() or []
+        packages = [
+            {
+                "id": r[0], "name": r[1],
+                "category": r[2] or "Абонементы",
+                "price": float(r[3] or 0),
+                "visits_total": int(r[4] or 0),
+                "validity_days": r[5],
+                "type": "package",
+            }
+            for r in raw
+        ]
+        categories: dict = {}
+        for p in packages:
+            cat = p["category"]
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append(p)
+        return JSONResponse({"packages": packages, "categories": categories})
+    except Exception as exc:
+        logging.error(f"api_pos_packages error: {exc}")
+        return JSONResponse({"error": "Внутренняя ошибка", "packages": [], "categories": {}})
+
+
 @router.get("/api/pos/clients")
 def api_pos_clients(request: Request, q: str = ""):
     """Quick client search for POS client selector (CRM module required)."""
@@ -542,6 +598,20 @@ async def pos_checkout(
 
         _client_id = int(client_id) if client_id and int(client_id) > 0 else None
 
+        # Единый идентификатор чека для всего чекаута — связывает все позиции
+        # (товары, услуги, абонементы), оформленные за один раз.
+        import uuid as _uuid
+        _receipt_id = _uuid.uuid4().hex[:12].upper()
+
+        _has_package_item = any(item.get("type") == "package" for item in items)
+        if _has_package_item:
+            from billing_utils import has_module
+            if not has_module(telegram_id, "crm"):
+                return JSONResponse(
+                    {"ok": False, "error": "Модуль абонементов недоступен по вашему тарифу"},
+                    status_code=403,
+                )
+
         def _write_sales():
             _sold, _sold_items, _errors = [], [], []
             for item in items:
@@ -562,6 +632,7 @@ async def pos_checkout(
                                 price=price,
                                 client_id=_client_id,
                                 shop_name=shop_name,
+                                receipt_id=_receipt_id,
                             )
                         if appt_id:
                             _sold.append(name)
@@ -572,6 +643,46 @@ async def pos_checkout(
                             })
                         else:
                             _errors.append(f"«{name}»: ошибка записи услуги")
+                    except Exception as e:
+                        _errors.append(f"«{name}»: {e}")
+                elif item_type == "package":
+                    package_id = int(item.get("id", 0))
+                    qty = int(item.get("qty", 1))
+                    if package_id < 1:
+                        continue
+                    if not _client_id:
+                        _errors.append(f"«{name}»: для абонемента нужно выбрать клиента")
+                        continue
+                    _pkg_err_map = {
+                        "pkg_not_found": "абонемент не найден или неактивен",
+                        "client_not_found": "клиент не найден",
+                        "invalid_price": "некорректная цена",
+                    }
+                    try:
+                        from packages_utils import sell_package
+                        cp_ids = []
+                        pkg_errors = []
+                        for _ in range(qty):
+                            pconn = db.get_connection()
+                            try:
+                                cp_id, err = sell_package(pconn, package_id, _client_id, price, telegram_id, notes="", receipt_id=_receipt_id)
+                                if err:
+                                    pkg_errors.append(err)
+                                else:
+                                    pconn.commit()
+                                    cp_ids.append(cp_id)
+                            finally:
+                                pconn.close()
+                        if cp_ids:
+                            _sold.append(name)
+                            _sold_items.append({
+                                "name": name, "qty": len(cp_ids),
+                                "price": price, "total": len(cp_ids) * price,
+                                "type": "package", "cp_ids": cp_ids,
+                            })
+                        if pkg_errors:
+                            uniq = sorted(set(pkg_errors))
+                            _errors.append(f"«{name}»: " + "; ".join(_pkg_err_map.get(e, e) for e in uniq))
                     except Exception as e:
                         _errors.append(f"«{name}»: {e}")
                 else:
@@ -586,6 +697,7 @@ async def pos_checkout(
                             quantity_sold=qty,
                             user_id=internal_uid,
                             sale_price=price,
+                            receipt_id=_receipt_id,
                         )
                         if result is None:
                             _errors.append(f"«{name}»: недостаточно на складе")
@@ -606,17 +718,26 @@ async def pos_checkout(
         if not sold:
             return JSONResponse({"ok": False, "error": "; ".join(errors) or "Ошибка записи"}, status_code=400)
 
-        product_items = [i for i in sold_items if i.get("type") != "service"]
+        product_items = [i for i in sold_items if i.get("type") not in ("service", "package")]
         if product_items:
             try:
                 asyncio.create_task(_post_sale_async(db, telegram_id, internal_uid, shop_name, product_items))
             except Exception:
                 pass
 
+        package_cp_ids = [cp for i in sold_items if i.get("type") == "package" for cp in i.get("cp_ids", [])]
+        if package_cp_ids:
+            try:
+                from web.sale_events import post_package_sale_effects
+                for cp_id in package_cp_ids:
+                    asyncio.create_task(post_package_sale_effects(org_db, cp_id, telegram_id))
+            except Exception:
+                pass
+
         msg = f"Оформлено {len(sold)} поз."
         if errors:
             msg += f" Ошибки: {'; '.join(errors)}"
-        return JSONResponse({"ok": True, "message": msg, "sold_count": len(sold), "errors": errors})
+        return JSONResponse({"ok": True, "message": msg, "sold_count": len(sold), "errors": errors, "receipt_id": _receipt_id})
 
     except Exception as e:
         logging.error(f"pos_checkout error: {e}")

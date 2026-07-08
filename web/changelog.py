@@ -1,6 +1,19 @@
-CURRENT_VERSION = "1.433.0"
+CURRENT_VERSION = "1.434.0"
 
 ENTRIES = [
+    {
+        "version": "1.434.0",
+        "date": "8 июля 2026",
+        "items": [
+            "Add database module and integrate it with job registry and package handlers",
+            "Improve package integration handling and enhance dashboard sales reporting",
+            "Fix AsyncDatabase.get_connection() misuse in clients_handlers.py and services_handlers.py",
+            "Update post-merge script logic",
+            "Add regression test suite for subscription-package refunds (test_package_refunds.py)",
+            "Add Replit configuration documentation",
+            "Add point of sale system with database integration and UI templates",
+        ],
+    },
     {
         "version": "1.433.0",
         "date": "8 июля 2026",

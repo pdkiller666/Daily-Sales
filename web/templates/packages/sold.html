@@ -14,7 +14,17 @@
   {% if error == 'csrf' %}Ошибка безопасности.
   {% elif error == 'required_fields' %}Выберите шаблон и клиента.
   {% elif error == 'pkg_not_found' %}Шаблон не найден или деактивирован.
+  {% elif error == 'refund_not_found' %}Абонемент не найден.
+  {% elif error == 'refund_already_refunded' %}Абонемент уже возвращён.
+  {% elif error == 'refund_nothing_to_refund' %}Все занятия уже использованы — возврат невозможен.
+  {% elif error == 'refund_invalid_amount' %}Некорректное число занятий для возврата.
   {% else %}Произошла ошибка.{% endif %}
+</div>
+{% endif %}
+
+{% if request.query_params.get('refunded') %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300">
+  Возврат оформлен.
 </div>
 {% endif %}
 
@@ -88,12 +98,13 @@
               {% if cp.status == 'active' %}bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300
               {% elif cp.status == 'exhausted' %}bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400
               {% elif cp.status == 'frozen' %}bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300
+              {% elif cp.status == 'refunded' %}bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300
               {% else %}bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300{% endif %}">
               {{ cp.status_label }}
             </span>
           </td>
           {% if is_admin %}
-          <td class="px-4 py-3 text-center">
+          <td class="px-4 py-3 text-center whitespace-nowrap">
             {% if cp.status in ('active', 'frozen') %}
             <form method="post" action="/packages/freeze/{{ cp.id }}" class="inline" id="freeze-form-{{ cp.id }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -103,6 +114,42 @@
                 {{ '▶' if cp.status == 'frozen' else '⏸' }}
               </button>
             </form>
+            <button type="button" data-modal-open="refund-modal-{{ cp.id }}"
+                    class="text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                    title="Оформить возврат">
+              ↩
+            </button>
+            <div id="refund-modal-{{ cp.id }}" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+              <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 w-full max-w-sm p-6">
+                <div class="flex items-center justify-between mb-4">
+                  <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Возврат абонемента</h2>
+                  <button type="button" data-modal-close="refund-modal-{{ cp.id }}"
+                          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">✕</button>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                  {{ cp.client_name }} · {{ cp.package_name }} · осталось {{ cp.visits_total - cp.visits_used }} из {{ cp.visits_total }} занятий
+                </p>
+                <form method="post" action="/packages/refund/{{ cp.id }}" class="space-y-3">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <div>
+                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Занятий к возврату</label>
+                    <input type="number" name="visits" min="1" max="{{ cp.visits_total - cp.visits_used }}"
+                           placeholder="Все неиспользованные ({{ cp.visits_total - cp.visits_used }})"
+                           class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Причина</label>
+                    <input type="text" name="reason" placeholder="Необязательно"
+                           class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                  </div>
+                  <div class="flex gap-2 pt-1">
+                    <button type="button" data-modal-close="refund-modal-{{ cp.id }}"
+                            class="flex-1 px-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Отмена</button>
+                    <button type="submit" class="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-red-600 hover:bg-red-700 text-white transition-colors">Вернуть</button>
+                  </div>
+                </form>
+              </div>
+            </div>
             {% endif %}
           </td>
           {% endif %}

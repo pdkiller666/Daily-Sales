@@ -118,3 +118,58 @@ async def post_sale_effects(
         logger.debug(f"post_sale_effects: milestone check ok (tg={telegram_id})")
     except Exception as e:
         logger.warning(f"post_sale_effects: milestone check error: {e}")
+
+
+async def post_package_sale_effects(
+    org_db_path: str,
+    client_package_id: int,
+    telegram_id: int,
+) -> None:
+    """Fire post-sale side effects for a package (абонемент) sale: currently
+    only the Google Sheets export (packages have no per-shift stock/inventory
+    to notify coworkers about, and no sales-plan milestones tied to them).
+    Called via asyncio.run_coroutine_threadsafe() from the sync package_sell route.
+    """
+    try:
+        from database import Database
+        db = Database(org_db_path)
+    except Exception as e:
+        logger.error(f"post_package_sale_effects: cannot open DB {org_db_path!r}: {e}")
+        return
+
+    try:
+        conn = db.get_connection()
+        try:
+            row = conn.execute(
+                "SELECT cp.price_paid, cp.visits_total, cp.shop_name, cp.purchased_at, "
+                "sp.name, c.first_name, c.last_name, u.first_name, u.last_name "
+                "FROM client_packages cp "
+                "JOIN service_packages sp ON sp.id = cp.package_id "
+                "JOIN clients c ON c.id = cp.client_id "
+                "LEFT JOIN users u ON u.telegram_id = cp.sold_by "
+                "WHERE cp.id=?",
+                (client_package_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            logger.warning(f"post_package_sale_effects: client_package {client_package_id} not found")
+            return
+        price_paid, visits_total, shop_name, purchased_at, pkg_name, c_first, c_last, s_first, s_last = row
+        client_name = f"{c_first or ''} {c_last or ''}".strip()
+        seller_name = f"{s_first or ''} {s_last or ''}".strip()
+
+        from integration.manager import integration_manager as _int_mgr
+        package_event = {
+            "date": (purchased_at or datetime.now().strftime("%Y-%m-%d %H:%M"))[:16],
+            "package_name": pkg_name or "",
+            "shop_name": shop_name or "",
+            "client_name": client_name,
+            "price": float(price_paid or 0),
+            "visits_total": visits_total,
+            "seller_name": seller_name,
+        }
+        await _int_mgr.trigger_export_with_result(db, "packages", package_event)
+        logger.debug(f"post_package_sale_effects: GSheets trigger ok (cp {client_package_id})")
+    except Exception as e:
+        logger.warning(f"post_package_sale_effects: GSheets trigger error: {e}")

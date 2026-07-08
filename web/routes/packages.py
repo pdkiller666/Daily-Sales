@@ -10,6 +10,7 @@ POST /packages/sell                 — продать абонемент кли
 GET  /packages/client/{client_id}   — абонементы конкретного клиента (JSON)
 POST /packages/use/{cp_id}          — вручную списать занятие
 POST /packages/freeze/{cp_id}       — заморозить/разморозить абонемент
+POST /packages/refund/{cp_id}       — оформить частичный/полный возврат
 """
 import logging
 from datetime import datetime, timedelta
@@ -21,6 +22,7 @@ from packages_utils import (
     auto_expire_packages as _auto_expire_packages,
     sell_package as _sell_package,
     consume_package_visit as _consume_package_visit,
+    refund_package as _refund_package,
 )
 
 router = APIRouter()
@@ -31,6 +33,7 @@ _PKG_STATUSES = {
     "frozen":   "Заморожен",
     "exhausted":"Исчерпан",
     "expired":  "Истёк",
+    "refunded": "Возвращён",
 }
 
 _SELL_ERROR_MAP = {
@@ -396,6 +399,18 @@ def package_sell(
         conn.commit()
     finally:
         conn.close()
+
+    try:
+        from web.app import _main_loop
+        from web.sale_events import post_package_sale_effects
+        import asyncio as _asyncio
+        if _main_loop is not None:
+            _asyncio.run_coroutine_threadsafe(
+                post_package_sale_effects(org_db, cp_id, tg_id), _main_loop,
+            )
+    except Exception as _pse:
+        logger.warning(f"package_sell: post_package_sale_effects schedule error: {_pse}")
+
     return RedirectResponse(f"/clients/{client_id}?tab=packages&sold=1", status_code=303)
 
 
@@ -479,6 +494,44 @@ def package_use(
         return JSONResponse(result)
     finally:
         conn.close()
+
+
+# ─── Возврат абонемента (частичный/полный) ────────────────────────────────────
+
+@router.post("/packages/refund/{cp_id}")
+def package_refund(
+    request: Request,
+    cp_id: int,
+    csrf_token: str = Form(""),
+    visits: str = Form(""),
+    reason: str = Form(""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from billing_utils import has_module
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/packages/sold?error=csrf", status_code=302)
+    if not has_module(int(user.get("sub", 0)), "crm"):
+        return RedirectResponse("/subscription?msg=crm_locked", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse("/packages/sold", status_code=302)
+
+    org_db = user.get("org_db", "")
+    tg_id = int(user.get("sub", 0))
+    db = get_web_db(tg_id, org_db)
+    conn = db.get_connection()
+    try:
+        visits_to_refund = int(visits) if visits.strip().isdigit() else None
+        result = _refund_package(conn, cp_id, tg_id, visits_to_refund=visits_to_refund, reason=reason)
+        if result.get("error"):
+            return RedirectResponse(f"/packages/sold?error=refund_{result['error']}", status_code=302)
+        conn.commit()
+    finally:
+        conn.close()
+    return RedirectResponse("/packages/sold?refunded=1", status_code=303)
 
 
 # ─── Заморозить/разморозить ───────────────────────────────────────────────────

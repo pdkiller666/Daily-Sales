@@ -1,3 +1,7 @@
+## User preferences
+
+- Общаться с пользователем только на русском языке.
+
 ## Overview
 
 This project is a professional, multi-tenant Telegram bot designed for comprehensive shop management. It allows users to manage products, track sales, and handle subscriptions with isolated databases for each organization. It ships with a full FastAPI web cabinet (PWA).

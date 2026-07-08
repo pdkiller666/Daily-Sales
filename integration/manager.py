@@ -18,6 +18,8 @@ AVAILABLE_FIELDS = {
     'products':  ['name', 'category', 'price', 'description'],
     'staff':     ['name', 'shop_name', 'role', 'phone'],
     'plans':     ['type', 'metric', 'target', 'period', 'shop_name', 'seller_name'],
+    'packages':  ['date', 'package_name', 'shop_name', 'client_name', 'price',
+                  'visits_total', 'seller_name'],
 }
 
 FIELD_LABELS = {
@@ -37,6 +39,9 @@ FIELD_LABELS = {
     'metric': 'Метрика',
     'target': 'Цель',
     'period': 'Период',
+    'package_name': 'Абонемент',
+    'client_name': 'Клиент',
+    'visits_total': 'Занятий',
 }
 
 

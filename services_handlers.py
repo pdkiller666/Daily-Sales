@@ -70,7 +70,7 @@ async def svc_catalog(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         total = conn.execute("SELECT COUNT(*) FROM services WHERE is_active=1").fetchone()[0]
         rows = conn.execute(
             "SELECT s.id, s.name, s.price, s.duration_minutes, sc.name "
@@ -123,7 +123,7 @@ async def svc_card(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         r = conn.execute(
             "SELECT s.id, s.name, s.description, s.price, s.duration_minutes, "
             "s.group_max_participants, sc.name "
@@ -210,7 +210,7 @@ async def appt_my(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         my_user = conn.execute("SELECT id FROM users WHERE telegram_id=?", (tg_id,)).fetchone()
         my_uid = my_user[0] if my_user else -1
         total, rows = _appt_list_query(conn, "a.staff_user_id=?", [my_uid], page)
@@ -261,7 +261,7 @@ async def appt_all(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         total, rows = _appt_list_query(conn, "1=1", [], page)
         conn.close()
     except Exception as e:
@@ -311,7 +311,7 @@ async def appt_by_svc(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         total, rows = _appt_list_query(conn, "a.service_id=?", [svc_id], page)
         conn.close()
     except Exception as e:
@@ -356,7 +356,7 @@ async def appt_card(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         r = conn.execute(
             "SELECT a.id, sv.name, c.first_name||' '||c.last_name, c.phone, "
             "u.first_name||' '||u.last_name, a.start_time, a.end_time, "
@@ -428,7 +428,7 @@ async def appt_change_status(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         old = conn.execute("SELECT status, service_id, staff_user_id, price FROM appointments WHERE id=?", (appt_id,)).fetchone()
         if not old:
             conn.close()

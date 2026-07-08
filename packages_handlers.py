@@ -69,7 +69,7 @@ async def pkg_catalog(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         total = conn.execute("SELECT COUNT(*) FROM service_packages WHERE is_active=1").fetchone()[0]
         rows = conn.execute(
             "SELECT id, name, visits_total, price FROM service_packages "
@@ -117,7 +117,7 @@ async def pkg_card(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         r = conn.execute(
             "SELECT name, visits_total, price, validity_days, description "
             "FROM service_packages WHERE id=?", (pkg_id,)
@@ -199,7 +199,7 @@ async def pkg_sell_client_query(message: Message, state: FSMContext):
 
     try:
         like = f"%{query.lower()}%"
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         rows = conn.execute(
             "SELECT id, first_name, last_name, phone FROM clients "
             "WHERE lower(first_name||' '||last_name) LIKE ? OR phone LIKE ? OR email LIKE ? "
@@ -249,7 +249,7 @@ async def pkg_sell_client(callback: CallbackQuery, state: FSMContext):
     if not db:
         return
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         rows = conn.execute(
             "SELECT id, name, visits_total, price FROM service_packages WHERE is_active=1 ORDER BY name LIMIT 20"
         ).fetchall()
@@ -279,7 +279,7 @@ async def pkg_sell_confirm(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         cp_id, err = sell_package(conn, pkg_id, client_id, None, tg_id, notes="Продано через бота")
         if err:
             conn.close()
@@ -291,6 +291,12 @@ async def pkg_sell_confirm(callback: CallbackQuery, state: FSMContext):
         logger.error("pkg_sell_confirm error: %s", e)
         await callback.answer("Ошибка продажи", show_alert=True)
         return
+
+    try:
+        from web.sale_events import post_package_sale_effects
+        await post_package_sale_effects(db.db_file, cp_id, tg_id)
+    except Exception as e:
+        logger.warning("pkg_sell_confirm: post_package_sale_effects error: %s", e)
 
     await callback.answer("Абонемент продан ✅", show_alert=True)
     builder = InlineKeyboardBuilder()
@@ -330,7 +336,7 @@ async def pkg_view_client_query(message: Message, state: FSMContext):
 
     try:
         like = f"%{query.lower()}%"
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         rows = conn.execute(
             "SELECT id, first_name, last_name, phone FROM clients "
             "WHERE lower(first_name||' '||last_name) LIKE ? OR phone LIKE ? OR email LIKE ? "
@@ -383,7 +389,7 @@ async def pkg_client_view(callback: CallbackQuery, state: FSMContext, _answered:
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         auto_expire_packages(conn)
         conn.commit()
         client = conn.execute("SELECT first_name, last_name FROM clients WHERE id=?", (client_id,)).fetchone()
@@ -432,7 +438,7 @@ async def pkg_use(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        conn = db.get_connection()
+        conn = db._db.get_connection()
         client_row = conn.execute("SELECT client_id FROM client_packages WHERE id=?", (cp_id,)).fetchone()
         result = consume_package_visit(conn, cp_id, tg_id, note="Списано через бота")
         if result.get("error"):

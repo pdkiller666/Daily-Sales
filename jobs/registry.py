@@ -778,6 +778,10 @@ def register_inline_jobs(
         misfire_grace_time=600,
     )
 
+    # Примечание: уведомления об истечении/окончании абонементов (по сроку
+    # и по остатку занятий) уже покрыты job'ом notify_expiring_packages в
+    # main.py — отдельный job здесь не нужен (дедуп по expiry_notified общий).
+
     # AI инсайты сети — каждый понедельник в 09:00 UTC
     async def send_weekly_network_insights():
         """Для каждого владельца сети с ai_network_insights — отправить недельный дайджест."""

@@ -593,17 +593,34 @@
                   then  product_name[7] category[8] first_name[9] last_name[10] returned_qty[11]
                 #}
                 {% set _is_service = (s|length > 12 and s[12] == 'service') %}
-                {% set _ret_qty = (s[11] | int) if (s|length > 11 and not _is_service) else 0 %}
+                {% set _is_package = (s|length > 12 and s[12] == 'package') %}
+                {% set _ret_qty = (s[11] | int) if (s|length > 11 and not _is_service and not _is_package) else 0 %}
+                {# Receipt grouping: s[13] = receipt_id (set for POS checkouts; NULL for manual/legacy sales) #}
+                {% set _receipt_id = s[13] if s|length > 13 else None %}
+                {% set _prev_receipt = loop.previtem[13] if (loop.previtem and loop.previtem|length > 13) else None %}
+                {% set _next_receipt = loop.nextitem[13] if (loop.nextitem and loop.nextitem|length > 13) else None %}
+                {% set _receipt_same_prev = _receipt_id and _receipt_id == _prev_receipt %}
+                {% set _receipt_same_next = _receipt_id and _receipt_id == _next_receipt %}
+                {# _receipt_start: first row of a 2+-item receipt; _receipt_cont: continuation row #}
+                {% set _receipt_start = _receipt_id and not _receipt_same_prev and _receipt_same_next %}
+                {% set _receipt_cont  = _receipt_id and _receipt_same_prev %}
                 {% set _is_full_return = _ret_qty > 0 and _ret_qty >= (s[3] | int) %}
                 {% set _is_partial_return = _ret_qty > 0 and _ret_qty < (s[3] | int) %}
-                <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-700/30 transition-colors {% if _is_full_return %}opacity-70{% endif %}" data-sale-id="{{ s[0] }}">
+                <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-700/30 transition-colors {% if _is_full_return %}opacity-70{% endif %}" data-sale-id="{{ s[0] }}" {% if _receipt_id %}data-receipt="{{ _receipt_id }}"{% endif %}>
                     <td class="px-3 sm:px-5 py-3 text-xs text-slate-400 dark:text-slate-500 hidden sm:table-cell">{{ page_offset + loop.index }}</td>
-                    <td class="px-3 py-2.5">
-                        {% if s[1] and not _is_service %}
+                    <td class="py-2.5 {% if _receipt_cont %}pl-2 border-l-2 border-l-blue-300 dark:border-l-blue-600 pr-3{% else %}px-3{% endif %}">
+                        {% if s[1] and not _is_service and not _is_package %}
                         <a href="/products/{{ s[1] }}" class="group inline-block">
                             <p class="font-medium text-slate-800 dark:text-slate-100 max-w-[160px] sm:max-w-[200px] truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:underline decoration-blue-300 underline-offset-2 transition-colors text-sm flex items-center gap-1" title="{{ s[7] }}">
                                 <span class="truncate">{{ s[7] }}</span>
                                 <span class="text-slate-300 group-hover:text-blue-500 shrink-0 transition-colors">→</span>
+                            </p>
+                        </a>
+                        {% elif _is_package %}
+                        <a href="/packages/sold" class="group inline-block">
+                            <p class="font-medium text-slate-800 dark:text-slate-100 max-w-[160px] sm:max-w-[200px] truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 group-hover:underline decoration-indigo-300 underline-offset-2 transition-colors text-sm flex items-center gap-1" title="{{ s[7] }}">
+                                <span class="truncate">{{ s[7] }}</span>
+                                <span class="text-slate-300 group-hover:text-indigo-500 shrink-0 transition-colors">→</span>
                             </p>
                         </a>
                         {% else %}
@@ -612,6 +629,8 @@
                         <p class="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1 flex-wrap">
                             {% if _is_service %}
                             <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400">✂️ Услуга</span>
+                            {% elif _is_package %}
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400">🎫 Абонемент</span>
                             {% else %}
                             <span>{{ s[8] or '—' }}</span>
                             {% if _is_full_return %}
@@ -619,6 +638,12 @@
                             {% elif _is_partial_return %}
                             <a href="/returns?sale_id={{ s[0] }}" title="Открыть в истории возвратов" class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors">↩️ Частично ({{ _ret_qty }} из {{ s[3] }})</a>
                             {% endif %}
+                            {% endif %}
+                            {# Receipt grouping badge — visible only for multi-item POS receipts #}
+                            {% if _receipt_start %}
+                            <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-700" title="Единый чек — несколько позиций оформлены за один раз">🧾 Чек #{{ _receipt_id }}</span>
+                            {% elif _receipt_cont %}
+                            <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium text-blue-400 dark:text-blue-500" title="Позиция этого же чека">└ #{{ _receipt_id }}</span>
                             {% endif %}
                         </p>
                         <!-- Mobile: date badge + time + shop + seller -->
@@ -668,6 +693,12 @@
                         <a href="/appointments?date={{ s[6][:10] if s[6] else '' }}"
                            class="text-xs text-violet-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/20 px-1.5 py-1 rounded transition-colors"
                            title="Открыть запись">📋</a>
+                    </td>
+                    {% elif _is_package %}
+                    <td class="px-2 py-2.5 text-right">
+                        <a href="/packages/sold"
+                           class="text-xs text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 px-1.5 py-1 rounded transition-colors"
+                           title="Открыть в абонементах">📋</a>
                     </td>
                     {% elif is_admin or s[5] == current_user_id %}
                     <td class="px-2 py-2.5 text-right">

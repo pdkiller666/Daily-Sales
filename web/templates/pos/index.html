@@ -71,18 +71,23 @@
     <a href="/sales" class="lg:hidden text-xs text-slate-400 hover:text-blue-600 transition-colors shrink-0">← Журнал</a>
 </div>
 
-<!-- ── Переключатель режима: Товары / Услуги ── -->
-<template x-if="hasServices">
+<!-- ── Переключатель режима: Товары / Услуги / Абонементы ── -->
+<template x-if="hasServices || hasPackages">
 <div class="flex gap-2 mb-3">
     <button @click="switchMode('products')"
             :class="mode === 'products' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'"
             class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border transition-colors">
         📦 Товары
     </button>
-    <button @click="switchMode('services')"
+    <button x-show="hasServices" @click="switchMode('services')"
             :class="mode === 'services' ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'"
             class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border transition-colors">
         💆 Услуги
+    </button>
+    <button x-show="hasPackages" @click="switchMode('packages')"
+            :class="mode === 'packages' ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border transition-colors">
+        🎫 Абонементы
     </button>
 </div>
 </template>
@@ -378,6 +383,93 @@
 
             <div class="h-20 lg:hidden"></div>
         </div><!-- /services mode -->
+
+        <!-- ─── РЕЖИМ АБОНЕМЕНТОВ ─── -->
+        <div class="flex flex-col gap-3" x-show="mode === 'packages'">
+
+            <!-- Поиск абонементов (десктоп) -->
+            <div class="hidden lg:flex gap-2 items-center">
+                <div class="relative flex-1">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+                    </svg>
+                    <input type="text" x-model="packageSearch" placeholder="Поиск абонемента…"
+                           class="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                    <button x-show="packageSearch" @click="packageSearch=''"
+                            class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+                </div>
+            </div>
+
+            <!-- Загрузка абонементов -->
+            <div x-show="allPackages.length === 0 && mode === 'packages'" class="flex items-center justify-center py-16">
+                <div class="flex flex-col items-center gap-3 text-slate-400">
+                    <svg class="animate-spin w-8 h-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.37 0 0 5.37 0 12h4z"/>
+                    </svg>
+                    <span class="text-sm">Загружаю абонементы…</span>
+                </div>
+            </div>
+
+            <!-- Пусто -->
+            <div x-show="allPackages.length > 0 && filteredPackages.length === 0"
+                 class="flex flex-col items-center justify-center py-20 text-center px-4">
+                <div class="text-4xl mb-3">🎫</div>
+                <p class="text-slate-500 text-sm"
+                   x-text="packageSearch ? 'Ничего не найдено по «' + packageSearch + '»' : 'Нет активных абонементов'"></p>
+            </div>
+
+            <!-- Сетка абонементов -->
+            <div x-show="filteredPackages.length > 0"
+                 class="grid gap-3"
+                 style="grid-template-columns: repeat(auto-fill, minmax(150px, 1fr))">
+                <template x-for="pkg in filteredPackages" :key="pkg.id">
+                    <div class="group relative bg-white border border-slate-200 rounded-2xl p-3.5 transition-all duration-150 hover:border-violet-400 hover:shadow-md cursor-pointer"
+                         :class="isPkgInCart(pkg.id) ? 'border-violet-400 bg-violet-50/40 shadow-sm' : ''"
+                         @click="addPackageToCart(pkg)">
+
+                        <!-- Бейдж количества в корзине -->
+                        <div x-show="isPkgInCart(pkg.id)"
+                             class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-violet-600 text-white text-xs font-bold flex items-center justify-center shadow"
+                             x-text="pkgCartQty(pkg.id)"></div>
+
+                        <!-- Визиты -->
+                        <div class="absolute top-2.5 right-2.5 text-[10px] text-slate-400 font-medium"
+                             x-text="pkg.visits_total + ' визит.'"></div>
+
+                        <!-- Контент -->
+                        <div class="mt-2">
+                            <p class="text-[10px] text-slate-400 uppercase tracking-wide mb-1 pr-1 truncate" x-text="pkg.category"></p>
+                            <p class="text-sm font-semibold text-slate-800 leading-tight mb-2 line-clamp-2 group-hover:text-violet-700 transition-colors"
+                               x-text="pkg.name" :title="pkg.name"></p>
+                            <p class="text-base font-bold text-violet-600" x-text="fmtPrice(pkg.price)"></p>
+                            <p x-show="pkg.validity_days" class="text-[10px] text-slate-400 mt-0.5"
+                               x-text="'действует ' + pkg.validity_days + ' дн.'"></p>
+                        </div>
+
+                        <!-- ✕ Убрать из корзины -->
+                        <button x-show="isPkgInCart(pkg.id)"
+                                @click.stop="removePkgFromCart(pkg.id)"
+                                class="absolute bottom-2 right-2 w-5 h-5 rounded-full bg-red-100 text-red-500 hover:bg-red-200 text-xs font-bold flex items-center justify-center z-10 transition-colors"
+                                title="Убрать из корзины">✕</button>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Поиск абонементов (мобайл) -->
+            <div class="lg:hidden sticky bottom-16 z-10 px-1 pb-2">
+                <div class="relative">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+                    </svg>
+                    <input type="text" x-model="packageSearch" placeholder="Поиск абонемента…"
+                           inputmode="search"
+                           class="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm bg-white shadow focus:outline-none focus:ring-2 focus:ring-violet-500">
+                </div>
+            </div>
+
+            <div class="h-20 lg:hidden"></div>
+        </div><!-- /packages mode -->
     </div><!-- /central panel -->
 
     <!-- ── ПРАВАЯ ПАНЕЛЬ: корзина (только десктоп) ── -->
@@ -449,14 +541,16 @@
             </div>
             <!-- Выбор клиента -->
             <div x-show="cart.length > 0" class="px-4 py-2 border-t border-slate-100">
-                <p class="text-xs text-slate-400 mb-1">Клиент (необязательно)</p>
+                <p class="text-xs mb-1" :class="cartHasPackage ? 'text-red-500 font-semibold' : 'text-slate-400'"
+                   x-text="cartHasPackage ? 'Клиент (обязательно для абонемента)' : 'Клиент (необязательно)'"></p>
                 <div class="relative">
                     <input type="text" x-model="clientSearch"
                            @input="searchClients($event.target.value); showClientDropdown = true"
                            @focus="if(clientResults.length) showClientDropdown = true"
                            @click.outside="showClientDropdown = false"
                            placeholder="Поиск по имени или телефону…"
-                           class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400">
+                           class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400"
+                           :class="cartHasPackage && clientId === 0 ? 'border-red-300' : 'border-slate-200'">
                     <button x-show="clientId > 0" @click="clearClient()"
                             class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500 text-base leading-none">×</button>
                     <!-- Dropdown -->
@@ -473,6 +567,9 @@
                 </div>
                 <p x-show="clientId > 0" class="text-xs text-teal-600 mt-1">
                     ✓ Клиент привязан к продаже
+                </p>
+                <p x-show="cartHasPackage && clientId === 0" class="text-xs text-red-600 mt-1">
+                    ⚠️ Для оформления абонемента выберите клиента
                 </p>
             </div>
 
@@ -605,6 +702,9 @@
         </div>
         <div class="flex justify-end mb-1" x-show="extraCoeffNote && totalMotivation > 0">
             <span class="text-[10px] text-amber-600" x-text="'⚠️ базовая ставка · коэф. смены ' + extraCoeffNote + ' применяется при закрытии'"></span>
+        </div>
+        <div x-show="cartHasPackage && clientId === 0" class="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+            ⚠️ Для оформления абонемента выберите клиента
         </div>
         <div x-show="checkoutError" class="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="checkoutError"></div>
         <button @click="checkout()"
@@ -852,6 +952,13 @@ function posApp() {
         activeSrvCat: '',
         serviceSearch: '',
 
+        // ── Режим Абонементы ──
+        hasPackages: {{ 'true' if has_packages else 'false' }},
+        allPackages: [],
+        packageCategories: {},
+        activePkgCat: '',
+        packageSearch: '',
+
         // ── Клиент (CRM привязка) ──
         clientId: 0,
         clientName: '',
@@ -1007,6 +1114,69 @@ function posApp() {
             if (m === 'services' && this.allServices.length === 0) {
                 this.loadServices();
             }
+            if (m === 'packages' && this.allPackages.length === 0) {
+                this.loadPackages();
+            }
+        },
+
+        // ── Методы режима «Абонементы» ──────────────────────────────────
+
+        loadPackages() {
+            fetch('/api/pos/packages')
+                .then(r => r.json())
+                .then(data => {
+                    this.allPackages = data.packages || [];
+                    this.packageCategories = data.categories || {};
+                })
+                .catch(() => {});
+        },
+
+        get filteredPackages() {
+            let list = this.activePkgCat
+                ? (this.packageCategories[this.activePkgCat] || [])
+                : this.allPackages;
+            if (this.packageSearch.trim()) {
+                const q = this.packageSearch.toLowerCase();
+                list = list.filter(p => p.name.toLowerCase().includes(q));
+            }
+            return list;
+        },
+
+        addPackageToCart(pkg) {
+            const cartId = 'pkg_' + pkg.id;
+            const existing = this.cart.find(i => i.id === cartId);
+            if (existing) {
+                existing.qty++;
+            } else {
+                this.cart.push({
+                    id: cartId,
+                    pkgId: pkg.id,
+                    name: pkg.name,
+                    price: pkg.price,
+                    qty: 1,
+                    stock: 9999,
+                    type: 'package',
+                });
+            }
+            this._saveCart();
+        },
+
+        isPkgInCart(pkgId) {
+            return this.cart.some(i => i.id === 'pkg_' + pkgId);
+        },
+
+        pkgCartQty(pkgId) {
+            const item = this.cart.find(i => i.id === 'pkg_' + pkgId);
+            return item ? item.qty : 0;
+        },
+
+        removePkgFromCart(pkgId) {
+            const idx = this.cart.findIndex(i => i.id === 'pkg_' + pkgId);
+            if (idx !== -1) { this.cart.splice(idx, 1); this._saveCart(); }
+        },
+
+        get cartHasPackage() {
+            return this.cart.some(i => i.type === 'package');
         },
 
         addServiceToCart(service) {
@@ -1224,7 +1394,7 @@ function posApp() {
             const motivationTotal = this.totalMotivation;
 
             const items = this.cart.map(i => ({
-                id: i.type === 'service' ? i.svcId : i.id,
+                id: i.type === 'service' ? i.svcId : (i.type === 'package' ? i.pkgId : i.id),
                 name: i.name,
                 qty: i.qty,
                 price: i.price,

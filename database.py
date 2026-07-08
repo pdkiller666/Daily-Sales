@@ -1960,13 +1960,19 @@ class Database:
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_smr_service ON service_motivation_rules(service_id)')
 
-        # ── CRM: ALTER TABLE sales ADD COLUMN client_id ─────────────────────────
+        # ── CRM: ALTER TABLE sales ADD COLUMN client_id / receipt_id ────────────
         _sales_cols = {r[1] for r in cursor.execute("PRAGMA table_info(sales)").fetchall()}
         if 'client_id' not in _sales_cols:
             try:
                 cursor.execute("ALTER TABLE sales ADD COLUMN client_id INTEGER DEFAULT NULL")
             except Exception as _exc:
                 logger.debug("create_tables: sales.client_id подавлено: %s", _exc)
+        if 'receipt_id' not in _sales_cols:
+            try:
+                cursor.execute("ALTER TABLE sales ADD COLUMN receipt_id TEXT DEFAULT NULL")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_receipt ON sales(receipt_id) WHERE receipt_id IS NOT NULL")
+            except Exception as _exc:
+                logger.debug("create_tables: sales.receipt_id подавлено: %s", _exc)
 
         # ── CRM: service_packages (шаблоны абонементов) ─────────────────────────
         cursor.execute('''
@@ -2024,6 +2030,59 @@ class Database:
             except Exception as _exc:
                 logger.debug("create_tables: client_packages.expiry_notified подавлено: %s", _exc)
 
+        # ── CRM: client_packages.shop_name (для кассы/выручки по магазину) ──────
+        if 'shop_name' not in _cp_cols:
+            try:
+                cursor.execute("ALTER TABLE client_packages ADD COLUMN shop_name TEXT DEFAULT NULL")
+            except Exception as _exc:
+                logger.debug("create_tables: client_packages.shop_name подавлено: %s", _exc)
+
+        # ── CRM: client_package_refunds (возвраты абонементов) ──────────────────
+        # ВАЖНО: создаётся ДО бэкфилла client_packages.original_visits_total
+        # ниже, т.к. этот бэкфилл делает SELECT из этой таблицы — на свежей
+        # БД (первый вызов create_tables) таблицы ещё не было бы, и бэкфилл
+        # молча падал бы в except, оставляя original_visits_total=NULL навсегда.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS client_package_refunds (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_package_id   INTEGER NOT NULL,
+                visits_refunded     INTEGER NOT NULL DEFAULT 0,
+                refund_amount       REAL    NOT NULL DEFAULT 0,
+                refunded_by         INTEGER DEFAULT NULL,
+                refund_date         TEXT    DEFAULT (datetime('now')),
+                reason              TEXT    DEFAULT ''
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_cpr_cp ON client_package_refunds(client_package_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_cpr_date ON client_package_refunds(refund_date DESC)')
+
+        # ── CRM: client_packages.original_visits_total (неизменный снимок на
+        # момент продажи — нужен для корректного расчёта суммы частичных
+        # возвратов; visits_total мутируется при частичном возврате) ────────────
+        if 'original_visits_total' not in _cp_cols:
+            try:
+                cursor.execute("ALTER TABLE client_packages ADD COLUMN original_visits_total INTEGER DEFAULT NULL")
+                # Бэкфилл: для абонементов, уже имевших частичные возвраты ДО
+                # появления этой колонки, текущий visits_total уже урезан —
+                # восстанавливаем истинный исходный объём как
+                # visits_total + сумма уже возвращённых занятий по истории
+                # client_package_refunds (а не просто = visits_total, что
+                # потеряло бы правду для таких абонементов).
+                cursor.execute(
+                    "UPDATE client_packages SET original_visits_total = visits_total + ("
+                    "  SELECT COALESCE(SUM(visits_refunded), 0) FROM client_package_refunds"
+                    "  WHERE client_package_refunds.client_package_id = client_packages.id"
+                    ") WHERE original_visits_total IS NULL"
+                )
+            except Exception as _exc:
+                logger.debug("create_tables: client_packages.original_visits_total подавлено: %s", _exc)
+        if 'receipt_id' not in _cp_cols:
+            try:
+                cursor.execute("ALTER TABLE client_packages ADD COLUMN receipt_id TEXT DEFAULT NULL")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_cp_receipt ON client_packages(receipt_id) WHERE receipt_id IS NOT NULL")
+            except Exception as _exc:
+                logger.debug("create_tables: client_packages.receipt_id подавлено: %s", _exc)
+
         # ── CRM: package_sale_earnings (комиссия продавца за продажу абонемента) ─
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS package_sale_earnings (
@@ -2041,7 +2100,19 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_pse_user ON package_sale_earnings(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_pse_cp ON package_sale_earnings(client_package_id)')
 
-        # ── POS: ALTER TABLE appointments ADD source + shop_name ─────────────────
+        # ── CRM: package_sale_earnings.original_commission_amount (неизменный
+        # снимок комиссии на момент продажи — рефанды считают сторно от него,
+        # а не от текущего (уже урезанного) commission_amount, иначе накопится
+        # компаундинг-ошибка при нескольких частичных возвратах) ────────────────
+        _pse_cols = {r[1] for r in cursor.execute("PRAGMA table_info(package_sale_earnings)").fetchall()}
+        if 'original_commission_amount' not in _pse_cols:
+            try:
+                cursor.execute("ALTER TABLE package_sale_earnings ADD COLUMN original_commission_amount REAL DEFAULT NULL")
+                cursor.execute("UPDATE package_sale_earnings SET original_commission_amount = commission_amount WHERE original_commission_amount IS NULL")
+            except Exception as _exc:
+                logger.debug("create_tables: package_sale_earnings.original_commission_amount подавлено: %s", _exc)
+
+        # ── POS: ALTER TABLE appointments ADD source + shop_name + receipt_id ──────
         _appt_cols = {r[1] for r in cursor.execute("PRAGMA table_info(appointments)").fetchall()}
         if 'source' not in _appt_cols:
             try:
@@ -2053,6 +2124,12 @@ class Database:
                 cursor.execute("ALTER TABLE appointments ADD COLUMN shop_name TEXT DEFAULT NULL")
             except Exception as _exc:
                 logger.debug("create_tables: appointments.shop_name подавлено: %s", _exc)
+        if 'receipt_id' not in _appt_cols:
+            try:
+                cursor.execute("ALTER TABLE appointments ADD COLUMN receipt_id TEXT DEFAULT NULL")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_appt_receipt ON appointments(receipt_id) WHERE receipt_id IS NOT NULL")
+            except Exception as _exc:
+                logger.debug("create_tables: appointments.receipt_id подавлено: %s", _exc)
 
         conn.commit()
 
@@ -6710,7 +6787,7 @@ class Database:
         return rows
 
     # Методы для работы с продажами
-    def add_sale(self, product_id, shop_name, quantity_sold, user_id, sale_price=None):
+    def add_sale(self, product_id, shop_name, quantity_sold, user_id, sale_price=None, receipt_id=None):
         """Добавление продажи"""
         import time
 
@@ -6747,9 +6824,9 @@ class Database:
                 _sale_year, _sale_month = _sale_now.year, _sale_now.month
 
                 cursor.execute('''
-                    INSERT INTO sales (product_id, shop_name, quantity_sold, sale_date, user_id, sale_price)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (product_id, shop_name, quantity_sold, sale_date, user_id, sale_price))
+                    INSERT INTO sales (product_id, shop_name, quantity_sold, sale_date, user_id, sale_price, receipt_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (product_id, shop_name, quantity_sold, sale_date, user_id, sale_price, receipt_id))
 
                 sale_id = cursor.lastrowid
 
@@ -6835,8 +6912,11 @@ class Database:
         cursor = conn.cursor()
 
         query = '''
-            SELECT s.*, p.name as product_name, p.category, u.first_name, u.last_name,
-                   COALESCE(r.returned_qty, 0) as returned_qty
+            SELECT s.id, s.product_id, s.shop_name, s.quantity_sold, s.sale_price,
+                   s.user_id, s.sale_date,
+                   p.name as product_name, p.category, u.first_name, u.last_name,
+                   COALESCE(r.returned_qty, 0) as returned_qty,
+                   'product' as sale_type, s.receipt_id
             FROM sales s
             JOIN products p ON s.product_id = p.id
             JOIN users u ON s.user_id = u.id
@@ -19640,8 +19720,27 @@ class Database:
         finally:
             conn.close()
 
+    def get_all_packages_for_pos(self) -> list:
+        """Return active service package templates for POS package mode."""
+        conn = self.get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT sp.id, sp.name, COALESCE(s.name, 'Абонементы') as category, "
+                "sp.price, sp.visits_total, sp.validity_days "
+                "FROM service_packages sp "
+                "LEFT JOIN services s ON s.id = sp.service_id "
+                "WHERE sp.is_active = 1 "
+                "ORDER BY category, sp.name"
+            ).fetchall()
+            return rows
+        except Exception as exc:
+            logger.debug("get_all_packages_for_pos: %s", exc)
+            return []
+        finally:
+            conn.close()
+
     def add_service_sale(self, service_id: int, staff_user_id: int, price: float,
-                         client_id, shop_name: str) -> int | None:
+                         client_id, shop_name: str, receipt_id=None) -> int | None:
         """Create a completed POS appointment and record service_earnings."""
         from datetime import datetime as _dt
         now = _dt.utcnow().strftime('%Y-%m-%d %H:%M:%S')
@@ -19649,10 +19748,10 @@ class Database:
         try:
             conn.execute(
                 "INSERT INTO appointments (service_id, client_id, staff_user_id, "
-                "start_time, end_time, status, price, created_by, source, shop_name) "
-                "VALUES (?,?,?,?,?,'completed',?,?,'pos_sale',?)",
+                "start_time, end_time, status, price, created_by, source, shop_name, receipt_id) "
+                "VALUES (?,?,?,?,?,'completed',?,?,'pos_sale',?,?)",
                 (service_id, client_id or 0, staff_user_id,
-                 now, now, price, staff_user_id, shop_name)
+                 now, now, price, staff_user_id, shop_name, receipt_id)
             )
             appt_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             commission = 0.0
@@ -19709,7 +19808,7 @@ class Database:
                 SELECT a.id, NULL, a.shop_name, 1, a.price,
                        a.staff_user_id, a.start_time,
                        COALESCE(sv.name, '—'), 'Услуга',
-                       u.first_name, u.last_name, 0, 'service'
+                       u.first_name, u.last_name, 0, 'service', a.receipt_id
                 FROM appointments a
                 LEFT JOIN services sv ON sv.id = a.service_id
                 LEFT JOIN users u ON u.id = a.staff_user_id
@@ -19741,6 +19840,96 @@ class Database:
         except Exception as exc:
             logger.error("get_service_sales_report: %s", exc)
             return []
+        finally:
+            conn.close()
+
+    def get_package_sales_report(self, start_date=None, end_date=None,
+                                   shop_name=None, shop_names=None,
+                                   city=None, cities=None,
+                                   trade_network=None, trade_networks=None,
+                                   user_id=None) -> list:
+        """Продажи абонементов (client_packages) в формате, совместимом с
+        get_sales_report()/get_service_sales_report(), для объединённой ленты
+        кассы/выручки. sold_by в client_packages хранит telegram_id продавца,
+        поэтому JOIN идёт по u.telegram_id (а не u.id, как для товаров/услуг).
+        Returns rows: id[0] None[1] shop_name[2] qty=1[3] price[4] sold_by_tg[5]
+                      purchased_at[6] package_name[7] 'Абонемент'[8]
+                      first_name[9] last_name[10] 0[11] 'package'[12]
+        """
+        conn = self.get_connection()
+        try:
+            query = """
+                SELECT cp.id, NULL, cp.shop_name, 1, cp.price_paid,
+                       cp.sold_by, cp.purchased_at,
+                       COALESCE(sp.name, '—'), 'Абонемент',
+                       u.first_name, u.last_name, 0, 'package', cp.receipt_id
+                FROM client_packages cp
+                LEFT JOIN service_packages sp ON sp.id = cp.package_id
+                LEFT JOIN users u ON u.telegram_id = cp.sold_by
+                WHERE (cp.status != 'refunded' OR cp.status IS NULL)
+            """
+            params = []
+            if start_date and end_date:
+                query += ' AND date(cp.purchased_at) BETWEEN ? AND ?'
+                params.extend([start_date, end_date])
+            elif start_date:
+                query += ' AND date(cp.purchased_at) >= ?'
+                params.append(start_date)
+            elif end_date:
+                query += ' AND date(cp.purchased_at) <= ?'
+                params.append(end_date)
+            if shop_name:
+                query += ' AND cp.shop_name = ?'
+                params.append(shop_name)
+            elif shop_names:
+                ph = ','.join('?' * len(shop_names))
+                query += f' AND cp.shop_name IN ({ph})'
+                params.extend(shop_names)
+            if user_id:
+                query += ' AND u.id = ?'
+                params.append(user_id)
+            query += ' ORDER BY cp.purchased_at DESC'
+            rows = conn.execute(query, params).fetchall()
+            return [tuple(r) for r in rows]
+        except Exception as exc:
+            logger.error("get_package_sales_report: %s", exc)
+            return []
+        finally:
+            conn.close()
+
+    def get_package_returns_summary(self, start_date=None, end_date=None,
+                                     shop_name=None, shop_names=None) -> dict:
+        """Сводка возвратов абонементов за период: {count, total_amount}."""
+        conn = self.get_connection()
+        try:
+            query = """
+                SELECT COUNT(*), COALESCE(SUM(r.refund_amount), 0)
+                FROM client_package_refunds r
+                JOIN client_packages cp ON cp.id = r.client_package_id
+                WHERE 1=1
+            """
+            params = []
+            if start_date and end_date:
+                query += ' AND date(r.refund_date) BETWEEN ? AND ?'
+                params.extend([start_date, end_date])
+            elif start_date:
+                query += ' AND date(r.refund_date) >= ?'
+                params.append(start_date)
+            elif end_date:
+                query += ' AND date(r.refund_date) <= ?'
+                params.append(end_date)
+            if shop_name:
+                query += ' AND cp.shop_name = ?'
+                params.append(shop_name)
+            elif shop_names:
+                ph = ','.join('?' * len(shop_names))
+                query += f' AND cp.shop_name IN ({ph})'
+                params.extend(shop_names)
+            row = conn.execute(query, params).fetchone()
+            return {"count": int(row[0] or 0), "total_amount": float(row[1] or 0)}
+        except Exception as exc:
+            logger.error("get_package_returns_summary: %s", exc)
+            return {"count": 0, "total_amount": 0.0}
         finally:
             conn.close()
 

@@ -275,10 +275,58 @@ def dashboard(request: Request, msg: str = ""):
         except Exception:
             pass
 
-        ctx["today_sales"] = int(today_s[0] or 0) + _svc_today_cnt
-        ctx["today_revenue"] = _fmt(float(today_s[2] or 0) + _svc_today_rev, _csym)
-        ctx["month_sales"] = int(month_s[0] or 0) + _svc_month_cnt
-        ctx["month_revenue"] = _fmt(float(month_s[2] or 0) + _svc_month_rev, _csym)
+        # Add package (абонементы) revenue to main stats cards
+        _pkg_today_rev, _pkg_today_cnt = 0.0, 0
+        _pkg_month_rev, _pkg_month_cnt = 0.0, 0
+        try:
+            from billing_utils import has_module as _hm_pkg_d
+            if _hm_pkg_d(telegram_id, "crm"):
+                # Scope by shop for ALL restricted users (admin or not, and
+                # regardless of scope type — single shop, multiple shops,
+                # city or trade_network all resolve to an allowed-shops list
+                # via _get_user_allowed_shops) — same pattern as reports.py
+                # package_revenue block. Without this, a user scoped to
+                # anything narrower than the whole org would see package
+                # revenue from shops outside their permission scope.
+                _pkg_shop_filter = ""
+                _pkg_shop_params: list = []
+                try:
+                    from web.routes.sales import _get_user_allowed_shops
+                    _allowed = _get_user_allowed_shops(telegram_id, db)
+                    _all_shops = db.get_all_shops() or []
+                    if _allowed and set(_allowed) != set(_all_shops):
+                        _ph = ",".join("?" * len(_allowed))
+                        _pkg_shop_filter = f" AND shop_name IN ({_ph})"
+                        _pkg_shop_params = list(_allowed)
+                except Exception:
+                    pass
+                _dc2 = db.get_connection()
+                try:
+                    _r3 = _dc2.execute(
+                        "SELECT COUNT(*), COALESCE(SUM(price_paid),0) FROM client_packages"
+                        " WHERE (status != 'refunded' OR status IS NULL) AND date(purchased_at)=?"
+                        + _pkg_shop_filter,
+                        [today_str] + _pkg_shop_params
+                    ).fetchone()
+                    _r4 = _dc2.execute(
+                        "SELECT COUNT(*), COALESCE(SUM(price_paid),0) FROM client_packages"
+                        " WHERE (status != 'refunded' OR status IS NULL) AND date(purchased_at) BETWEEN ? AND ?"
+                        + _pkg_shop_filter,
+                        [month_str, today_str] + _pkg_shop_params
+                    ).fetchone()
+                finally:
+                    _dc2.close()
+                if _r3:
+                    _pkg_today_cnt, _pkg_today_rev = int(_r3[0] or 0), float(_r3[1] or 0)
+                if _r4:
+                    _pkg_month_cnt, _pkg_month_rev = int(_r4[0] or 0), float(_r4[1] or 0)
+        except Exception:
+            pass
+
+        ctx["today_sales"] = int(today_s[0] or 0) + _svc_today_cnt + _pkg_today_cnt
+        ctx["today_revenue"] = _fmt(float(today_s[2] or 0) + _svc_today_rev + _pkg_today_rev, _csym)
+        ctx["month_sales"] = int(month_s[0] or 0) + _svc_month_cnt + _pkg_month_cnt
+        ctx["month_revenue"] = _fmt(float(month_s[2] or 0) + _svc_month_rev + _pkg_month_rev, _csym)
 
         # ── Returns summary (current month) ────────────────────────────────
         try:
