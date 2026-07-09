@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.437.0"
+CURRENT_VERSION = "1.438.0"
 
 ENTRIES = [
+    {
+        "version": "1.438.0",
+        "date": "9 июля 2026",
+        "items": [
+            "Fix scrolling issues on login and registration pages on mobile",
+        ],
+    },
     {
         "version": "1.437.0",
         "date": "9 июля 2026",

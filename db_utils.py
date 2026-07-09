@@ -420,7 +420,11 @@ def get_user_module_access(telegram_id: int, module_key: str) -> str | None:
         path = tenant_manager.get_user_db_path(telegram_id)
         if not path or not os.path.exists(path):
             return None
-        conn = sqlite3.connect(path)
+        # Пул-соединение (Database._get_pooled_conn) вместо sqlite3.connect —
+        # эта функция дёргается ~10 раз на каждый рендер страницы (nav_modules),
+        # раскрытие нового файлового дескриптора на каждый вызов было лишним.
+        from database import Database
+        conn = Database(path).get_connection()
         try:
             row = conn.execute(
                 "SELECT access FROM user_module_access WHERE telegram_id = ? AND module_key = ?",

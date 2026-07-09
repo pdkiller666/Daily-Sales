@@ -441,8 +441,8 @@ def create_web_app() -> FastAPI:
             org_db = user.get("org_db", "")
             if not org_db or org_db == "data/shop_bot.db":
                 return ""
-            import sqlite3
-            conn = sqlite3.connect("data/main.db")
+            from database import Database
+            conn = Database("data/main.db").get_connection()
             row = conn.execute(
                 "SELECT name FROM organizations WHERE db_path=?", (org_db,)
             ).fetchone()
@@ -468,7 +468,8 @@ def create_web_app() -> FastAPI:
     def _is_beta_mode() -> bool:
         """Return True while the project is in beta (default ON; toggle via super_admin /settings)."""
         try:
-            conn = sqlite3.connect(_SHOP_BOT_DB)
+            from database import Database
+            conn = Database(_SHOP_BOT_DB).get_connection()
             row = conn.execute(
                 "SELECT value FROM payment_settings WHERE key='beta_mode'"
             ).fetchone()
@@ -497,7 +498,8 @@ def create_web_app() -> FastAPI:
         if state is not None and hasattr(state, "_chat_enabled"):
             return state._chat_enabled
         try:
-            conn = sqlite3.connect(_SHOP_BOT_DB)
+            from database import Database
+            conn = Database(_SHOP_BOT_DB).get_connection()
             row = conn.execute(
                 "SELECT value FROM payment_settings WHERE key='chat_min_plan'"
             ).fetchone()
@@ -519,6 +521,29 @@ def create_web_app() -> FastAPI:
     templates.env.globals['changelog_version'] = lambda: _CL_VER
     templates.env.globals['changelog_entries'] = lambda: _CL_ENTRIES
 
+    def _my_db_id(request, telegram_id, db):
+        """Внутренний users.id текущего юзера в его org-БД.
+
+        Мемоизировано на request.state — open_tasks_count и dm_unread_count
+        оба нуждаются в этом значении на одном и том же рендере страницы;
+        раньше каждый делал свой отдельный SELECT.
+        """
+        state = getattr(request, "state", None)
+        if state is not None and hasattr(state, "_my_db_id"):
+            return state._my_db_id
+        conn = db.get_connection()
+        my_row = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        if state is not None:
+            try:
+                state._my_db_id = my_db_id
+            except Exception:
+                pass
+        return my_db_id
+
     def _open_tasks_count(request):
         """Счётчик незакрытых задач для сайдбара."""
         try:
@@ -533,12 +558,7 @@ def create_web_app() -> FastAPI:
                 return 0
             is_admin = user.get("role") in ("owner", "admin", "super_admin")
             db = get_web_db(telegram_id, org_db)
-            conn = db.get_connection()
-            my_row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-            ).fetchone()
-            conn.close()
-            my_db_id = my_row[0] if my_row else 0
+            my_db_id = _my_db_id(request, telegram_id, db)
             if not my_db_id:
                 return 0
             return db.get_open_tasks_count(my_db_id, is_admin)
@@ -560,14 +580,10 @@ def create_web_app() -> FastAPI:
             if not org_db or org_db == "data/shop_bot.db":
                 return 0
             db = get_web_db(telegram_id, org_db)
-            conn = db.get_connection()
-            my_row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-            ).fetchone()
-            conn.close()
-            if not my_row:
+            my_db_id = _my_db_id(request, telegram_id, db)
+            if not my_db_id:
                 return 0
-            return db.get_dm_unread_count(my_row[0])
+            return db.get_dm_unread_count(my_db_id)
         except Exception:
             return 0
 
