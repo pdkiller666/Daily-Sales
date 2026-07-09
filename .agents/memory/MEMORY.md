@@ -107,4 +107,5 @@
 - [Bare csrf_token needs route context](csrf-token-context.md) — {{ csrf_token }} in templates is NOT a Jinja global; every render context must explicitly pass get_csrf_token(request) or the field silently renders empty → all POSTs 302 to ?error=csrf
 - [Packages integration lessons](packages-integration-lessons.md) — immutable-basis refund math (snapshot originals, cap cumulative, non-compound commission reversal); AsyncDatabase.get_connection() misuse silently returns unawaited coroutine
 - [Web register 3 modes (personal/corporate/join)](web-register-modes.md) — /register ветвится как бот; rate_hits таблица создаётся лениво только через check_rate_limit(), не через голый sqlite3.connect
+- [Corporate registration rollback](web-register-corporate-rollback.md) — orphaned web_credential when create_organization fails; must delete credential on failure
 - [Standalone test scripts not wired to deploy](test-scripts-not-in-ci.md) — most top-level test_*.py (incl. test_package_refunds.py) are NOT run by deploy.sh; only test_build_changelog.py + test_web_smoke.py are; run new tests manually until wired in

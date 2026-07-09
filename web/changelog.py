@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.436.0"
+CURRENT_VERSION = "1.437.0"
 
 ENTRIES = [
+    {
+        "version": "1.437.0",
+        "date": "9 июля 2026",
+        "items": [
+            "Add rollback to prevent orphaned credentials during corporate registration",
+        ],
+    },
     {
         "version": "1.436.0",
         "date": "9 июля 2026",
