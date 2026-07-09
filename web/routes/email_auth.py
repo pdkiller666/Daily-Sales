@@ -575,9 +575,17 @@ async def register_submit(
                             )
                     else:
                         logger.error("register: create_organization failed for cred_id=%s: %s", cred_id, _res)
+                        try:
+                            db.delete_web_credential_by_id(cred_id)
+                        except Exception:
+                            pass
                         return _err(_res or "Не удалось создать организацию. Попробуйте другое название.")
                 except Exception as exc:
                     logger.error("register: corporate org creation error: %s", exc)
+                    try:
+                        db.delete_web_credential_by_id(cred_id)
+                    except Exception:
+                        pass
                     return _err("Ошибка при создании организации. Попробуйте позже.")
 
             # Пробный период — как в боте, для personal и corporate

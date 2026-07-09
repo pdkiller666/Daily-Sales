@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.435.0"
+CURRENT_VERSION = "1.436.0"
 
 ENTRIES = [
+    {
+        "version": "1.436.0",
+        "date": "9 июля 2026",
+        "items": [
+            "Implement a multi-mode registration system for the web interface",
+        ],
+    },
     {
         "version": "1.435.0",
         "date": "8 июля 2026",
