@@ -749,7 +749,10 @@ def check_register_flow(browser, base_url, console_errors):
             f"{base_url}/register",
             method="POST",
             form={
-                "first_name": "Тест Тест",
+                "usage_mode": "join",
+                "first_name": "Тест",
+                "last_name": "Тестов",
+                "phone": "+79001234567",
                 "email": _SMOKE_REG_EMAIL,
                 "password": _SMOKE_REG_PASSWORD,
                 "password2": _SMOKE_REG_PASSWORD,

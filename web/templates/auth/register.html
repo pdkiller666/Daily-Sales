@@ -5,9 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Регистрация — DailySales</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%232563eb'/><text x='50' y='57' text-anchor='middle' font-size='44' font-family='Arial,sans-serif' font-weight='bold' fill='white'>DS</text><text x='50' y='75' text-anchor='middle' font-size='21' font-family='Arial,sans-serif' font-weight='bold' fill='white' letter-spacing='1'>CRM</text></svg>">
-    <link rel="stylesheet" href="/static/app.css?v=8f7688ac77">
-    <style>.circuit-line{position:absolute;background:rgba(37,99,235,.1);border-radius:2px}</style>
+    <link rel="stylesheet" href="/static/app.css?v=2976f676d4">
+    <style>
+        .circuit-line{position:absolute;background:rgba(37,99,235,.1);border-radius:2px}
+        .ds-mode-label{cursor:pointer}
+        .ds-mode-label input{position:absolute;opacity:0;pointer-events:none}
+        .ds-mode-active{border-color:#2563eb!important;background:#eff6ff!important;color:#1d4ed8!important}
+    </style>
     <script defer src="/static/ds-delegate.js?v=20260626"></script>
+    <script defer src="/static/register-mode.js?v=20260709"></script>
 </head>
 <body class="h-full min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden py-8">
 
@@ -22,11 +28,11 @@
     <div class="circuit-line" style="left:88%;top:0;height:18%;width:1px"></div>
 </div>
 
-<div class="relative w-full max-w-sm mx-4">
+<div class="relative w-full max-w-md mx-4">
     <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
 
         <!-- Header -->
-        <div class="relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-8 pt-8 pb-7 text-center overflow-hidden">
+        <div class="relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 sm:px-8 pt-8 pb-7 text-center overflow-hidden">
             <div class="absolute inset-0 pointer-events-none">
                 <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-24 bg-blue-600/15 blur-2xl rounded-full"></div>
             </div>
@@ -43,7 +49,7 @@
         </div>
 
         <!-- Body -->
-        <div class="px-8 py-6">
+        <div class="px-6 sm:px-8 py-6">
 
             {% if error %}
             <div class="mb-4 flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
@@ -54,10 +60,68 @@
             <form method="post" action="/register" class="space-y-3">
                 <input type="hidden" name="login_nonce" value="{{ login_nonce or '' }}">
 
+                <!-- Режим использования -->
                 <div>
-                    <label class="block text-xs font-medium text-slate-600 mb-1">Ваше имя</label>
+                    <label class="block text-xs font-medium text-slate-600 mb-1.5">Как будете использовать сервис</label>
+                    <div class="grid grid-cols-1 gap-2">
+                        <label class="ds-mode-label flex items-center gap-2.5 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 transition-colors"
+                               data-mode-label="personal">
+                            <input type="radio" name="usage_mode" value="personal"
+                                   data-change="dsSetRegMode" {% if usage_mode_value == 'personal' %}checked{% endif %}>
+                            <span class="text-lg">👤</span>
+                            <span>
+                                <span class="block font-medium text-slate-700">Личное использование</span>
+                                <span class="block text-[11px] text-slate-400">Один магазин, без сотрудников</span>
+                            </span>
+                        </label>
+                        <label class="ds-mode-label flex items-center gap-2.5 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 transition-colors"
+                               data-mode-label="corporate">
+                            <input type="radio" name="usage_mode" value="corporate"
+                                   data-change="dsSetRegMode" {% if usage_mode_value == 'corporate' %}checked{% endif %}>
+                            <span class="text-lg">🏢</span>
+                            <span>
+                                <span class="block font-medium text-slate-700">Создать организацию</span>
+                                <span class="block text-[11px] text-slate-400">Свой магазин или сеть с сотрудниками</span>
+                            </span>
+                        </label>
+                        <label class="ds-mode-label flex items-center gap-2.5 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 transition-colors"
+                               data-mode-label="join">
+                            <input type="radio" name="usage_mode" value="join"
+                                   data-change="dsSetRegMode" {% if not usage_mode_value or usage_mode_value == 'join' %}checked{% endif %}>
+                            <span class="text-lg">🔗</span>
+                            <span>
+                                <span class="block font-medium text-slate-700">Войти по приглашению</span>
+                                <span class="block text-[11px] text-slate-400">У меня есть код от руководителя</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Имя</label>
                     <input type="text" name="first_name" value="{{ first_name_value or '' }}"
-                           placeholder="Иван" autocomplete="given-name" required
+                           placeholder="Иван" autocomplete="given-name" required minlength="2"
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Фамилия</label>
+                    <input type="text" name="last_name" value="{{ last_name_value or '' }}"
+                           placeholder="Иванов" autocomplete="family-name" required minlength="2"
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Отчество <span class="text-slate-400 font-normal">(необязательно)</span></label>
+                    <input type="text" name="middle_name" value="{{ middle_name_value or '' }}"
+                           placeholder="Иванович" autocomplete="additional-name"
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Телефон</label>
+                    <input type="tel" name="phone" value="{{ phone_value or '' }}"
+                           placeholder="+7 900 000-00-00" autocomplete="tel" required minlength="10"
                            class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
                 </div>
 
@@ -80,10 +144,41 @@
                            class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50">
                 </div>
 
-                <div>
+                <!-- Название организации — только для "Создать организацию" -->
+                <div class="hidden" data-mode-section="corporate">
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Название организации</label>
+                    <input type="text" name="org_name" value="{{ org_name_value or '' }}"
+                           placeholder="ООО «Ромашка»" autocomplete="organization" data-mode-required
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
+                </div>
+
+                <!-- Торговая сеть / магазин / город — для personal и corporate -->
+                <div class="hidden" data-mode-section="personal,corporate">
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Торговая сеть</label>
+                    <input type="text" name="trade_network" value="{{ trade_network_value or '' }}"
+                           placeholder="Название сети" data-mode-required minlength="2" maxlength="30"
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
+                </div>
+
+                <div class="hidden" data-mode-section="personal,corporate">
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Магазин</label>
+                    <input type="text" name="shop_name" value="{{ shop_name_value or '' }}"
+                           placeholder="Название магазина" data-mode-required minlength="2" maxlength="30"
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
+                </div>
+
+                <div class="hidden" data-mode-section="personal,corporate">
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Город</label>
+                    <input type="text" name="city" value="{{ city_value or '' }}"
+                           placeholder="Москва" autocomplete="address-level2" data-mode-required minlength="2" maxlength="30"
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
+                </div>
+
+                <!-- Инвайт-код — только для "войти по приглашению" -->
+                <div class="hidden" data-mode-section="join">
                     <label class="block text-xs font-medium text-slate-600 mb-1">Инвайт-код организации</label>
                     <input type="text" name="invite_code" value="{{ invite_code_value or '' }}"
-                           placeholder="XXXXXXXX" autocomplete="off" required
+                           placeholder="XXXXXXXX" autocomplete="off" data-mode-required
                            style="text-transform:uppercase"
                            class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-mono tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
                     <p class="text-[11px] text-slate-400 mt-1">Код выдаёт руководитель вашей организации</p>

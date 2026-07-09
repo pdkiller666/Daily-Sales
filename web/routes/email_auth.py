@@ -111,6 +111,26 @@ def _issue_session_response(request: Request, cred: dict, tg_id: int):
         if not org_db:
             org_db = get_first_available_org_db()
 
+    # Веб-аккаунты «личное использование» (synthetic tg_id, без организации)
+    # не имеют записи в user_org_mapping — по умолчанию получат 'user'.
+    # Раз у них нет организации и коллег, поднимаем роль до 'admin' в рамках
+    # ИХ ЖЕ аккаунта (аналог env_manager.add_admin_id в боте для personal-режима),
+    # не трогая глобальные таблицы и логику для остальных ролей.
+    if tg_id < 0 and role == 'user' and not org_db:
+        try:
+            _mconn = sqlite3.connect('data/main.db')
+            try:
+                _mrow = _mconn.execute(
+                    "SELECT 1 FROM user_org_mapping WHERE telegram_id=? AND is_active=1",
+                    (tg_id,)
+                ).fetchone()
+            finally:
+                _mconn.close()
+            if not _mrow:
+                role = 'admin'
+        except Exception:
+            pass
+
     if not org_db:
         org_db = cred.get('org_db') or SHOP_BOT_DB
 
@@ -311,7 +331,15 @@ async def register_submit(
     email: str = Form(default=""),
     password: str = Form(default=""),
     password2: str = Form(default=""),
+    usage_mode: str = Form(default="join"),
     first_name: str = Form(default=""),
+    last_name: str = Form(default=""),
+    middle_name: str = Form(default=""),
+    phone: str = Form(default=""),
+    org_name: str = Form(default=""),
+    trade_network: str = Form(default=""),
+    shop_name: str = Form(default=""),
+    city: str = Form(default=""),
     invite_code: str = Form(default=""),
     login_nonce: str = Form(default=""),
     consent: str = Form(default=""),
@@ -322,12 +350,24 @@ async def register_submit(
 
     templates = request.app.state.templates
 
+    usage_mode = (usage_mode or "join").strip()
+    if usage_mode not in ("personal", "corporate", "join"):
+        usage_mode = "join"
+
     def _err(msg: str):
         return templates.TemplateResponse(request, "auth/register.html", {
             "error": msg,
             "login_nonce": generate_login_nonce(),
+            "usage_mode_value": usage_mode,
             "email_value": email,
             "first_name_value": first_name,
+            "last_name_value": last_name,
+            "middle_name_value": middle_name,
+            "phone_value": phone,
+            "org_name_value": org_name,
+            "trade_network_value": trade_network,
+            "shop_name_value": shop_name,
+            "city_value": city,
             "invite_code_value": invite_code,
         })
 
@@ -343,6 +383,15 @@ async def register_submit(
 
     email = email.strip().lower()
     first_name = first_name.strip()[:64]
+    last_name = last_name.strip()[:64]
+    middle_name = middle_name.strip()[:64]
+    if middle_name.lower() in ('нет', '-', '—'):
+        middle_name = ''
+    phone = phone.strip()[:32]
+    org_name = org_name.strip()[:100]
+    trade_network = trade_network.strip()[:30]
+    shop_name = shop_name.strip()[:30]
+    city = city.strip()[:30]
     invite_code = invite_code.strip().upper()
 
     if not email or '@' not in email or '.' not in email.split('@')[-1]:
@@ -351,35 +400,75 @@ async def register_submit(
         return _err("Пароль должен содержать не менее 8 символов.")
     if password != password2:
         return _err("Пароли не совпадают.")
-    if not first_name:
-        return _err("Введите ваше имя.")
-    if not invite_code:
-        return _err("Введите инвайт-код организации.")
+    if len(first_name) < 2:
+        return _err("Введите ваше имя (минимум 2 символа).")
+    if len(last_name) < 2:
+        return _err("Введите вашу фамилию (минимум 2 символа).")
+    if len(phone) < 10:
+        return _err("Введите корректный номер телефона.")
     if not consent:
         return _err("Необходимо согласиться с политикой обработки персональных данных.")
 
-    try:
-        conn = sqlite3.connect('data/main.db')
+    if usage_mode == "join":
+        if not invite_code:
+            return _err("Введите инвайт-код организации.")
+    else:
+        if len(trade_network) < 2:
+            return _err("Введите название торговой сети (минимум 2 символа).")
+        if len(shop_name) < 2:
+            return _err("Введите название магазина (минимум 2 символа).")
+        if len(city) < 2:
+            return _err("Введите город (минимум 2 символа).")
+        if usage_mode == "corporate" and len(org_name) < 2:
+            return _err("Введите название организации.")
+
+    org_id = org_name_db = org_db = preset_role = preset_shop = None
+    if usage_mode == "join":
         try:
-            org_row = conn.execute(
-                "SELECT id, name, db_path FROM organizations WHERE invite_code=? AND is_active=1",
-                (invite_code,)
-            ).fetchone()
-        finally:
-            conn.close()
-    except Exception as exc:
-        logger.error("register main.db: %s", exc)
-        return _err("Ошибка проверки инвайт-кода. Попробуйте позже.")
+            conn = sqlite3.connect('data/main.db')
+            try:
+                org_row = conn.execute(
+                    "SELECT id, name, db_path, invite_preset_role, invite_preset_shop "
+                    "FROM organizations WHERE invite_code=? AND is_active=1",
+                    (invite_code,)
+                ).fetchone()
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.error("register main.db: %s", exc)
+            return _err("Ошибка проверки инвайт-кода. Попробуйте позже.")
 
-    if not org_row:
-        return _err("Инвайт-код не найден или недействителен.")
+        if not org_row:
+            return _err("Инвайт-код не найден или недействителен.")
 
-    org_id, org_name, org_db = org_row
+        org_id, org_name_db, org_db, preset_role, preset_shop = org_row
 
     try:
         db = _shop_db()
 
-        if db.get_web_credential_by_email(email):
+        existing_cred = db.get_web_credential_by_email(email)
+        if existing_cred:
+            # Если этот email уже был участником данной организации и был
+            # исключён (is_active=0 в user_org_mapping) — не даём тихо
+            # завести дубликат под тем же email, показываем внятный статус.
+            _prev_tg = existing_cred.get('telegram_id') or existing_cred.get('synthetic_tg_id')
+            if _prev_tg and org_id:
+                try:
+                    _kconn = sqlite3.connect('data/main.db')
+                    try:
+                        _krow = _kconn.execute(
+                            "SELECT is_active FROM user_org_mapping WHERE telegram_id=? AND org_id=?",
+                            (_prev_tg, org_id)
+                        ).fetchone()
+                    finally:
+                        _kconn.close()
+                    if _krow is not None and _krow[0] == 0:
+                        return _err(
+                            "Вы были исключены из этой организации. "
+                            "Обратитесь к администратору для восстановления доступа."
+                        )
+                except Exception as exc:
+                    logger.error("register kicked-check: %s", exc)
             return _err("Этот email уже зарегистрирован.")
 
         pw_hash = hash_password(password)
@@ -388,6 +477,12 @@ async def register_submit(
             return _err("Ошибка создания аккаунта. Попробуйте позже.")
 
         synthetic_tg_id = -(10_000_000 + cred_id)
+
+        if usage_mode == "personal":
+            org_db = SHOP_BOT_DB
+        elif usage_mode == "corporate":
+            org_db = SHOP_BOT_DB  # временно — обновится ниже после create_organization
+
         db.set_web_synthetic_tg_id(cred_id, synthetic_tg_id, org_db, first_name)
         # Записываем момент получения согласия с политикой ПДн
         try:
@@ -403,16 +498,117 @@ async def register_submit(
             pass
 
         from database import Database
-        if os.path.exists(org_db):
-            org_db_obj = Database(org_db)
-            org_db_obj.add_user(
-                telegram_id=synthetic_tg_id,
-                first_name=first_name,
-                last_name='',
-                email=email,
-            )
 
-        _add_org_mapping(synthetic_tg_id, org_id, role='user')
+        if usage_mode == "join":
+            # Пресет магазина (назначен администратором для этого инвайт-кода)
+            if os.path.exists(org_db):
+                org_db_obj = Database(org_db)
+                org_db_obj.add_user(
+                    telegram_id=synthetic_tg_id,
+                    first_name=first_name,
+                    last_name=last_name,
+                    middle_name=middle_name or None,
+                    phone=phone,
+                    email=email,
+                    shop_name=preset_shop or None,
+                )
+
+            # Пресет роли (назначен администратором для этого инвайт-кода)
+            _assigned_role = preset_role if preset_role in ('admin', 'user') else 'user'
+            _add_org_mapping(synthetic_tg_id, org_id, role=_assigned_role)
+            if _assigned_role != 'user':
+                try:
+                    from tenant_manager import TenantManager
+                    _ok, _res = TenantManager().change_user_role(synthetic_tg_id, _assigned_role)
+                    if not _ok:
+                        logger.error("register: preset role apply failed for cred_id=%s: %s", cred_id, _res)
+                except Exception as exc:
+                    logger.error("register: preset role apply exception for cred_id=%s: %s", cred_id, exc)
+
+        else:
+            # personal / corporate — общий профиль в main.db (как в боте)
+            try:
+                central_db = Database('data/main.db')
+                central_db.create_tables()
+                central_db.add_user(
+                    telegram_id=synthetic_tg_id,
+                    first_name=first_name,
+                    last_name=last_name,
+                    middle_name=middle_name or None,
+                    phone=phone,
+                    email=email,
+                    trade_network=trade_network,
+                    shop_name=shop_name,
+                    city=city,
+                )
+            except Exception as exc:
+                logger.error("register: central_db profile error: %s", exc)
+
+            if usage_mode == "corporate":
+                try:
+                    from tenant_manager import tenant_manager as _tm
+                    _ok, _res = _tm.create_organization(org_name, synthetic_tg_id)
+                    if _ok:
+                        _mconn = sqlite3.connect('data/main.db')
+                        try:
+                            _org_row2 = _mconn.execute(
+                                "SELECT db_path FROM organizations WHERE name=? AND owner_id=?",
+                                (org_name, synthetic_tg_id)
+                            ).fetchone()
+                        finally:
+                            _mconn.close()
+                        if _org_row2 and _org_row2[0]:
+                            org_db = _org_row2[0]
+                            db.set_web_synthetic_tg_id(cred_id, synthetic_tg_id, org_db, first_name)
+                            org_db_obj = Database(org_db)
+                            org_db_obj.create_tables()
+                            org_db_obj.add_user(
+                                telegram_id=synthetic_tg_id,
+                                first_name=first_name,
+                                last_name=last_name,
+                                middle_name=middle_name or None,
+                                phone=phone,
+                                email=email,
+                                trade_network=trade_network,
+                                shop_name=shop_name,
+                                city=city,
+                            )
+                    else:
+                        logger.error("register: create_organization failed for cred_id=%s: %s", cred_id, _res)
+                        return _err(_res or "Не удалось создать организацию. Попробуйте другое название.")
+                except Exception as exc:
+                    logger.error("register: corporate org creation error: %s", exc)
+                    return _err("Ошибка при создании организации. Попробуйте позже.")
+
+            # Пробный период — как в боте, для personal и corporate
+            try:
+                shop_db = _shop_db()
+                shop_db.create_tables()
+                existing_shop_user = shop_db.get_user(synthetic_tg_id)
+                if not existing_shop_user:
+                    shop_db.add_user(
+                        telegram_id=synthetic_tg_id,
+                        first_name=first_name,
+                        last_name=last_name,
+                        middle_name=middle_name or None,
+                        phone=phone,
+                        email=email,
+                        trade_network=trade_network,
+                        shop_name=shop_name,
+                        city=city,
+                    )
+                    existing_shop_user = shop_db.get_user(synthetic_tg_id)
+                if existing_shop_user:
+                    shop_user_id = existing_shop_user[0]
+                    existing_sub = shop_db.get_user_subscription(shop_user_id)
+                    if not existing_sub:
+                        trial_settings = shop_db.get_payment_settings()
+                        trial_days = int(trial_settings.get('trial_days', '14'))
+                        trial_plan = trial_settings.get('trial_plan', 'Премиум')
+                        if trial_days > 0:
+                            shop_db.create_trial_subscription(shop_user_id, trial_plan, trial_days)
+            except Exception as exc:
+                logger.error("register: trial grant error: %s", exc)
 
         if email_ok():
             tok = str(uuid.uuid4())
@@ -423,7 +619,8 @@ async def register_submit(
         logger.error("register: %s", exc)
         return _err("Ошибка регистрации. Попробуйте позже.")
 
-    token = create_session_token(synthetic_tg_id, first_name, org_db, 'user')
+    role_for_token = 'user' if usage_mode == 'join' else 'admin'
+    token = create_session_token(synthetic_tg_id, first_name, org_db, role_for_token)
     response = RedirectResponse(url="/dashboard", status_code=302)
     response.set_cookie(COOKIE_NAME, token, httponly=True, samesite='lax',
                         secure=True, max_age=TOKEN_EXPIRE_DAYS * 24 * 3600)

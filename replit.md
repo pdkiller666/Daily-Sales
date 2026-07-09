@@ -49,7 +49,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `web/templates/` — per-module Jinja2; `base.html` (nav/PWA/dark-mode), `landing.html` (SEO)
 
 ### Android TWA
-- `twa-manifest.json` — Bubblewrap конфиг: `packageId=com.dailysales.app`, host, fingerprint SHA-256, shortcuts
+- `twa-manifest.json` — конфиг TWA (изначально под Bubblewrap, сейчас справочный — сборка идёт напрямую через Gradle, см. gotcha ниже): `packageId=com.dailysales.app`, host, fingerprint SHA-256, shortcuts
 - `.github/workflows/build-twa.yml` — GitHub Actions: сборка APK при каждом push → GitHub Releases (автоматически)
 - `GET /download/android` (`web/app.py`) — 302 redirect на `github.com/.../releases/latest`; точки входа: лендинг (3-я CTA), дашборд (закрываемый баннер, localStorage), настройки (карточка), бот (callback `apk_info` в профиле)
 - **⚠️ Gotcha (build-twa.yml)**: bubblewrap CLI **не работает** в GitHub Actions (константная ошибка «androidSdk isn't correct», 25+ попыток); вместо него — прямой Gradle build (`android/` проект, `gradle/actions/setup-gradle@v3`); `android/gradle.properties` обязателен (`android.useAndroidX=true`); `secrets` нельзя в `if:` условии шага — проверять через env var в shell

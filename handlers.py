@@ -890,9 +890,17 @@ async def process_city(message: Message, state: FSMContext):
             _preset_role = user_data.get('preset_role')
             if _preset_role and _preset_role in ('admin', 'user'):
                 try:
-                    tenant_manager.change_user_role(message.from_user.id, _preset_role)
-                except Exception:
-                    pass
+                    _role_ok, _role_res = tenant_manager.change_user_role(message.from_user.id, _preset_role)
+                    if not _role_ok:
+                        logging.error(
+                            "process_city: preset role apply failed tg_id=%s role=%s: %s",
+                            message.from_user.id, _preset_role, _role_res,
+                        )
+                except Exception as _role_exc:
+                    logging.error(
+                        "process_city: preset role apply exception tg_id=%s role=%s: %s",
+                        message.from_user.id, _preset_role, _role_exc,
+                    )
     except Exception as e:
         import logging
         logging.error(f"process_city: registration DB error: {e}")
