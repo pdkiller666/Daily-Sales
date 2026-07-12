@@ -109,3 +109,4 @@
 - [Web register 3 modes (personal/corporate/join)](web-register-modes.md) — /register ветвится как бот; rate_hits таблица создаётся лениво только через check_rate_limit(), не через голый sqlite3.connect
 - [Corporate registration rollback](web-register-corporate-rollback.md) — orphaned web_credential when create_organization fails; must delete credential on failure
 - [Standalone test scripts not wired to deploy](test-scripts-not-in-ci.md) — most top-level test_*.py (incl. test_package_refunds.py) are NOT run by deploy.sh; only test_build_changelog.py + test_web_smoke.py are; run new tests manually until wired in
+- [Web hot-path DB connection pooling](web-hotpath-db-pooling.md) — Jinja2 globals (nav_modules/счётчики) обязаны юзать Database().get_connection() (пул), не raw sqlite3.connect(); create_tables() уже кэширован, не тормозит

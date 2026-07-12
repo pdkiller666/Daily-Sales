@@ -302,7 +302,8 @@
             <tbody class="divide-y divide-slate-50">
                 {% for s in recent_sales %}
                 {# get_user_sales: s.id[0] product_id[1] shop_name[2] qty[3] price[4]
-                   user_id[5] sale_date[6] product_name[7] category[8] #}
+                   user_id[5] sale_date[6] client_id[7] receipt_id[8]
+                   product_name[9] category[10] #}
                 <tr class="hover:bg-slate-50/70">
                     <td class="px-5 py-2.5 text-slate-400 text-xs whitespace-nowrap">
                         <span class="block">{{ s[6]|fmt_sale_dt(user_tz, '%d.%m.%Y') if s[6] else '—' }}</span>
@@ -311,12 +312,12 @@
                     <td class="px-3 py-2.5">
                         {% if s[1] %}
                         <a href="/products/{{ s[1] }}" class="group">
-                            <p class="font-medium text-slate-800 truncate max-w-[160px] group-hover:text-blue-600 transition-colors">{{ s[7] or '—' }}</p>
-                            <p class="text-xs text-slate-400">{{ s[8] or '' }}</p>
+                            <p class="font-medium text-slate-800 truncate max-w-[160px] group-hover:text-blue-600 transition-colors">{{ s[9] or '—' }}</p>
+                            <p class="text-xs text-slate-400">{{ s[10] or '' }}</p>
                         </a>
                         {% else %}
-                        <p class="font-medium text-slate-800 truncate max-w-[160px]">{{ s[7] or '—' }}</p>
-                        <p class="text-xs text-slate-400">{{ s[8] or '' }}</p>
+                        <p class="font-medium text-slate-800 truncate max-w-[160px]">{{ s[9] or '—' }}</p>
+                        <p class="text-xs text-slate-400">{{ s[10] or '' }}</p>
                         {% endif %}
                     </td>
                     <td class="px-3 py-2.5 text-slate-500 hidden sm:table-cell">{{ s[2] }}</td>
