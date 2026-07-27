@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.440.0"
+CURRENT_VERSION = "1.441.0"
 
 ENTRIES = [
+    {
+        "version": "1.441.0",
+        "date": "27 июля 2026",
+        "items": [
+            "Implement subscription management features and update UI templates",
+            "Add screenshot assets for reference",
+        ],
+    },
     {
         "version": "1.440.0",
         "date": "27 июля 2026",
