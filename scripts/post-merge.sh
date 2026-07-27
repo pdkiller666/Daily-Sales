@@ -1,8 +1,15 @@
 #!/bin/bash
-# Post-merge setup: install/refresh Python dependencies after a task merge.
-# The interpreter (nix-provided) is marked externally-managed, but packages
-# actually land in the local .pythonlibs venv — pip needs --break-system-packages
-# to bypass the interpreter-level guard. Idempotent: pip skips satisfied reqs.
+# Post-merge setup script — запускается автоматически после слияния задач агентов.
+# Идемпотентен, неинтерактивен, set -e.
 set -e
 
-python3 -m pip install --break-system-packages --quiet -r requirements.txt
+echo "=== Post-merge setup ==="
+
+# Устанавливаем/обновляем Python-зависимости
+echo "1. Установка зависимостей..."
+pip install -q -r requirements.txt
+
+# Создаём папку data/ если вдруг нет
+mkdir -p data
+
+echo "=== Готово ==="

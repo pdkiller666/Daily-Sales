@@ -30,8 +30,8 @@ Workflow: **Start application** → `python start.py`
 | `AMVERA_PASS` | деплой | Пароль Amvera |
 | `YANDEX_EMAIL` | опц. | Email для SMTP (email-авторизация) |
 | `YANDEX_SMTP_PASSWORD` | опц. | Пароль приложения Яндекс |
-| `VAPID_PUBLIC_KEY` | опц. | Web Push (сгенерирован, в data/.env) |
-| `VAPID_PRIVATE_KEY` | опц. | Web Push (сгенерирован, в data/.env) |
+| `VAPID_PUBLIC_KEY` | ✅ | Web Push (в Secrets) |
+| `VAPID_PRIVATE_KEY` | ✅ | Web Push (в Secrets) |
 | `VAPID_MAILTO` | опц. | Web Push email (задан в env) |
 | `PAYMENT_CARD_NUMBER` | опц. | Номер карты для оплаты |
 | `PAYMENT_RECIPIENT_NAME` | опц. | Получатель платежей |

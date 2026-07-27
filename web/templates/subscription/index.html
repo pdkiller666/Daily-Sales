@@ -132,28 +132,43 @@
     white-space: nowrap;
 }
 .btn-in-cart:hover { background: #fef2f2; color: #ef4444; border-color: #fca5a5; }
+{# cart-panel CSS moved below — overridden by tighter version after .no-scrollbar #}
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
 .cart-panel {
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
     background: #fff; border-top: 2px solid #6366f1;
     box-shadow: 0 -8px 32px rgba(99,102,241,.18);
-    padding: 14px 16px max(14px, env(safe-area-inset-bottom));
+    padding: 10px 16px max(10px, env(safe-area-inset-bottom));
 }
 .dark .cart-panel { background: #1e293b; border-top-color: #818cf8; }
-.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
-.no-scrollbar::-webkit-scrollbar { display: none; }
 </style>
+<script type="application/json" id="ds-expiring-data" nonce="{{ csp_nonce(request) }}">{{ expiring_items | tojson }}</script>
 
 {# ── Flash ── #}
 {% if msg in ('module_request_sent', 'tariff_request_sent') %}
 {% set _req_id = request.query_params.get('req_id', '') %}
 {% set _batch_count = request.query_params.get('batch_count', '1') | int %}
+{% set _total_amount = request.query_params.get('total_amount', '0') | int %}
 <div class="mb-5 px-4 py-4 rounded-2xl bg-emerald-50 border border-emerald-200">
     <p class="font-bold text-emerald-800 mb-1">✅ {% if _batch_count > 1 %}{{ _batch_count }} заявки отправлены!{% else %}Заявка отправлена!{% endif %}</p>
     <p class="text-sm text-emerald-700">{% if msg == 'tariff_request_sent' %}Заявка на смену тарифа создана. Администратор рассмотрит её и обновит объём.{% elif _batch_count > 1 %}Отправили {{ _batch_count }} позиции одним запросом — администратор рассмотрит их и откроет доступ.{% else %}Администратор рассмотрит её в ближайшее время и откроет доступ.{% endif %}</p>
     {% if requisites %}
-    <div class="mt-3 p-3 bg-white border border-emerald-100 rounded-xl text-sm">
-        <p class="font-semibold text-slate-700 mb-1">💳 Реквизиты для оплаты:</p>
-        <p class="font-mono text-base tracking-wide text-slate-800">{{ requisites }}</p>
+    <div class="mt-3 space-y-2">
+        {# Шаг 2: явная сумма к переводу — пользователь знает ровно сколько переводить #}
+        {% if _total_amount %}
+        <div class="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
+            <span class="text-2xl shrink-0">💰</span>
+            <div>
+                <p class="font-black text-amber-900 text-lg leading-tight">{{ _total_amount }}&nbsp;₽</p>
+                <p class="text-xs text-amber-700">Переведите эту сумму по реквизитам ниже, затем прикрепите скриншот</p>
+            </div>
+        </div>
+        {% endif %}
+        <div class="p-3 bg-white border border-emerald-100 rounded-xl text-sm">
+            <p class="font-semibold text-slate-700 mb-1">💳 Реквизиты для оплаты:</p>
+            <p class="font-mono text-base tracking-wide text-slate-800">{{ requisites }}</p>
+        </div>
     </div>
     {% endif %}
     {% if _req_id %}
@@ -299,10 +314,18 @@
             <p class="text-2xl font-extrabold leading-tight">Полный доступ<br>до {{ trial.end_date }}</p>
             <p class="text-sm text-blue-200 mt-1">Все функции открыты — оцените возможности</p>
         {% elif user_mod_subs %}
+            {# Badge: предупреждение если есть истекающие, иначе обычный «Активна» #}
+            {% if expiring_items %}
+            <div class="inline-flex items-center gap-1.5 bg-amber-400/20 border border-amber-300/40 rounded-full px-3 py-1 mb-3">
+                <span class="w-1.5 h-1.5 bg-amber-300 rounded-full animate-pulse"></span>
+                <span class="text-xs font-bold text-amber-200 uppercase tracking-wider">⚠ Истекает {{ expiring_items|length }} поз.</span>
+            </div>
+            {% else %}
             <div class="inline-flex items-center gap-1.5 bg-blue-400/20 border border-blue-300/40 rounded-full px-3 py-1 mb-3">
                 <span class="w-1.5 h-1.5 bg-blue-300 rounded-full animate-pulse"></span>
                 <span class="text-xs font-bold text-blue-200 uppercase tracking-wider">Активна</span>
             </div>
+            {% endif %}
             <p class="text-2xl font-extrabold leading-tight">
                 {{ user_mod_subs|length }} позиц{{ 'ия' if user_mod_subs|length == 1 else ('ии' if user_mod_subs|length in (2,3,4) else 'ий') }} активно
             </p>
@@ -324,6 +347,33 @@
     </div>
 </div>
 
+
+{# ══ ИСТЕКАЮЩИЕ ПОЗИЦИИ — Alert-блок ══
+     Показывается сразу под hero, когда есть активные позиции с ≤14 дн. до конца
+     и нет ни одной pending-заявки. Кнопка добавляет все позиции в корзину. #}
+{% if expiring_items and not has_pending %}
+<div class="mb-5 rounded-2xl border-2 border-amber-400 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 overflow-hidden">
+    <div class="px-4 py-2.5 bg-amber-100 dark:bg-amber-800/40 flex items-center gap-2 border-b border-amber-200 dark:border-amber-700">
+        <span class="text-base leading-none">⚠️</span>
+        <p class="font-bold text-amber-800 dark:text-amber-200 text-sm">
+            {{ expiring_items|length }} позиц{{ 'ия истекает' if expiring_items|length == 1 else ('ии истекают' if expiring_items|length in [2,3,4] else 'ий истекают') }} в ближайшие 2 недели
+        </p>
+    </div>
+    <div class="px-4 py-3">
+        <div class="flex flex-wrap gap-1.5 mb-3">
+            {% for it in expiring_items %}
+            <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-white dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200">
+                {{ it.name }}&nbsp;<span class="{{ 'text-red-600 dark:text-red-400' if it.days_remaining <= 3 else 'text-amber-600 dark:text-amber-400' }}">· {{ it.days_remaining }} дн.</span>
+            </span>
+            {% endfor %}
+        </div>
+        <button type="button" @click="addExpiring()"
+                class="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-sm font-bold rounded-xl transition-colors shadow-sm">
+            🔄 Добавить {{ 'все' if expiring_items|length > 1 else '' }} в корзину →
+        </button>
+    </div>
+</div>
+{% endif %}
 
 {# ══ ОНБОРДИНГ — только новым (без подписок и без trial) ══ #}
 {% if not user_mod_subs and not trial and not (active_items.modules and '*' in active_items.modules) and not (active_items.modules or active_items.extensions or active_items.bundles) %}
@@ -588,6 +638,23 @@
         const p = new URLSearchParams(window.location.search);
         p.set('tab', t);
         history.replaceState({}, '', location.pathname + '?' + p.toString());
+    },
+    addExpiring() {
+        /* Добавляет все истекающие позиции из ds-expiring-data в корзину */
+        const el = document.getElementById('ds-expiring-data');
+        let items = [];
+        if (el) { try { items = JSON.parse(el.textContent); } catch(e) {} }
+        for (const it of items) {
+            if (!this.inCart(it.key)) {
+                this.cart.push({key: it.key, type: it.type, name: it.name,
+                                pMo: it.price_monthly, pAn: it.price_annual, hasAnn: it.has_annual});
+            }
+        }
+    },
+    init() {
+        /* ?action=renew_all из баннера «Продлить →» автоматически заполняет корзину */
+        const p = new URLSearchParams(window.location.search);
+        if (p.get('action') === 'renew_all') this.$nextTick(() => this.addExpiring());
     }
 }">
 
@@ -1123,40 +1190,44 @@
     <input type="hidden" name="plan_types_json" value="[]">
 </form>
 
-{# ── Плавающая корзина ── #}
+{# ── Плавающая корзина (компактный макет: 2 строки, кнопка всегда видна) ── #}
 <div x-show="cart.length > 0" x-cloak
      x-transition:enter="transition ease-out duration-200"
-     x-transition:enter-start="opacity-0"
-     x-transition:enter-end="opacity-100"
+     x-transition:enter-start="opacity-0 translate-y-2"
+     x-transition:enter-end="opacity-100 translate-y-0"
      x-transition:leave="transition ease-in duration-150"
-     x-transition:leave-start="opacity-100"
-     x-transition:leave-end="opacity-0"
+     x-transition:leave-start="opacity-100 translate-y-0"
+     x-transition:leave-end="opacity-0 translate-y-2"
      class="cart-panel">
     <div class="max-w-md mx-auto">
-        <div class="flex items-center justify-between mb-2">
-            <div class="flex items-center gap-2">
-                <span class="text-sm font-bold text-slate-800 dark:text-white">🛒 Корзина</span>
-                <span class="inline-flex items-center justify-center w-5 h-5 text-[11px] font-bold text-white bg-indigo-500 rounded-full" x-text="cart.length">0</span>
+        {# Строка 1: горизонтальный скролл чипов + счётчик + очистить #}
+        <div class="flex items-center gap-2 mb-2">
+            <span class="inline-flex items-center justify-center w-5 h-5 text-[11px] font-bold text-white bg-indigo-500 rounded-full shrink-0" x-text="cart.length">0</span>
+            <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1">
+                <template x-for="item in cart" :key="item.key">
+                    <span class="inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-100 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded-full text-[11px] font-semibold px-2.5 py-0.5 shrink-0">
+                        <span x-text="item.name"></span>
+                        <button type="button" @click="removeFromCart(item.key)" class="ml-0.5 text-indigo-400 hover:text-red-500 leading-none transition-colors">&times;</button>
+                    </span>
+                </template>
             </div>
-            <button type="button" @click="cart = []" class="text-xs text-slate-400 hover:text-red-500 transition-colors">Очистить</button>
+            <button type="button" @click="cart = []" class="text-[11px] text-slate-400 hover:text-red-500 transition-colors shrink-0">Очистить</button>
         </div>
-        <div class="flex flex-wrap gap-1.5 mb-3 max-h-16 overflow-y-auto">
-            <template x-for="item in cart" :key="item.key">
-                <span class="inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-100 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded-full text-[11px] font-semibold px-2.5 py-0.5">
-                    <span x-text="item.name"></span>
-                    <button type="button" @click="removeFromCart(item.key)" class="ml-0.5 text-indigo-400 hover:text-red-500 leading-none transition-colors">&times;</button>
-                </span>
-            </template>
-        </div>
-        <div class="flex items-center justify-between gap-3">
-            <div class="shrink-0">
-                <p class="text-[10px] text-slate-400 leading-tight">Итого в месяц</p>
+        {# Строка 2: сумма + подсказка шага + кнопка оформления #}
+        <div class="flex items-center gap-3">
+            <div class="shrink-0 min-w-[72px]">
+                <p class="text-[9px] text-slate-400 dark:text-slate-500 leading-tight uppercase tracking-wide">К оплате/мес.</p>
                 <p class="text-base font-black text-slate-800 dark:text-white leading-tight" x-text="cartTotal().toLocaleString('ru-RU') + '\u00a0₽'"></p>
             </div>
-            <button type="button" @click="submitBatch()"
-                    class="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-bold py-2.5 px-4 rounded-xl transition-colors">
-                Отправить заявку&nbsp;(<span x-text="cart.length"></span>)
-            </button>
+            <div class="flex-1">
+                <p class="text-[9px] text-slate-400 dark:text-slate-500 leading-tight mb-1">Шаг 1/2 — после заявки получите реквизиты для перевода</p>
+                <button type="button" @click="submitBatch()"
+                        class="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-bold py-2 px-3 rounded-xl transition-colors flex items-center justify-center gap-1">
+                    <span>Получить реквизиты</span>
+                    <span class="bg-white/20 rounded-md px-1.5 py-0.5 text-[11px]" x-text="cart.length">0</span>
+                    <span>→</span>
+                </button>
+            </div>
         </div>
     </div>
 </div>{# end cart panel #}

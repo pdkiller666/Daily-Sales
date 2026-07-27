@@ -1,6 +1,16 @@
-CURRENT_VERSION = "1.439.0"
+CURRENT_VERSION = "1.440.0"
 
 ENTRIES = [
+    {
+        "version": "1.440.0",
+        "date": "27 июля 2026",
+        "items": [
+            "Update agent handoff documentation and release metadata",
+            "Update post-merge script logic",
+            "Update replit documentation",
+            "Add reference screenshots to attached assets",
+        ],
+    },
     {
         "version": "1.439.0",
         "date": "12 июля 2026",

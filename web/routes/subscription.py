@@ -1001,6 +1001,7 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
                 "tariff_plans": [],
                 "need_ext": need_ext,
                 "addon_options": [],
+                "expiring_items": [],
             },
         )
 
@@ -1023,6 +1024,39 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
                 _fk = _fm.get("key", "")
                 if _fk and _fk not in active_items["modules"]:
                     active_items["modules"].append(_fk)
+
+    # Expiring items: active billing subs with ≤14 days remaining,
+    # excluding items that already have a pending payment request.
+    # Hidden when super_admin has wildcard "*" access (no billing needed).
+    expiring_items: list[dict] = []
+    if not data["has_pending"] and "*" not in active_items.get("modules", []):
+        _mod_map = {m["key"]: m for m in data["modules"]}
+        _ext_map = {e["key"]: e for e in data["extensions"]}
+        _bun_map = {b["key"]: b for b in data["bundles"]}
+        for _ek, _sub in data["user_mod_subs"].items():
+            _dr = _sub.get("days_remaining")
+            if _dr is None or _dr > 14:
+                continue
+            _itype = _sub.get("item_type", "")
+            _idata = (
+                _mod_map.get(_ek) if _itype == "module" else
+                _ext_map.get(_ek) if _itype == "extension" else
+                _bun_map.get(_ek) if _itype == "bundle" else None
+            )
+            if not _idata or _idata.get("price_monthly", 0) <= 0:
+                continue
+            _pt = f"{_itype}_{_ek}"
+            if _pt in data["pending_plan_types"]:
+                continue
+            expiring_items.append({
+                "key": _ek,
+                "type": _itype,
+                "name": _idata.get("name_display") or _idata.get("name", _ek),
+                "price_monthly": int(_idata.get("price_monthly", 0)),
+                "price_annual": int(_idata.get("price_annual", 0)),
+                "has_annual": bool(_idata.get("has_annual", False)),
+                "days_remaining": int(_dr),
+            })
 
     is_free_plan = not tariff or tariff.get("plan_name") in (None, "Бесплатный", "")
     addon_all_unlimited = False
@@ -1070,6 +1104,7 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
             "need_ext": need_ext,
             "addon_options": addon_options,
             "addon_all_unlimited": addon_all_unlimited,
+            "expiring_items": expiring_items,
         },
     )
 
@@ -1169,8 +1204,9 @@ def subscription_batch_request(
 
     first_req_id = created_ids[0] if created_ids else ""
     batch_count = len(to_create)
+    total_amount = sum(amt for _, amt in to_create)
     return RedirectResponse(
-        url=f"/subscription?msg=module_request_sent&req_id={first_req_id}&batch_count={batch_count}",
+        url=f"/subscription?msg=module_request_sent&req_id={first_req_id}&batch_count={batch_count}&total_amount={total_amount}",
         status_code=303,
     )
 
