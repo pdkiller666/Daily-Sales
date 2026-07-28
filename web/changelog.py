@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.443.0"
+CURRENT_VERSION = "1.444.0"
 
 ENTRIES = [
+    {
+        "version": "1.444.0",
+        "date": "28 июля 2026",
+        "items": [
+            "Update subscription management logic and UI and document changes",
+        ],
+    },
     {
         "version": "1.443.0",
         "date": "28 июля 2026",

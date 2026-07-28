@@ -832,12 +832,15 @@
                     {% endif %}
 
                     {% if is_active and bun_sub_info %}
-                    <form method="POST" action="/subscription/module-request">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="plan_type"
-                               :value="period === 'annual' && {{ 'true' if bun.has_annual else 'false' }} ? 'bundle_annual_{{ bun.key }}' : 'bundle_{{ bun.key }}'">
-                        <button type="submit" class="btn-renew" {{ 'disabled' if is_bun_pending else '' }}>🔄 Продлить</button>
-                    </form>
+                    {% if is_bun_pending %}
+                    <span class="text-[11px] font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">⏳ В обработке</span>
+                    {% else %}
+                    <button type="button"
+                        @click="toggleCart('{{ bun.key }}', 'bundle', {{ bun.price_monthly }}, {{ bun.price_annual }}, {{ 'true' if bun.has_annual else 'false' }})"
+                        :class="inCart('{{ bun.key }}') ? 'btn-in-cart' : 'btn-renew'">
+                        <span x-text="inCart('{{ bun.key }}') ? '✓ В корзине' : '🔄 Продлить'">🔄 Продлить</span>
+                    </button>
+                    {% endif %}
 
                     <form method="POST" action="/subscription/cancel-request">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -932,15 +935,16 @@
             {% elif mod.price_monthly == 0 %}
             <span class="text-[11px] text-slate-400">Бесплатно</span>
             {% elif is_active %}
-            {# Кнопка Продлить: period-aware + disabled при pending (пункты 3, 5) #}
-            <form method="POST" action="/subscription/module-request">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="plan_type"
-                       :value="period === 'annual' && {{ 'true' if mod.has_annual else 'false' }} ? 'module_annual_{{ mod.key }}' : 'module_{{ mod.key }}'">
-                <button type="submit" class="btn-renew" {{ 'disabled' if is_mod_pending else '' }}>
-                    🔄 Продлить
-                </button>
-            </form>
+            {# Кнопка Продлить: добавляет в корзину (как для новых), batch-request обрабатывает продление #}
+            {% if is_mod_pending %}
+            <span class="text-[11px] font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">⏳ В обработке</span>
+            {% else %}
+            <button type="button"
+                @click="toggleCart('{{ mod.key }}', 'module', {{ mod.price_monthly }}, {{ mod.price_annual }}, {{ 'true' if mod.has_annual else 'false' }})"
+                :class="inCart('{{ mod.key }}') ? 'btn-in-cart' : 'btn-renew'">
+                <span x-text="inCart('{{ mod.key }}') ? '✓ В корзине' : '🔄 Продлить'">🔄 Продлить</span>
+            </button>
+            {% endif %}
             {% else %}
             {% if is_mod_pending %}
             <span class="text-[11px] font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">⏳ В обработке</span>
@@ -1096,12 +1100,15 @@
                 {% elif ext2.price_monthly == 0 %}
                 <span class="text-[11px] text-slate-400">Бесплатно</span>
                 {% elif is_ext_active %}
-                <form method="POST" action="/subscription/module-request">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="plan_type"
-                           :value="period === 'annual' && {{ 'true' if ext2.has_annual else 'false' }} ? 'extension_annual_{{ ext2.key }}' : 'extension_{{ ext2.key }}'">
-                    <button type="submit" class="btn-renew" {{ 'disabled' if is_ext_pending else '' }}>🔄 Продлить</button>
-                </form>
+                {% if is_ext_pending %}
+                <span class="text-[11px] font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">⏳ В обработке</span>
+                {% else %}
+                <button type="button"
+                    @click="toggleCart('{{ ext2.key }}', 'extension', {{ ext2.price_monthly }}, 0, false)"
+                    :class="inCart('{{ ext2.key }}') ? 'btn-in-cart' : 'btn-renew'">
+                    <span x-text="inCart('{{ ext2.key }}') ? '✓ В корзине' : '🔄 Продлить'">🔄 Продлить</span>
+                </button>
+                {% endif %}
                 {% else %}
                 {% if is_ext_pending %}
                 <span class="text-[11px] font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">⏳ В обработке</span>
