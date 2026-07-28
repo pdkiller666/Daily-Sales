@@ -61,11 +61,11 @@ async def pkg_catalog(callback: CallbackQuery, state: FSMContext):
     if not has_module(tg_id, "crm"):
         await callback.answer("Модуль CRM не подключён", show_alert=True)
         return
-    await callback.answer()
     page = int(callback.data.split(":")[1])
 
     db = await get_db(tg_id, state)
     if not db:
+        await callback.answer()
         return
 
     try:
@@ -82,6 +82,7 @@ async def pkg_catalog(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Ошибка загрузки", show_alert=True)
         return
 
+    await callback.answer()
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     builder = InlineKeyboardBuilder()
     for r in rows:
@@ -109,11 +110,11 @@ async def pkg_card(callback: CallbackQuery, state: FSMContext):
     if not has_module(tg_id, "crm"):
         await callback.answer("Модуль CRM не подключён", show_alert=True)
         return
-    await callback.answer()
     pkg_id = int(callback.data.split(":")[1])
 
     db = await get_db(tg_id, state)
     if not db:
+        await callback.answer()
         return
 
     try:
@@ -132,6 +133,7 @@ async def pkg_card(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Абонемент не найден", show_alert=True)
         return
 
+    await callback.answer()
     lines = [f"🎫 <b>{he(r[0])}</b>"]
     lines.append(f"📅 Занятий: <b>{r[1]}</b>")
     lines.append(f"💰 Цена: <b>{r[2]:,.0f} ₽</b>")
@@ -161,13 +163,31 @@ async def pkg_sell_start(callback: CallbackQuery, state: FSMContext):
 
 @packages_router.callback_query(F.data.startswith("pkg_sell_pick:"))
 async def pkg_sell_pick(callback: CallbackQuery, state: FSMContext):
-    pkg_id = int(callback.data.split(":")[1])
+    tg_id = callback.from_user.id
+    try:
+        pkg_id = int(callback.data.split(":")[1])
+    except (ValueError, IndexError):
+        await callback.answer("Ошибка", show_alert=True)
+        return
+    if not has_module(tg_id, "crm"):
+        await callback.answer("Модуль CRM не подключён", show_alert=True)
+        return
+    if not is_any_admin(tg_id):
+        await callback.answer("Только для администраторов", show_alert=True)
+        return
+    await callback.answer()
     await state.update_data(pkg_sell_package_id=pkg_id)
-    await _prompt_client_search(callback, state, PackageStates.waiting_sell_client_query,
-                                 "💳 <b>Продажа абонемента</b>\n\nВведите имя, телефон или email клиента:")
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔙 Отмена", callback_data="packages_hub")
+    ]])
+    await fsm_edit(state, callback.message,
+                   "💳 <b>Продажа абонемента</b>\n\nВведите имя, телефон или email клиента:", kb)
+    await state.update_data(anchor_message_id=callback.message.message_id)
+    await state.set_state(PackageStates.waiting_sell_client_query)
 
 
 async def _prompt_client_search(callback: CallbackQuery, state: FSMContext, target_state, text: str):
+    """Показывает подсказку поиска клиента. Выполняет проверку доступа и отвечает на callback."""
     tg_id = callback.from_user.id
     if not has_module(tg_id, "crm"):
         await callback.answer("Модуль CRM не подключён", show_alert=True)

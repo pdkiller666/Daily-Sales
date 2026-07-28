@@ -126,7 +126,6 @@ async def return_sale_selected(callback: CallbackQuery, state: FSMContext):
     if not is_any_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
-    await callback.answer()
     sale_id_str = resolve_cb_name(callback.data, "ret_sale_")
     try:
         sale_id = int(sale_id_str)
@@ -141,6 +140,7 @@ async def return_sale_selected(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Продажа не найдена", show_alert=True)
         return
 
+    await callback.answer()
     # sale: (sale_id, product_name, shop_name, qty, price, sale_date, user_id, first, last)
     current_db = await get_db(callback.from_user.id, state)
 

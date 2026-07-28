@@ -57,6 +57,36 @@ async def safe_edit_message(callback, text, reply_markup=None, parse_mode="HTML"
                 pass
             await callback.message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
+def _build_pending_buttons(grouped: list) -> list:
+    """Строит строки кнопок для списка ожидающих заявок (grouped-формат)."""
+    buttons = []
+    shown = 0
+    for item in grouped:
+        if shown >= 10:
+            break
+        if item['type'] == 'batch':
+            n = len(item['reqs'])
+            total = item['total_amount']
+            name = item['user_name']
+            label = f"👥 {name} — {n} поз. · {total:.0f}₽"
+            buttons.append([InlineKeyboardButton(
+                text=label[:60] + "…" if len(label) > 60 else label,
+                callback_data=f"view_batch_{item['batch_id']}"
+            )])
+        else:
+            req = item['req']
+            req_id, plan_type, amount = req[0], req[2], req[3]
+            first_name, last_name = req[9] or '', req[10] or ''
+            name = f"{first_name} {last_name}".strip() or '—'
+            label = f"#{req_id}: {name} – {plan_type} ({amount:.0f}₽)"
+            buttons.append([InlineKeyboardButton(
+                text=label[:60] + "…" if len(label) > 60 else label,
+                callback_data=f"view_payment_{req_id}"
+            )])
+        shown += 1
+    return buttons
+
+
 async def pending_payments_menu(callback: CallbackQuery):
     """Меню просмотра ожидающих и отозванных заявок на оплату"""
     if not env_manager.is_super_admin(callback.from_user.id):
@@ -65,55 +95,33 @@ async def pending_payments_menu(callback: CallbackQuery):
 
     await callback.answer()
     db = _get_payments_db()
-    pending_requests = await db.get_pending_payment_requests()
+    grouped = await db.get_pending_payment_requests_grouped()
     cancelled_count = await db.get_cancelled_payment_requests_count()
 
-    text = "💳 <b>Заявки на оплату подписок</b>\n\n"
+    total_pending = sum(len(g['reqs']) if g['type'] == 'batch' else 1 for g in grouped)
 
+    text = "💳 <b>Заявки на оплату подписок</b>\n\n"
     keyboard_buttons = []
 
-    if not pending_requests:
+    if not grouped:
         text += "📭 Нет ожидающих заявок"
         if cancelled_count:
             text += f"\n🚫 <b>Отозванных:</b> {cancelled_count}"
-
-        keyboard_buttons.append([
-            InlineKeyboardButton(text="🚫 Отозванные заявки", callback_data="cancelled_payments")
-        ])
-        keyboard_buttons.append([
-            InlineKeyboardButton(text="⬅️ Админ меню", callback_data="system_admin_panel")
-        ])
     else:
-        text += f"📋 <b>Ожидающих заявок:</b> {len(pending_requests)}\n"
+        text += f"📋 <b>Ожидающих заявок:</b> {total_pending}\n"
         text += f"🚫 <b>Отозванных:</b> {cancelled_count}\n\n"
-
-        for req in pending_requests[:10]:
-            req_id = req[0]
-            plan_type = req[2]
-            amount = req[3]
-            first_name = req[9]
-            last_name = req[10]
-
-            user_name = f"{first_name} {last_name}"
-            button_text = f"#{req_id}: {user_name} - {plan_type} ({amount}₽)"
-            keyboard_buttons.append([
-                InlineKeyboardButton(
-                    text=button_text[:60] + "..." if len(button_text) > 60 else button_text,
-                    callback_data=f"view_payment_{req_id}"
-                )
-            ])
-
-        if len(pending_requests) > 10:
+        keyboard_buttons += _build_pending_buttons(grouped)
+        if len(grouped) > 10:
             keyboard_buttons.append([
                 InlineKeyboardButton(text="📄 Показать все", callback_data="all_pending_payments")
             ])
 
-        keyboard_buttons.append([
-            InlineKeyboardButton(text="🚫 Отозванные заявки", callback_data="cancelled_payments")
-        ])
-        keyboard_buttons.append([
-            InlineKeyboardButton(text="⬅️ Админ меню", callback_data="system_admin_panel")
-        ])
+    keyboard_buttons.append([
+        InlineKeyboardButton(text="🚫 Отозванные заявки", callback_data="cancelled_payments")
+    ])
+    keyboard_buttons.append([
+        InlineKeyboardButton(text="⬅️ Админ меню", callback_data="system_admin_panel")
+    ])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await safe_edit_message(callback, text, keyboard)
@@ -704,6 +712,224 @@ async def view_cancelled_payment(callback: CallbackQuery):
     await safe_edit_message(callback, text, keyboard)
 
 
+async def view_batch_payment(callback: CallbackQuery):
+    """Сводная карточка пакетной заявки — все позиции + кнопки одобрить/отклонить все."""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора")
+        return
+
+    batch_id = callback.data[len("view_batch_"):]
+    if not batch_id:
+        await callback.answer("❌ Некорректный batch_id", show_alert=True)
+        return
+
+    await callback.answer()
+    db = _get_payments_db()
+    reqs = await db.get_payment_requests_by_batch_id(batch_id)
+
+    if not reqs:
+        await safe_edit_message(
+            callback,
+            "⚠️ <b>Пакетная заявка не найдена или уже обработана</b>",
+            InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")]
+            ])
+        )
+        return
+
+    first_name = reqs[0][9] or ''
+    last_name  = reqs[0][10] or ''
+    shop_name  = reqs[0][11] or 'Не указан'
+    user_name  = f"{first_name} {last_name}".strip() or '—'
+    total      = sum(r[3] for r in reqs)
+    n          = len(reqs)
+
+    text = f"💳 <b>Пакетная заявка — {he(user_name)}</b>\n"
+    text += f"🏪 <b>Магазин:</b> {he(shop_name)}\n"
+    text += f"📋 <b>Позиций:</b> {n}  💰 <b>Итого:</b> {total:.0f}₽\n\n"
+
+    show_items = reqs[:12]
+    for r in show_items:
+        text += f"• {he(r[2])} — {r[3]:.0f}₽\n"
+    if n > 12:
+        text += f"<i>… и ещё {n - 12} позиций</i>\n"
+
+    # Проверяем наличие реального чека
+    file_ids = {r[5] for r in reqs}
+    has_any_proof = any(_is_real_proof(f) for f in file_ids)
+    if has_any_proof:
+        text += "\n📎 <b>Чек прикреплён</b>"
+    else:
+        text += "\n📎 <b>Скриншот не прикреплён</b> (заявка из веб-кабинета)"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"✅ Одобрить все ({n})", callback_data=f"confirm_batch_{batch_id}"),
+            InlineKeyboardButton(text=f"❌ Отклонить все ({n})", callback_data=f"reject_batch_{batch_id}"),
+        ],
+        [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")],
+    ])
+    await safe_edit_message(callback, text, keyboard)
+
+
+async def confirm_batch_payment(callback: CallbackQuery):
+    """Групповое одобрение всех заявок одного батча."""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора")
+        return
+
+    batch_id = callback.data[len("confirm_batch_"):]
+    if not batch_id:
+        await callback.answer("❌ Некорректный batch_id", show_alert=True)
+        return
+
+    db = _get_payments_db()
+    reqs = await db.get_payment_requests_by_batch_id(batch_id)
+
+    if not reqs:
+        await callback.answer("⚠️ Заявки не найдены или уже обработаны", show_alert=True)
+        return
+
+    await callback.answer("⏳ Обрабатываем…")
+
+    admin_user_id = await db.get_user_id(callback.from_user.id)
+    if not admin_user_id:
+        await safe_edit_message(callback, "❌ Ошибка: администратор не найден в базе",
+            InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")
+            ]]))
+        return
+
+    # Одобряем каждую строку через тот же DB-метод (без bot-уведомления)
+    ok_ids = []
+    fail_ids = []
+    for r in reqs:
+        req_id = r[0]
+        try:
+            success = await db.confirm_payment_request(req_id, admin_user_id)
+            if success:
+                ok_ids.append(r)
+            else:
+                fail_ids.append(req_id)
+        except Exception:
+            fail_ids.append(req_id)
+
+    if ok_ids:
+        # Инвалидируем кэш тарифа пользователя
+        user_tg_id = reqs[0][13]  # telegram_id из get_payment_requests_by_batch_id
+        try:
+            from subscription_utils import invalidate_plan_cache
+            invalidate_plan_cache(user_tg_id)
+        except Exception:
+            pass
+
+        # Одно итоговое уведомление пользователю
+        first_name = reqs[0][9] or ''
+        fn = he(first_name)
+        items_text = ""
+        for r in ok_ids[:12]:
+            items_text += f"• {he(r[2])} — {r[3]:.0f}₽\n"
+        if len(ok_ids) > 12:
+            items_text += f"<i>… и ещё {len(ok_ids) - 12} позиций</i>\n"
+
+        receipt = (
+            f"✅ <b>{fn}, {len(ok_ids)} позиций подключено!</b>\n\n"
+            f"{items_text}"
+            f"\n🎉 Все функции уже доступны в боте и веб-кабинете."
+        )
+        try:
+            await callback.bot.send_message(
+                chat_id=user_tg_id,
+                text=receipt,
+                parse_mode="HTML",
+                reply_markup=add_read_btn()
+            )
+        except Exception:
+            pass
+
+    # Итог для администратора
+    if fail_ids:
+        result_text = (
+            f"⚠️ <b>Частично одобрено: {len(ok_ids)}/{len(reqs)}</b>\n"
+            f"Не удалось одобрить ID: {', '.join(str(i) for i in fail_ids)}"
+        )
+    else:
+        result_text = f"✅ <b>Пакет одобрен: {len(ok_ids)} заявок активировано</b>"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")],
+        [InlineKeyboardButton(text="🔧 Админ меню", callback_data="system_admin_panel")],
+    ])
+    await safe_edit_message(callback, result_text, keyboard)
+
+
+async def reject_batch_payment(callback: CallbackQuery):
+    """Групповое отклонение всех заявок одного батча."""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора")
+        return
+
+    batch_id = callback.data[len("reject_batch_"):]
+    if not batch_id:
+        await callback.answer("❌ Некорректный batch_id", show_alert=True)
+        return
+
+    db = _get_payments_db()
+    reqs = await db.get_payment_requests_by_batch_id(batch_id)
+
+    if not reqs:
+        await callback.answer("⚠️ Заявки не найдены или уже обработаны", show_alert=True)
+        return
+
+    await callback.answer("⏳ Обрабатываем…")
+
+    admin_user_id = await db.get_user_id(callback.from_user.id)
+    if not admin_user_id:
+        await safe_edit_message(callback, "❌ Ошибка: администратор не найден в базе",
+            InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")
+            ]]))
+        return
+
+    ok_count = 0
+    user_tg_id = reqs[0][13]
+    for r in reqs:
+        req_id = r[0]
+        try:
+            success = await db.reject_payment_request(req_id, admin_user_id)
+            if success:
+                ok_count += 1
+        except Exception:
+            pass
+
+    if ok_count:
+        first_name = reqs[0][9] or ''
+        try:
+            await callback.bot.send_message(
+                chat_id=user_tg_id,
+                text=(
+                    f"❌ <b>Пакетная заявка отклонена</b>\n\n"
+                    f"👤 {he(first_name)}, ваши заявки ({ok_count} позиций) были отклонены администратором.\n\n"
+                    f"Возможные причины:\n"
+                    f"• Неверная сумма оплаты\n"
+                    f"• Нечитаемый чек\n"
+                    f"• Другие проблемы с документами\n\n"
+                    f"Свяжитесь с поддержкой для уточнения."
+                ),
+                parse_mode="HTML",
+                reply_markup=add_read_btn()
+            )
+        except Exception:
+            pass
+
+    result_text = f"❌ <b>Пакет отклонён: {ok_count}/{len(reqs)} заявок</b>"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")],
+        [InlineKeyboardButton(text="🔧 Админ меню", callback_data="system_admin_panel")],
+    ])
+    await safe_edit_message(callback, result_text, keyboard)
+
+
 async def pending_payments_command(message: Message):
     """Команда /pending_payments — открывает меню заявок для супер-админа.
     Дублирует логику pending_payments_menu, но принимает Message вместо CallbackQuery."""
@@ -712,51 +938,33 @@ async def pending_payments_command(message: Message):
         return
 
     db = _get_payments_db()
-    pending_requests = await db.get_pending_payment_requests()
+    grouped = await db.get_pending_payment_requests_grouped()
     cancelled_count = await db.get_cancelled_payment_requests_count()
+
+    total_pending = sum(len(g['reqs']) if g['type'] == 'batch' else 1 for g in grouped)
 
     text = "💳 <b>Заявки на оплату подписок</b>\n\n"
     keyboard_buttons = []
 
-    if not pending_requests:
+    if not grouped:
         text += "📭 Нет ожидающих заявок"
         if cancelled_count:
             text += f"\n🚫 <b>Отозванных:</b> {cancelled_count}"
-        keyboard_buttons.append([
-            InlineKeyboardButton(text="🚫 Отозванные заявки", callback_data="cancelled_payments")
-        ])
-        keyboard_buttons.append([
-            InlineKeyboardButton(text="⬅️ Главное меню", callback_data="system_admin_panel")
-        ])
     else:
-        text += f"📋 <b>Ожидающих заявок:</b> {len(pending_requests)}\n"
+        text += f"📋 <b>Ожидающих заявок:</b> {total_pending}\n"
         text += f"🚫 <b>Отозванных:</b> {cancelled_count}\n\n"
-
-        for req in pending_requests[:10]:
-            req_id = req[0]
-            plan_type = req[2]
-            amount = req[3]
-            first_name = req[9]
-            last_name = req[10]
-            user_name = f"{first_name} {last_name}"
-            button_text = f"#{req_id}: {user_name} - {plan_type} ({amount}₽)"
-            keyboard_buttons.append([
-                InlineKeyboardButton(
-                    text=button_text[:60] + "..." if len(button_text) > 60 else button_text,
-                    callback_data=f"view_payment_{req_id}"
-                )
-            ])
-
-        if len(pending_requests) > 10:
+        keyboard_buttons += _build_pending_buttons(grouped)
+        if len(grouped) > 10:
             keyboard_buttons.append([
                 InlineKeyboardButton(text="📄 Показать все", callback_data="all_pending_payments")
             ])
-        keyboard_buttons.append([
-            InlineKeyboardButton(text="🚫 Отозванные заявки", callback_data="cancelled_payments")
-        ])
-        keyboard_buttons.append([
-            InlineKeyboardButton(text="⬅️ Главное меню", callback_data="system_admin_panel")
-        ])
+
+    keyboard_buttons.append([
+        InlineKeyboardButton(text="🚫 Отозванные заявки", callback_data="cancelled_payments")
+    ])
+    keyboard_buttons.append([
+        InlineKeyboardButton(text="⬅️ Главное меню", callback_data="system_admin_panel")
+    ])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
@@ -773,4 +981,8 @@ payment_admin_router.callback_query(F.data.startswith("view_cancelled_"))(view_c
 payment_admin_router.callback_query(F.data.startswith("show_payment_proof_"))(show_payment_proof)
 payment_admin_router.callback_query(F.data.startswith("confirm_payment_"))(confirm_payment_request)
 payment_admin_router.callback_query(F.data.startswith("reject_payment_"))(reject_payment_request)
+# Batch (grouped) payment handlers
+payment_admin_router.callback_query(F.data.startswith("view_batch_"))(view_batch_payment)
+payment_admin_router.callback_query(F.data.startswith("confirm_batch_"))(confirm_batch_payment)
+payment_admin_router.callback_query(F.data.startswith("reject_batch_"))(reject_batch_payment)
 payment_admin_router.message(Command("pending_payments"))(pending_payments_command)

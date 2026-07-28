@@ -62,11 +62,11 @@ async def svc_catalog(callback: CallbackQuery, state: FSMContext):
     if not has_module(tg_id, "services"):
         await callback.answer("Модуль Услуги не подключён", show_alert=True)
         return
-    await callback.answer()
     page = int(callback.data.split(":")[1])
 
     db = await get_db(tg_id, state)
     if not db:
+        await callback.answer()
         return
 
     try:
@@ -84,6 +84,7 @@ async def svc_catalog(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Ошибка загрузки", show_alert=True)
         return
 
+    await callback.answer()
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     builder = InlineKeyboardBuilder()
     for r in rows:
@@ -115,11 +116,11 @@ async def svc_card(callback: CallbackQuery, state: FSMContext):
     if not has_module(tg_id, "services"):
         await callback.answer("Модуль Услуги не подключён", show_alert=True)
         return
-    await callback.answer()
     svc_id = int(callback.data.split(":")[1])
 
     db = await get_db(tg_id, state)
     if not db:
+        await callback.answer()
         return
 
     try:
@@ -131,8 +132,8 @@ async def svc_card(callback: CallbackQuery, state: FSMContext):
             "WHERE s.id=?", (svc_id,)
         ).fetchone()
         if not r:
-            await callback.answer("Услуга не найдена", show_alert=True)
             conn.close()
+            await callback.answer("Услуга не найдена", show_alert=True)
             return
 
         appt_count = conn.execute(
@@ -143,6 +144,8 @@ async def svc_card(callback: CallbackQuery, state: FSMContext):
         logger.error("svc_card error: %s", e)
         await callback.answer("Ошибка", show_alert=True)
         return
+
+    await callback.answer()
 
     lines = [f"🎯 <b>{he(r[1])}</b>"]
     if r[6]:
@@ -202,11 +205,11 @@ async def appt_my(callback: CallbackQuery, state: FSMContext):
     if not has_module(tg_id, "services"):
         await callback.answer("Модуль Услуги не подключён", show_alert=True)
         return
-    await callback.answer()
     page = int(callback.data.split(":")[1])
 
     db = await get_db(tg_id, state)
     if not db:
+        await callback.answer()
         return
 
     try:
@@ -219,6 +222,8 @@ async def appt_my(callback: CallbackQuery, state: FSMContext):
         logger.error("appt_my error: %s", e)
         await callback.answer("Ошибка", show_alert=True)
         return
+
+    await callback.answer()
 
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     builder = InlineKeyboardBuilder()
@@ -253,11 +258,11 @@ async def appt_all(callback: CallbackQuery, state: FSMContext):
     if not has_module(tg_id, "services") or not is_any_admin(tg_id):
         await callback.answer("Нет доступа", show_alert=True)
         return
-    await callback.answer()
     page = int(callback.data.split(":")[1])
 
     db = await get_db(tg_id, state)
     if not db:
+        await callback.answer()
         return
 
     try:
@@ -268,6 +273,8 @@ async def appt_all(callback: CallbackQuery, state: FSMContext):
         logger.error("appt_all error: %s", e)
         await callback.answer("Ошибка", show_alert=True)
         return
+
+    await callback.answer()
 
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     builder = InlineKeyboardBuilder()
@@ -301,13 +308,13 @@ async def appt_by_svc(callback: CallbackQuery, state: FSMContext):
     if not has_module(tg_id, "services"):
         await callback.answer("Модуль Услуги не подключён", show_alert=True)
         return
-    await callback.answer()
     parts = callback.data.split(":")
     svc_id = int(parts[1])
     page = int(parts[2])
 
     db = await get_db(tg_id, state)
     if not db:
+        await callback.answer()
         return
 
     try:
@@ -318,6 +325,8 @@ async def appt_by_svc(callback: CallbackQuery, state: FSMContext):
         logger.error("appt_by_svc error: %s", e)
         await callback.answer("Ошибка", show_alert=True)
         return
+
+    await callback.answer()
 
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     builder = InlineKeyboardBuilder()
@@ -348,11 +357,11 @@ async def appt_card(callback: CallbackQuery, state: FSMContext):
     if not has_module(tg_id, "services"):
         await callback.answer("Модуль Услуги не подключён", show_alert=True)
         return
-    await callback.answer()
     appt_id = int(callback.data.split(":")[1])
 
     db = await get_db(tg_id, state)
     if not db:
+        await callback.answer()
         return
 
     try:
@@ -368,14 +377,16 @@ async def appt_card(callback: CallbackQuery, state: FSMContext):
             "WHERE a.id=?", (appt_id,)
         ).fetchone()
         if not r:
-            await callback.answer("Запись не найдена", show_alert=True)
             conn.close()
+            await callback.answer("Запись не найдена", show_alert=True)
             return
         conn.close()
     except Exception as e:
         logger.error("appt_card error: %s", e)
         await callback.answer("Ошибка", show_alert=True)
         return
+
+    await callback.answer()
 
     status_label = _STATUSES.get(r[7], r[7])
     lines = [
@@ -415,16 +426,17 @@ async def appt_change_status(callback: CallbackQuery, state: FSMContext):
     if not has_module(tg_id, "services") or not is_any_admin(tg_id):
         await callback.answer("Нет доступа", show_alert=True)
         return
-    await callback.answer()
     parts = callback.data.split(":")
     appt_id = int(parts[1])
     new_status = parts[2]
 
     if new_status not in _STATUSES:
+        await callback.answer()
         return
 
     db = await get_db(tg_id, state)
     if not db:
+        await callback.answer()
         return
 
     try:

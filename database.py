@@ -280,6 +280,7 @@ class Database:
                 processed_at TEXT,
                 processed_by INTEGER,
                 promocode_id INTEGER,
+                batch_id TEXT,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         ''')
@@ -925,6 +926,8 @@ class Database:
         pr_cols = [c[1] for c in cursor.fetchall()]
         if 'promocode_id' not in pr_cols:
             cursor.execute("ALTER TABLE payment_requests ADD COLUMN promocode_id INTEGER")
+        if 'batch_id' not in pr_cols:
+            cursor.execute("ALTER TABLE payment_requests ADD COLUMN batch_id TEXT")
 
         # Миграции для таблицы promocodes
         cursor.execute("PRAGMA table_info(promocodes)")
@@ -4960,6 +4963,78 @@ class Database:
         requests = cursor.fetchall()
         conn.close()
         return requests
+
+    def get_pending_payment_requests_grouped(self):
+        """Возвращает ожидающие заявки, сгруппированные по batch_id.
+
+        Каждый элемент результата — dict одного из двух видов:
+          {'type': 'single', 'req': row_tuple}
+          {'type': 'batch',  'batch_id': str, 'reqs': [row_tuple, ...],
+           'user_name': str, 'total_amount': float, 'first_req_id': int,
+           'sort_key': str}  ← created_at первой строки для сортировки
+        """
+        from collections import OrderedDict
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT pr.id, pr.user_id, pr.plan_type, pr.amount, pr.status,
+                   pr.payment_proof_file_id, pr.created_at, pr.processed_at, pr.processed_by,
+                   u.first_name, u.last_name, u.shop_name, pr.batch_id
+            FROM payment_requests pr
+            JOIN users u ON pr.user_id = u.id
+            WHERE pr.status = 'pending'
+            ORDER BY pr.created_at DESC
+        ''')
+        rows = cursor.fetchall()
+        conn.close()
+
+        batches = OrderedDict()  # batch_id -> [rows]
+        singles = []
+        for row in rows:
+            bid = row[12]
+            if bid:
+                batches.setdefault(bid, []).append(row)
+            else:
+                singles.append(row)
+
+        result = []
+        for bid, reqs in batches.items():
+            if len(reqs) == 1:
+                singles.append(reqs[0])
+            else:
+                fn = reqs[0][9] or ''
+                ln = reqs[0][10] or ''
+                result.append({
+                    'type': 'batch',
+                    'batch_id': bid,
+                    'reqs': reqs,
+                    'user_name': f"{fn} {ln}".strip() or '—',
+                    'total_amount': sum(r[3] for r in reqs),
+                    'first_req_id': reqs[0][0],
+                    'sort_key': reqs[0][6],
+                })
+        for row in singles:
+            result.append({'type': 'single', 'req': row, 'sort_key': row[6]})
+
+        result.sort(key=lambda x: x['sort_key'], reverse=True)
+        return result
+
+    def get_payment_requests_by_batch_id(self, batch_id):
+        """Возвращает все pending-заявки одного батча + telegram_id пользователя."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT pr.id, pr.user_id, pr.plan_type, pr.amount, pr.status,
+                   pr.payment_proof_file_id, pr.created_at, pr.processed_at, pr.processed_by,
+                   u.first_name, u.last_name, u.shop_name, pr.batch_id, u.telegram_id
+            FROM payment_requests pr
+            JOIN users u ON pr.user_id = u.id
+            WHERE pr.batch_id = ? AND pr.status = 'pending'
+            ORDER BY pr.id ASC
+        ''', (batch_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
 
     def get_cancelled_payment_requests_count(self, since_days=None):
         """Точный счётчик отозванных/отменённых заявок (без лимита).

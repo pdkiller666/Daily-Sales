@@ -17,7 +17,8 @@ from subscription_handlers import (
 from payment_admin_handlers import (
     pending_payments_menu, pending_payments_command,
     view_payment_request, show_payment_proof,
-    confirm_payment_request, reject_payment_request
+    confirm_payment_request, reject_payment_request,
+    view_batch_payment, confirm_batch_payment, reject_batch_payment,
 )
 from states import SubscriptionStates
 
@@ -63,3 +64,7 @@ subscription_router.callback_query.register(view_payment_request, lambda c: c.da
 subscription_router.callback_query.register(show_payment_proof, lambda c: c.data.startswith("show_payment_proof_"))
 subscription_router.callback_query.register(confirm_payment_request, lambda c: c.data.startswith("confirm_payment_"))
 subscription_router.callback_query.register(reject_payment_request, lambda c: c.data.startswith("reject_payment_"))
+# Пакетные (batch) обработчики
+subscription_router.callback_query.register(view_batch_payment, lambda c: c.data.startswith("view_batch_"))
+subscription_router.callback_query.register(confirm_batch_payment, lambda c: c.data.startswith("confirm_batch_"))
+subscription_router.callback_query.register(reject_batch_payment, lambda c: c.data.startswith("reject_batch_"))

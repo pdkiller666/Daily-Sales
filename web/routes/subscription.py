@@ -1205,16 +1205,20 @@ def subscription_batch_request(
         # Все выбранные позиции уже ожидают обработки
         return RedirectResponse(url="/subscription?msg=already_pending", status_code=303)
 
-    # Создаём все payment_requests в одной транзакции
+    # Создаём все payment_requests в одной транзакции.
+    # Несколько позиций объединяются под одним batch_id для группового одобрения.
+    import uuid as _uuid
+    batch_id = _uuid.uuid4().hex if len(to_create) > 1 else None
+
     created_ids: list = []
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
         try:
             for pt, amt in to_create:
                 cur = conn.execute(
-                    """INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id)
-                       VALUES (?, ?, ?, 'web_module_request')""",
-                    (user_id, pt, amt),
+                    """INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id, batch_id)
+                       VALUES (?, ?, ?, 'web_module_request', ?)""",
+                    (user_id, pt, amt, batch_id),
                 )
                 created_ids.append(cur.lastrowid)
             conn.commit()

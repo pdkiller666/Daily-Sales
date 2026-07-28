@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.447.0"
+CURRENT_VERSION = "1.448.0"
 
 ENTRIES = [
+    {
+        "version": "1.448.0",
+        "date": "28 июля 2026",
+        "items": [
+            "Add telegram screenshot to assets",
+            "Implement payment admin handlers and update database logic",
+            "Update package and service handler logic",
+        ],
+    },
     {
         "version": "1.447.0",
         "date": "28 июля 2026",
