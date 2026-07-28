@@ -80,7 +80,6 @@ async def crm_list(callback: CallbackQuery, state: FSMContext):
     if not has_module(tg_id, "crm"):
         await callback.answer("Модуль CRM не подключён", show_alert=True)
         return
-    await callback.answer()
 
     page = int(callback.data.split(":")[1])
     db = await get_db(tg_id, state)
@@ -118,6 +117,7 @@ async def crm_list(callback: CallbackQuery, state: FSMContext):
     builder.row(InlineKeyboardButton(text="🔙 CRM", callback_data="crm_hub"))
 
     text = f"👥 <b>Клиенты</b> — стр. {page+1}/{total_pages} (всего {total})"
+    await callback.answer()
     await fsm_edit(state, callback.message, text, builder.as_markup())
 
 
@@ -203,7 +203,6 @@ async def crm_card(callback: CallbackQuery, state: FSMContext):
     if not has_module(tg_id, "crm"):
         await callback.answer("Модуль CRM не подключён", show_alert=True)
         return
-    await callback.answer()
     client_id = int(callback.data.split(":")[1])
 
     db = await get_db(tg_id, state)
@@ -245,6 +244,7 @@ async def crm_card(callback: CallbackQuery, state: FSMContext):
     builder.button(text="🏠 Главное меню", callback_data="main_menu")
     builder.adjust(1)
 
+    await callback.answer()
     await fsm_edit(state, callback.message, text, builder.as_markup())
 
 
@@ -269,7 +269,6 @@ async def crm_delete(callback: CallbackQuery, state: FSMContext):
     if not is_any_admin(tg_id):
         await callback.answer("Нет прав", show_alert=True)
         return
-    await callback.answer()
     client_id = int(callback.data.split(":")[1])
 
     db = await get_db(tg_id, state)
