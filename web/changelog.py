@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.446.0"
+CURRENT_VERSION = "1.447.0"
 
 ENTRIES = [
+    {
+        "version": "1.447.0",
+        "date": "28 июля 2026",
+        "items": [
+            "Add chrome screenshot asset",
+        ],
+    },
     {
         "version": "1.446.0",
         "date": "28 июля 2026",
