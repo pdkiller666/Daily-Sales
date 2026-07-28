@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.445.0"
+CURRENT_VERSION = "1.446.0"
 
 ENTRIES = [
+    {
+        "version": "1.446.0",
+        "date": "28 июля 2026",
+        "items": [
+            "Implement payment admin handler updates and subscription logic improvements",
+        ],
+    },
     {
         "version": "1.445.0",
         "date": "28 июля 2026",

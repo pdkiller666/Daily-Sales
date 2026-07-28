@@ -356,43 +356,6 @@
 </div>
 
 
-{# ══ ИСТЁКШИЕ/ИСТЕКАЮЩИЕ ПОЗИЦИИ — Alert-блок ══
-     Показывается сразу под hero, когда есть позиции с ≤14 дн. до конца
-     или уже истёкшие (до 90 дней назад). Кнопка добавляет все в корзину. #}
-{% if expiring_items and not has_pending %}
-{% set _expired_cnt = expiring_items | selectattr('days_remaining', 'lt', 0) | list | length %}
-{% set _expiring_cnt = expiring_items | selectattr('days_remaining', 'ge', 0) | list | length %}
-<div class="mb-5 rounded-2xl border-2 {{ 'border-red-400 bg-red-50 dark:bg-red-900/20 dark:border-red-700' if _expired_cnt > 0 else 'border-amber-400 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700' }} overflow-hidden">
-    <div class="px-4 py-2.5 {{ 'bg-red-100 dark:bg-red-800/40 border-b border-red-200 dark:border-red-700' if _expired_cnt > 0 else 'bg-amber-100 dark:bg-amber-800/40 border-b border-amber-200 dark:border-amber-700' }} flex items-center gap-2">
-        <span class="text-base leading-none">{{ '🚨' if _expired_cnt > 0 else '⚠️' }}</span>
-        <p class="font-bold {{ 'text-red-800 dark:text-red-200' if _expired_cnt > 0 else 'text-amber-800 dark:text-amber-200' }} text-sm">
-            {% if _expired_cnt > 0 and _expiring_cnt > 0 %}
-                {{ _expired_cnt }} позиц{{ 'ия истекла' if _expired_cnt == 1 else ('ии истекли' if _expired_cnt in [2,3,4] else 'ий истекло') }}, {{ _expiring_cnt }} истекает — продлите чтобы не потерять функции
-            {% elif _expired_cnt > 0 %}
-                {{ _expired_cnt }} позиц{{ 'ия истекла' if _expired_cnt == 1 else ('ии истекли' if _expired_cnt in [2,3,4] else 'ий истекло') }} — продлите чтобы не потерять функции
-            {% else %}
-                {{ _expiring_cnt }} позиц{{ 'ия истекает' if _expiring_cnt == 1 else ('ии истекают' if _expiring_cnt in [2,3,4] else 'ий истекают') }} в ближайшие 2 недели
-            {% endif %}
-        </p>
-    </div>
-    <div class="px-4 py-3">
-        <div class="flex flex-wrap gap-1.5 mb-3">
-            {% for it in expiring_items %}
-            <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-white dark:bg-slate-800/60 border {{ 'border-red-200 dark:border-red-700 text-red-800 dark:text-red-200' if it.days_remaining < 0 else 'border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200' }}">
-                {{ it.name }}&nbsp;<span class="{{ 'text-red-600 dark:text-red-400 font-bold' if it.days_remaining < 0 else ('text-red-600 dark:text-red-400' if it.days_remaining <= 3 else 'text-amber-600 dark:text-amber-400') }}">
-                    {%- if it.days_remaining < 0 -%}· истёк{%- else -%}· {{ it.days_remaining }} дн.{%- endif -%}
-                </span>
-            </span>
-            {% endfor %}
-        </div>
-        <button type="button" @click="addExpiring()"
-                class="inline-flex items-center gap-2 px-4 py-2 {{ 'bg-red-600 hover:bg-red-700 active:bg-red-800' if _expired_cnt > 0 else 'bg-amber-600 hover:bg-amber-700 active:bg-amber-800' }} text-white text-sm font-bold rounded-xl transition-colors shadow-sm">
-            🔄 Добавить {{ 'все' if expiring_items|length > 1 else '' }} в корзину →
-        </button>
-    </div>
-</div>
-{% endif %}
-
 {# ══ ОНБОРДИНГ — только новым (без подписок и без trial) ══ #}
 {% if not user_mod_subs and not trial and not (active_items.modules and '*' in active_items.modules) and not (active_items.modules or active_items.extensions or active_items.bundles) %}
 <div class="mb-5 rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 p-4">
@@ -675,6 +638,42 @@
         if (p.get('action') === 'renew_all') this.$nextTick(() => this.addExpiring());
     }
 }">
+
+{# ══ ИСТЁКШИЕ/ИСТЕКАЮЩИЕ ПОЗИЦИИ — Alert-блок ══
+     Внутри Alpine-компонента, чтобы кнопка имела доступ к addExpiring() и cart. #}
+{% if expiring_items and not has_pending %}
+{% set _expired_cnt = expiring_items | selectattr('days_remaining', 'lt', 0) | list | length %}
+{% set _expiring_cnt = expiring_items | selectattr('days_remaining', 'ge', 0) | list | length %}
+<div class="mb-5 rounded-2xl border-2 {{ 'border-red-400 bg-red-50 dark:bg-red-900/20 dark:border-red-700' if _expired_cnt > 0 else 'border-amber-400 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700' }} overflow-hidden">
+    <div class="px-4 py-2.5 {{ 'bg-red-100 dark:bg-red-800/40 border-b border-red-200 dark:border-red-700' if _expired_cnt > 0 else 'bg-amber-100 dark:bg-amber-800/40 border-b border-amber-200 dark:border-amber-700' }} flex items-center gap-2">
+        <span class="text-base leading-none">{{ '🚨' if _expired_cnt > 0 else '⚠️' }}</span>
+        <p class="font-bold {{ 'text-red-800 dark:text-red-200' if _expired_cnt > 0 else 'text-amber-800 dark:text-amber-200' }} text-sm">
+            {% if _expired_cnt > 0 and _expiring_cnt > 0 %}
+                {{ _expired_cnt }} позиц{{ 'ия истекла' if _expired_cnt == 1 else ('ии истекли' if _expired_cnt in [2,3,4] else 'ий истекло') }}, {{ _expiring_cnt }} истекает — продлите чтобы не потерять функции
+            {% elif _expired_cnt > 0 %}
+                {{ _expired_cnt }} позиц{{ 'ия истекла' if _expired_cnt == 1 else ('ии истекли' if _expired_cnt in [2,3,4] else 'ий истекло') }} — продлите чтобы не потерять функции
+            {% else %}
+                {{ _expiring_cnt }} позиц{{ 'ия истекает' if _expiring_cnt == 1 else ('ии истекают' if _expiring_cnt in [2,3,4] else 'ий истекают') }} в ближайшие 2 недели
+            {% endif %}
+        </p>
+    </div>
+    <div class="px-4 py-3">
+        <div class="flex flex-wrap gap-1.5 mb-3">
+            {% for it in expiring_items %}
+            <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-white dark:bg-slate-800/60 border {{ 'border-red-200 dark:border-red-700 text-red-800 dark:text-red-200' if it.days_remaining < 0 else 'border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200' }}">
+                {{ it.name }}&nbsp;<span class="{{ 'text-red-600 dark:text-red-400 font-bold' if it.days_remaining < 0 else ('text-red-600 dark:text-red-400' if it.days_remaining <= 3 else 'text-amber-600 dark:text-amber-400') }}">
+                    {%- if it.days_remaining < 0 -%}· истёк{%- else -%}· {{ it.days_remaining }} дн.{%- endif -%}
+                </span>
+            </span>
+            {% endfor %}
+        </div>
+        <button type="button" @click="addExpiring()"
+                class="inline-flex items-center gap-2 px-4 py-2 {{ 'bg-red-600 hover:bg-red-700 active:bg-red-800' if _expired_cnt > 0 else 'bg-amber-600 hover:bg-amber-700 active:bg-amber-800' }} text-white text-sm font-bold rounded-xl transition-colors shadow-sm">
+            🔄 Добавить {{ 'все' if expiring_items|length > 1 else '' }} в корзину →
+        </button>
+    </div>
+</div>
+{% endif %}
 
 {# ── Sticky: переключатель периода + вкладки ── #}
 <div class="sticky top-0 z-20 -mx-4 px-4 pt-1 pb-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 mb-6">
