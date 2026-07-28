@@ -3,7 +3,7 @@
 """
 
 from aiogram import Router
-from aiogram.filters import StateFilter
+from aiogram.filters import StateFilter, Command
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 
@@ -15,7 +15,8 @@ from subscription_handlers import (
     check_yookassa_payment, buy_modules, start_module_purchase,
 )
 from payment_admin_handlers import (
-    pending_payments_menu, view_payment_request, show_payment_proof,
+    pending_payments_menu, pending_payments_command,
+    view_payment_request, show_payment_proof,
     confirm_payment_request, reject_payment_request
 )
 from states import SubscriptionStates
@@ -54,6 +55,8 @@ subscription_router.message.register(
 subscription_router.callback_query.register(check_yookassa_payment, lambda c: c.data.startswith("yk_check_"))
 
 # Административные обработчики
+# Команда /pending_payments (текст в чате) — для супер-админа
+subscription_router.message.register(pending_payments_command, Command("pending_payments"))
 subscription_router.callback_query.register(pending_payments_menu, lambda c: c.data == "pending_payments")
 subscription_router.callback_query.register(view_payment_request, lambda c: c.data.startswith("view_payment_"))
 subscription_router.callback_query.register(show_payment_proof, lambda c: c.data.startswith("show_payment_proof_"))

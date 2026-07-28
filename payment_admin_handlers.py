@@ -1,10 +1,12 @@
-import asyncio
 """
 Административные обработчики для управления заявками на оплату
 """
+import asyncio
+import os
 
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from database import Database
 from subscription_handlers import get_current_subscription_plans
@@ -16,6 +18,13 @@ from db_utils import wrap_db
 payment_admin_router = Router()
 
 _PROOF_PLACEHOLDERS = {"web_module_request", "web_tariff_request", "", None}
+
+
+def _get_app_domain() -> str:
+    """Возвращает публичный домен приложения.
+    На Amvera — APP_DOMAIN; на Replit — REPLIT_DEV_DOMAIN."""
+    return (os.environ.get("APP_DOMAIN") or
+            os.environ.get("REPLIT_DEV_DOMAIN") or "")
 
 def _is_real_proof(file_id) -> bool:
     """Возвращает True, если file_id содержит реальный чек (не заглушку)."""
@@ -234,8 +243,7 @@ async def show_payment_proof(callback: CallbackQuery):
         pass
 
     if file_id and file_id.startswith("web_proof:"):
-        import os
-        domain = os.environ.get("REPLIT_DEV_DOMAIN", "")
+        domain = _get_app_domain()
         if domain:
             proof_url = f"https://{domain}/payment-proof-req/{req_id}"
             link_text = f'\n\n🔗 <a href="{proof_url}">Открыть скриншот →</a>'
@@ -676,6 +684,64 @@ async def view_cancelled_payment(callback: CallbackQuery):
     await safe_edit_message(callback, text, keyboard)
 
 
+async def pending_payments_command(message: Message):
+    """Команда /pending_payments — открывает меню заявок для супер-админа.
+    Дублирует логику pending_payments_menu, но принимает Message вместо CallbackQuery."""
+    if not env_manager.is_super_admin(message.from_user.id):
+        await message.answer("❌ Доступ только для супер-администратора")
+        return
+
+    db = _get_payments_db()
+    pending_requests = await db.get_pending_payment_requests()
+    cancelled_count = await db.get_cancelled_payment_requests_count()
+
+    text = "💳 <b>Заявки на оплату подписок</b>\n\n"
+    keyboard_buttons = []
+
+    if not pending_requests:
+        text += "📭 Нет ожидающих заявок"
+        if cancelled_count:
+            text += f"\n🚫 <b>Отозванных:</b> {cancelled_count}"
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🚫 Отозванные заявки", callback_data="cancelled_payments")
+        ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="⬅️ Главное меню", callback_data="system_admin_panel")
+        ])
+    else:
+        text += f"📋 <b>Ожидающих заявок:</b> {len(pending_requests)}\n"
+        text += f"🚫 <b>Отозванных:</b> {cancelled_count}\n\n"
+
+        for req in pending_requests[:10]:
+            req_id = req[0]
+            plan_type = req[2]
+            amount = req[3]
+            first_name = req[9]
+            last_name = req[10]
+            user_name = f"{first_name} {last_name}"
+            button_text = f"#{req_id}: {user_name} - {plan_type} ({amount}₽)"
+            keyboard_buttons.append([
+                InlineKeyboardButton(
+                    text=button_text[:60] + "..." if len(button_text) > 60 else button_text,
+                    callback_data=f"view_payment_{req_id}"
+                )
+            ])
+
+        if len(pending_requests) > 10:
+            keyboard_buttons.append([
+                InlineKeyboardButton(text="📄 Показать все", callback_data="all_pending_payments")
+            ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🚫 Отозванные заявки", callback_data="cancelled_payments")
+        ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="⬅️ Главное меню", callback_data="system_admin_panel")
+        ])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+
 payment_admin_router.callback_query(F.data == "pending_payments")(pending_payments_menu)
 payment_admin_router.callback_query(F.data == "all_pending_payments")(pending_payments_menu)
 payment_admin_router.callback_query(F.data == "cancelled_payments")(cancelled_payments_menu)
@@ -687,3 +753,4 @@ payment_admin_router.callback_query(F.data.startswith("view_cancelled_"))(view_c
 payment_admin_router.callback_query(F.data.startswith("show_payment_proof_"))(show_payment_proof)
 payment_admin_router.callback_query(F.data.startswith("confirm_payment_"))(confirm_payment_request)
 payment_admin_router.callback_query(F.data.startswith("reject_payment_"))(reject_payment_request)
+payment_admin_router.message(Command("pending_payments"))(pending_payments_command)

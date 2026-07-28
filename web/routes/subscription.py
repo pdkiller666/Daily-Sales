@@ -1475,7 +1475,7 @@ def _notify_admin_proof_uploaded(req_id: int, user_display: str, telegram_id: in
     admin_id = os.environ.get("ADMIN_CHAT_ID", "")
     if not token or not admin_id:
         return
-    domain = os.environ.get("REPLIT_DEV_DOMAIN", "")
+    domain = (os.environ.get("APP_DOMAIN") or os.environ.get("REPLIT_DEV_DOMAIN") or "")
     proof_link = f"https://{domain}/payment-proof-req/{req_id}" if domain else ""
     text = (
         "📎 <b>Скриншот оплаты прикреплён</b>\n\n"
