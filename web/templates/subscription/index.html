@@ -787,10 +787,13 @@
             {# Срок и истекание #}
             {% if bun_sub_info %}
             <p class="text-[11px] font-semibold mb-3
-               {{ 'text-red-600 dark:text-red-400' if bun_sub_info.days_remaining is not none and bun_sub_info.days_remaining <= 3
-                  else ('text-amber-600 dark:text-amber-400' if bun_sub_info.days_remaining is not none and bun_sub_info.days_remaining <= 7
-                  else 'text-emerald-600 dark:text-emerald-400') }}">
-                {% if bun_sub_info.days_remaining is not none and bun_sub_info.days_remaining <= 7 %}
+               {% if bun_sub_info.is_expired %}text-red-600 dark:text-red-400
+               {% elif bun_sub_info.days_remaining is not none and bun_sub_info.days_remaining <= 3 %}text-red-600 dark:text-red-400
+               {% elif bun_sub_info.days_remaining is not none and bun_sub_info.days_remaining <= 7 %}text-amber-600 dark:text-amber-400
+               {% else %}text-emerald-600 dark:text-emerald-400{% endif %}">
+                {% if bun_sub_info.is_expired %}
+                    ✗ Истёк {{ bun_sub_info.end_date }}
+                {% elif bun_sub_info.days_remaining is not none and bun_sub_info.days_remaining <= 7 %}
                     ⚠ истекает через {{ bun_sub_info.days_remaining }} дн. ({{ bun_sub_info.end_date }})
                 {% else %}
                     до {{ bun_sub_info.end_date }}
@@ -895,13 +898,16 @@
                 {% endif %}
             </div>
             <p class="text-xs text-slate-400 mt-0.5">{{ mod.description }}</p>
-            {# Срок действия с цветовой индикацией (пункт 4) #}
+            {# Срок действия с цветовой индикацией #}
             {% if sub_info and sub_info.end_date and sub_info.end_date != '∞' %}
             <p class="text-[11px] font-semibold mt-0.5
-               {{ 'text-red-600 dark:text-red-400' if sub_info.days_remaining is not none and sub_info.days_remaining <= 3
-                  else ('text-amber-600 dark:text-amber-400' if sub_info.days_remaining is not none and sub_info.days_remaining <= 7
-                  else 'text-emerald-600 dark:text-emerald-400') }}">
-                {% if sub_info.days_remaining is not none and sub_info.days_remaining <= 7 %}
+               {% if sub_info.is_expired %}text-red-600 dark:text-red-400
+               {% elif sub_info.days_remaining is not none and sub_info.days_remaining <= 3 %}text-red-600 dark:text-red-400
+               {% elif sub_info.days_remaining is not none and sub_info.days_remaining <= 7 %}text-amber-600 dark:text-amber-400
+               {% else %}text-emerald-600 dark:text-emerald-400{% endif %}">
+                {% if sub_info.is_expired %}
+                    ✗ Истёк {{ sub_info.end_date }}
+                {% elif sub_info.days_remaining is not none and sub_info.days_remaining <= 7 %}
                     ⚠ истекает через {{ sub_info.days_remaining }} дн. ({{ sub_info.end_date }})
                 {% else %}
                     до {{ sub_info.end_date }}
@@ -1058,13 +1064,16 @@
                     {% endif %}
                 </div>
                 <p class="text-xs text-slate-400 mt-0.5">{{ ext2.description }}</p>
-                {# Срок действия с цветовой индикацией (пункт 4) #}
+                {# Срок действия с цветовой индикацией #}
                 {% if ext_sub_info and ext_sub_info.end_date and ext_sub_info.end_date != '∞' %}
                 <p class="text-[11px] font-semibold mt-0.5
-                   {{ 'text-red-600 dark:text-red-400' if ext_sub_info.days_remaining is not none and ext_sub_info.days_remaining <= 3
-                      else ('text-amber-600 dark:text-amber-400' if ext_sub_info.days_remaining is not none and ext_sub_info.days_remaining <= 7
-                      else 'text-violet-600 dark:text-violet-400') }}">
-                    {% if ext_sub_info.days_remaining is not none and ext_sub_info.days_remaining <= 7 %}
+                   {% if ext_sub_info.is_expired %}text-red-600 dark:text-red-400
+                   {% elif ext_sub_info.days_remaining is not none and ext_sub_info.days_remaining <= 3 %}text-red-600 dark:text-red-400
+                   {% elif ext_sub_info.days_remaining is not none and ext_sub_info.days_remaining <= 7 %}text-amber-600 dark:text-amber-400
+                   {% else %}text-violet-600 dark:text-violet-400{% endif %}">
+                    {% if ext_sub_info.is_expired %}
+                        ✗ Истёк {{ ext_sub_info.end_date }}
+                    {% elif ext_sub_info.days_remaining is not none and ext_sub_info.days_remaining <= 7 %}
                         ⚠ истекает через {{ ext_sub_info.days_remaining }} дн. ({{ ext_sub_info.end_date }})
                     {% else %}
                         до {{ ext_sub_info.end_date }}

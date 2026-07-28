@@ -277,14 +277,27 @@ def _get_all_billing_bundles() -> list[dict]:
         return []
 
 
+def _fmt_sub_date(iso: str) -> str:
+    """Конвертирует YYYY-MM-DD → ДД.ММ.ГГГГ. Прочие значения возвращает как есть."""
+    if iso and len(iso) >= 10 and iso != "∞":
+        try:
+            from datetime import datetime as _dt2
+            return _dt2.strptime(iso[:10], "%Y-%m-%d").strftime("%d.%m.%Y")
+        except Exception:
+            pass
+    return iso
+
+
 def _get_user_active_module_subs(telegram_id: int) -> dict:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
         try:
+            # Включаем и истёкшие позиции (до 90 дней назад) — чтобы пользователь
+            # видел что именно закончилось, а не просто пустую строку
             rows = conn.execute(
                 """SELECT item_key, item_type, end_date FROM billing_module_subs
                    WHERE user_telegram_id=? AND is_active=1
-                     AND (end_date IS NULL OR end_date > datetime('now'))""",
+                     AND (end_date IS NULL OR end_date > datetime('now', '-90 days'))""",
                 (telegram_id,)
             ).fetchall()
         finally:
@@ -294,17 +307,24 @@ def _get_user_active_module_subs(telegram_id: int) -> dict:
         for r in rows:
             end_str = str(r[2] or "")[:10]
             days_remaining = None
+            is_expired = False
             if end_str:
                 try:
                     from datetime import datetime as _dt
                     end_d = _dt.strptime(end_str, "%Y-%m-%d").date()
-                    days_remaining = max(0, (end_d - today).days)
+                    diff = (end_d - today).days
+                    if diff < 0:
+                        is_expired = True
+                        days_remaining = diff  # отрицательное — сколько дней назад
+                    else:
+                        days_remaining = diff
                 except Exception:
                     pass
             result[r[0]] = {
                 "item_type": r[1],
-                "end_date": end_str or "∞",
+                "end_date": _fmt_sub_date(end_str) if end_str else "∞",
                 "days_remaining": days_remaining,
+                "is_expired": is_expired,
             }
         return result
     except Exception:
@@ -779,11 +799,11 @@ def _load_shop_bot_data(telegram_id: int) -> dict:
                 "SELECT value FROM payment_settings WHERE key='card_number'"
             ).fetchone()
 
-            # user billing_module_subs
+            # user billing_module_subs — включаем истёкшие до 90 дней назад
             sub_rows = conn.execute(
                 """SELECT item_key, item_type, end_date FROM billing_module_subs
                    WHERE user_telegram_id=? AND is_active=1
-                     AND (end_date IS NULL OR end_date > datetime('now'))""",
+                     AND (end_date IS NULL OR end_date > datetime('now', '-90 days'))""",
                 (telegram_id,),
             ).fetchall()
 
@@ -877,23 +897,30 @@ def _load_shop_bot_data(telegram_id: int) -> dict:
         # Requisites
         requisites = req_row[0] if req_row and req_row[0] else ""
 
-        # Module subs with days_remaining
+        # Module subs with days_remaining (включая недавно истёкшие)
         today = _date.today()
         user_mod_subs: dict = {}
         for r in sub_rows:
             end_str = str(r[2] or "")[:10]
             days_remaining = None
+            is_expired = False
             if end_str:
                 try:
                     from datetime import datetime as _dt
                     end_d = _dt.strptime(end_str, "%Y-%m-%d").date()
-                    days_remaining = max(0, (end_d - today).days)
+                    diff = (end_d - today).days
+                    if diff < 0:
+                        is_expired = True
+                        days_remaining = diff  # отрицательное
+                    else:
+                        days_remaining = diff
                 except Exception:
                     pass
             user_mod_subs[r[0]] = {
                 "item_type": r[1],
-                "end_date": end_str or "∞",
+                "end_date": _fmt_sub_date(end_str) if end_str else "∞",
                 "days_remaining": days_remaining,
+                "is_expired": is_expired,
             }
 
         pending_plan_types: set = {r[0] for r in pending_pt_rows if r[0]}
@@ -926,7 +953,7 @@ def _load_shop_bot_data(telegram_id: int) -> dict:
         # Trial
         trial = None
         if trial_row:
-            trial = {"end_date": str(trial_row[0] or "")[:10], "is_trial": True}
+            trial = {"end_date": _fmt_sub_date(str(trial_row[0] or "")[:10]), "is_trial": True}
 
         monthly_total = _calc_monthly_total(user_mod_subs, modules, extensions, bundles)
         if monthly_total > 0:
@@ -1035,7 +1062,8 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
         _bun_map = {b["key"]: b for b in data["bundles"]}
         for _ek, _sub in data["user_mod_subs"].items():
             _dr = _sub.get("days_remaining")
-            if _dr is None or _dr > 14:
+            # Пропускаем: нет даты, истёк уже (< 0), или ещё далеко (> 14 дн.)
+            if _dr is None or _dr < 0 or _dr > 14:
                 continue
             _itype = _sub.get("item_type", "")
             _idata = (
