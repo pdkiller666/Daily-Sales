@@ -55,8 +55,9 @@ subscription_router.message.register(
 subscription_router.callback_query.register(check_yookassa_payment, lambda c: c.data.startswith("yk_check_"))
 
 # Административные обработчики
-# Команда /pending_payments (текст в чате) — для супер-админа
-subscription_router.message.register(pending_payments_command, Command("pending_payments"))
+# Административные обработчики для заявок (callback_query)
+# Команда /pending_payments регистрируется только в payment_admin_router (payment_admin_handlers.py),
+# чтобы избежать двойной регистрации при включении обоих роутеров в dp.
 subscription_router.callback_query.register(pending_payments_menu, lambda c: c.data == "pending_payments")
 subscription_router.callback_query.register(view_payment_request, lambda c: c.data.startswith("view_payment_"))
 subscription_router.callback_query.register(show_payment_proof, lambda c: c.data.startswith("show_payment_proof_"))

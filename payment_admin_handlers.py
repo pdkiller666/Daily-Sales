@@ -124,7 +124,11 @@ async def view_payment_request(callback: CallbackQuery):
         await callback.answer("❌ Доступ только для супер-администратора")
         return
 
-    request_id = int(callback.data.split('_')[2])
+    try:
+        request_id = int(callback.data.split('_')[2])
+    except (IndexError, ValueError):
+        await callback.answer("❌ Некорректный идентификатор заявки", show_alert=True)
+        return
 
     db = _get_payments_db()
     request_info = await db.get_payment_request_by_id(request_id)
@@ -193,7 +197,11 @@ async def show_payment_proof(callback: CallbackQuery):
         await callback.answer("❌ Доступ только для супер-администратора")
         return
 
-    request_id = int(callback.data.split('_')[3])
+    try:
+        request_id = int(callback.data.split('_')[3])
+    except (IndexError, ValueError):
+        await callback.answer("❌ Некорректный идентификатор заявки", show_alert=True)
+        return
 
     db = _get_payments_db()
     request_info = await db.get_payment_request_by_id(request_id)
@@ -279,7 +287,11 @@ async def confirm_payment_request(callback: CallbackQuery):
             await callback.answer("❌ Доступ только для супер-администратора")
             return
 
-        request_id = int(callback.data.split('_')[2])
+        try:
+            request_id = int(callback.data.split('_')[2])
+        except (IndexError, ValueError):
+            await callback.answer("❌ Некорректный идентификатор заявки", show_alert=True)
+            return
         db = _get_payments_db()
         admin_user_id = await db.get_user_id(callback.from_user.id)
 
@@ -493,7 +505,11 @@ async def reject_payment_request(callback: CallbackQuery):
             await callback.answer("❌ Доступ только для супер-администратора")
             return
 
-        request_id = int(callback.data.split('_')[2])
+        try:
+            request_id = int(callback.data.split('_')[2])
+        except (IndexError, ValueError):
+            await callback.answer("❌ Некорректный идентификатор заявки", show_alert=True)
+            return
         db = _get_payments_db()
         admin_user_id = await db.get_user_id(callback.from_user.id)
 
@@ -641,7 +657,11 @@ async def view_cancelled_payment(callback: CallbackQuery):
         await callback.answer("❌ Доступ только для супер-администратора")
         return
 
-    request_id = int(callback.data.split('_')[2])
+    try:
+        request_id = int(callback.data.split('_')[2])
+    except (IndexError, ValueError):
+        await callback.answer("❌ Некорректный идентификатор заявки", show_alert=True)
+        return
 
     db = _get_payments_db()
     request_info = await db.get_payment_request_by_id(request_id)

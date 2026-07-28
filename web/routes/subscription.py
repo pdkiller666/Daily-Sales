@@ -302,6 +302,7 @@ def _get_user_active_module_subs(telegram_id: int) -> dict:
             ).fetchall()
         finally:
             conn.close()
+        from datetime import datetime as _dt  # import один раз вне цикла
         today = _date.today()
         result = {}
         for r in rows:
@@ -310,7 +311,6 @@ def _get_user_active_module_subs(telegram_id: int) -> dict:
             is_expired = False
             if end_str:
                 try:
-                    from datetime import datetime as _dt
                     end_d = _dt.strptime(end_str, "%Y-%m-%d").date()
                     diff = (end_d - today).days
                     if diff < 0:
@@ -427,7 +427,8 @@ def _get_pending_plan_types(user_id: int) -> set:
 
 
 def _calc_monthly_total(user_mod_subs: dict, modules: list, extensions: list, bundles: list) -> int:
-    """Суммирует месячную стоимость всех активных платных подписок."""
+    """Суммирует месячную стоимость активных НЕ-истёкших платных подписок.
+    Истёкшие (is_expired=True) не считаются — пользователь их не оплачивает."""
     price_map: dict = {}
     for m in modules:
         price_map[m["key"]] = m.get("price_monthly", 0)
@@ -436,7 +437,9 @@ def _calc_monthly_total(user_mod_subs: dict, modules: list, extensions: list, bu
     for b in bundles:
         price_map[b["key"]] = b.get("price_monthly", 0)
     total = 0
-    for key in user_mod_subs:
+    for key, sub in user_mod_subs.items():
+        if sub.get("is_expired"):
+            continue  # истёкшие не включаем в стоимость
         total += price_map.get(key, 0)
     return total
 

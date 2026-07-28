@@ -367,7 +367,7 @@
         <span class="text-base leading-none">{{ '🚨' if _expired_cnt > 0 else '⚠️' }}</span>
         <p class="font-bold {{ 'text-red-800 dark:text-red-200' if _expired_cnt > 0 else 'text-amber-800 dark:text-amber-200' }} text-sm">
             {% if _expired_cnt > 0 and _expiring_cnt > 0 %}
-                {{ _expired_cnt }} позиц{{ 'ия истекла' if _expired_cnt == 1 else 'ии истекли' }}, {{ _expiring_cnt }} истекает — продлите чтобы не потерять функции
+                {{ _expired_cnt }} позиц{{ 'ия истекла' if _expired_cnt == 1 else ('ии истекли' if _expired_cnt in [2,3,4] else 'ий истекло') }}, {{ _expiring_cnt }} истекает — продлите чтобы не потерять функции
             {% elif _expired_cnt > 0 %}
                 {{ _expired_cnt }} позиц{{ 'ия истекла' if _expired_cnt == 1 else ('ии истекли' if _expired_cnt in [2,3,4] else 'ий истекло') }} — продлите чтобы не потерять функции
             {% else %}
