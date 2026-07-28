@@ -1062,8 +1062,9 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
         _bun_map = {b["key"]: b for b in data["bundles"]}
         for _ek, _sub in data["user_mod_subs"].items():
             _dr = _sub.get("days_remaining")
-            # Пропускаем: нет даты, истёк уже (< 0), или ещё далеко (> 14 дн.)
-            if _dr is None or _dr < 0 or _dr > 14:
+            # Пропускаем: нет даты или срок слишком далёкий (> 14 дн.)
+            # Истёкшие (< 0) ВКЛЮЧАЕМ — они тоже нуждаются в продлении
+            if _dr is None or _dr > 14:
                 continue
             _itype = _sub.get("item_type", "")
             _idata = (

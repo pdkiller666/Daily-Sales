@@ -356,27 +356,37 @@
 </div>
 
 
-{# ══ ИСТЕКАЮЩИЕ ПОЗИЦИИ — Alert-блок ══
-     Показывается сразу под hero, когда есть активные позиции с ≤14 дн. до конца
-     и нет ни одной pending-заявки. Кнопка добавляет все позиции в корзину. #}
+{# ══ ИСТЁКШИЕ/ИСТЕКАЮЩИЕ ПОЗИЦИИ — Alert-блок ══
+     Показывается сразу под hero, когда есть позиции с ≤14 дн. до конца
+     или уже истёкшие (до 90 дней назад). Кнопка добавляет все в корзину. #}
 {% if expiring_items and not has_pending %}
-<div class="mb-5 rounded-2xl border-2 border-amber-400 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 overflow-hidden">
-    <div class="px-4 py-2.5 bg-amber-100 dark:bg-amber-800/40 flex items-center gap-2 border-b border-amber-200 dark:border-amber-700">
-        <span class="text-base leading-none">⚠️</span>
-        <p class="font-bold text-amber-800 dark:text-amber-200 text-sm">
-            {{ expiring_items|length }} позиц{{ 'ия истекает' if expiring_items|length == 1 else ('ии истекают' if expiring_items|length in [2,3,4] else 'ий истекают') }} в ближайшие 2 недели
+{% set _expired_cnt = expiring_items | selectattr('days_remaining', 'lt', 0) | list | length %}
+{% set _expiring_cnt = expiring_items | selectattr('days_remaining', 'ge', 0) | list | length %}
+<div class="mb-5 rounded-2xl border-2 {{ 'border-red-400 bg-red-50 dark:bg-red-900/20 dark:border-red-700' if _expired_cnt > 0 else 'border-amber-400 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700' }} overflow-hidden">
+    <div class="px-4 py-2.5 {{ 'bg-red-100 dark:bg-red-800/40 border-b border-red-200 dark:border-red-700' if _expired_cnt > 0 else 'bg-amber-100 dark:bg-amber-800/40 border-b border-amber-200 dark:border-amber-700' }} flex items-center gap-2">
+        <span class="text-base leading-none">{{ '🚨' if _expired_cnt > 0 else '⚠️' }}</span>
+        <p class="font-bold {{ 'text-red-800 dark:text-red-200' if _expired_cnt > 0 else 'text-amber-800 dark:text-amber-200' }} text-sm">
+            {% if _expired_cnt > 0 and _expiring_cnt > 0 %}
+                {{ _expired_cnt }} позиц{{ 'ия истекла' if _expired_cnt == 1 else 'ии истекли' }}, {{ _expiring_cnt }} истекает — продлите чтобы не потерять функции
+            {% elif _expired_cnt > 0 %}
+                {{ _expired_cnt }} позиц{{ 'ия истекла' if _expired_cnt == 1 else ('ии истекли' if _expired_cnt in [2,3,4] else 'ий истекло') }} — продлите чтобы не потерять функции
+            {% else %}
+                {{ _expiring_cnt }} позиц{{ 'ия истекает' if _expiring_cnt == 1 else ('ии истекают' if _expiring_cnt in [2,3,4] else 'ий истекают') }} в ближайшие 2 недели
+            {% endif %}
         </p>
     </div>
     <div class="px-4 py-3">
         <div class="flex flex-wrap gap-1.5 mb-3">
             {% for it in expiring_items %}
-            <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-white dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200">
-                {{ it.name }}&nbsp;<span class="{{ 'text-red-600 dark:text-red-400' if it.days_remaining <= 3 else 'text-amber-600 dark:text-amber-400' }}">· {{ it.days_remaining }} дн.</span>
+            <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-white dark:bg-slate-800/60 border {{ 'border-red-200 dark:border-red-700 text-red-800 dark:text-red-200' if it.days_remaining < 0 else 'border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200' }}">
+                {{ it.name }}&nbsp;<span class="{{ 'text-red-600 dark:text-red-400 font-bold' if it.days_remaining < 0 else ('text-red-600 dark:text-red-400' if it.days_remaining <= 3 else 'text-amber-600 dark:text-amber-400') }}">
+                    {%- if it.days_remaining < 0 -%}· истёк{%- else -%}· {{ it.days_remaining }} дн.{%- endif -%}
+                </span>
             </span>
             {% endfor %}
         </div>
         <button type="button" @click="addExpiring()"
-                class="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-sm font-bold rounded-xl transition-colors shadow-sm">
+                class="inline-flex items-center gap-2 px-4 py-2 {{ 'bg-red-600 hover:bg-red-700 active:bg-red-800' if _expired_cnt > 0 else 'bg-amber-600 hover:bg-amber-700 active:bg-amber-800' }} text-white text-sm font-bold rounded-xl transition-colors shadow-sm">
             🔄 Добавить {{ 'все' if expiring_items|length > 1 else '' }} в корзину →
         </button>
     </div>
