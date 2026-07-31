@@ -545,10 +545,11 @@ def create_web_app() -> FastAPI:
         return my_db_id
 
     def _open_tasks_count(request):
-        """Счётчик незакрытых задач для сайдбара."""
+        """Счётчик незакрытых задач для сайдбара (кэш 30 с на пользователя)."""
         try:
             from web.auth import get_session_user
             from web.deps import get_web_db
+            from web.perf_cache import cached as _pc
             user = get_session_user(request)
             if not user:
                 return 0
@@ -561,17 +562,19 @@ def create_web_app() -> FastAPI:
             my_db_id = _my_db_id(request, telegram_id, db)
             if not my_db_id:
                 return 0
-            return db.get_open_tasks_count(my_db_id, is_admin)
+            cache_key = f"tasks:{telegram_id}:{org_db}:{is_admin}"
+            return _pc(cache_key, 30, lambda: db.get_open_tasks_count(my_db_id, is_admin))
         except Exception:
             return 0
 
     templates.env.globals['open_tasks_count'] = _open_tasks_count
 
     def _dm_unread_count(request):
-        """Счётчик непрочитанных ЛС для сайдбара."""
+        """Счётчик непрочитанных ЛС для сайдбара (кэш 30 с на пользователя)."""
         try:
             from web.auth import get_session_user
             from web.deps import get_web_db
+            from web.perf_cache import cached as _pc
             user = get_session_user(request)
             if not user:
                 return 0
@@ -583,7 +586,8 @@ def create_web_app() -> FastAPI:
             my_db_id = _my_db_id(request, telegram_id, db)
             if not my_db_id:
                 return 0
-            return db.get_dm_unread_count(my_db_id)
+            cache_key = f"dm_unread:{telegram_id}:{org_db}"
+            return _pc(cache_key, 30, lambda: db.get_dm_unread_count(my_db_id))
         except Exception:
             return 0
 

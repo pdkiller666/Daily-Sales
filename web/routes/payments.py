@@ -149,7 +149,13 @@ def _get_history(limit: int = 50) -> list[dict]:
         return []
 
 
+_PENDING_CACHE: list = []   # [expires_at, count]  — simple 1-slot TTL store
+_PENDING_TTL = 60           # секунд
+
 def get_pending_count() -> int:
+    import time as _t
+    if _PENDING_CACHE and _t.monotonic() < _PENDING_CACHE[0]:
+        return _PENDING_CACHE[1]
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
         try:
@@ -158,9 +164,15 @@ def get_pending_count() -> int:
             row = cur.fetchone()
         finally:
             conn.close()
-        return row[0] if row else 0
+        result = row[0] if row else 0
     except Exception:
-        return 0
+        result = 0
+    if _PENDING_CACHE:
+        _PENDING_CACHE[0] = _t.monotonic() + _PENDING_TTL
+        _PENDING_CACHE[1] = result
+    else:
+        _PENDING_CACHE.extend([_t.monotonic() + _PENDING_TTL, result])
+    return result
 
 
 @router.get("/payments")

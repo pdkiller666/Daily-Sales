@@ -9,7 +9,7 @@
 </span>
 {% endblock %}
 
-{% block extra_head %}<script src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>{% endblock %}
+{% block extra_head %}<script defer src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>{% endblock %}
 {% block content %}
 {% if error %}
 <div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
@@ -335,7 +335,7 @@
 </div>
 <script nonce="{{ csp_nonce(request) }}">
 window.dsApplyLabelSize=function(a){try{var s=localStorage.getItem('ds_label_size');if(s){var u=new URL(a.href,location.href);u.searchParams.set('size',s);a.href=u.toString();}}catch(e){}};
-(function(){
+document.addEventListener('DOMContentLoaded', function(){
     const labels = {{ chart_labels | tojson }};
     const data   = {{ chart_data   | tojson }};
     const ctx = document.getElementById('productRevenueChart');
@@ -376,7 +376,7 @@ window.dsApplyLabelSize=function(a){try{var s=localStorage.getItem('ds_label_siz
         chart.update('none');
     });
     obs.observe(document.documentElement, {attributes:true, attributeFilter:['class']});
-})();
+});
 </script>
 {% endif %}
 

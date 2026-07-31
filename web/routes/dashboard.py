@@ -7,16 +7,17 @@ from timezone_utils import DEFAULT_TZ
 
 router = APIRouter()
 
-# ── TTL кэш для rankings (60 с) — снижает нагрузку при частых переходах ──────
+# ── TTL кэш для rankings и агрегатов (снижает нагрузку при частых переходах) ──
 _RANK_CACHE: dict = {}
-_RANK_TTL = 60  # секунд
+_RANK_TTL   = 90   # секунд — рейтинги и суммарная выручка (сегодня/месяц)
+_HIST_TTL   = 300  # секунд — исторические данные (вчера, прошлый месяц)
 
 
-def _rank_cached(key: str, fn, *args, **kwargs):
+def _rank_cached(key: str, fn, *args, ttl: int = _RANK_TTL, **kwargs):
     """Return cached value if fresh, else call fn(*args, **kwargs) and cache."""
     now = _time.monotonic()
     entry = _RANK_CACHE.get(key)
-    if entry and now - entry[0] < _RANK_TTL:
+    if entry and now - entry[0] < ttl:
         return entry[1]
     result = fn(*args, **kwargs)
     _RANK_CACHE[key] = (now, result)
@@ -246,8 +247,15 @@ def dashboard(request: Request, msg: str = ""):
             except Exception:
                 pass
 
-        today_s = db.get_sales_summary(start_date=today_str, end_date=today_str) or (0, 0, 0, 0)
-        month_s = db.get_sales_summary(start_date=month_str, end_date=today_str) or (0, 0, 0, 0)
+        _rk_db = org_db or "default"
+        today_s = _rank_cached(
+            f"sales_sum:{_rk_db}:{today_str}:{today_str}",
+            lambda: db.get_sales_summary(start_date=today_str, end_date=today_str),
+        ) or (0, 0, 0, 0)
+        month_s = _rank_cached(
+            f"sales_sum:{_rk_db}:{month_str}:{today_str}",
+            lambda: db.get_sales_summary(start_date=month_str, end_date=today_str),
+        ) or (0, 0, 0, 0)
 
         # Add POS service revenue to main stats cards
         _svc_today_rev, _svc_today_cnt = 0.0, 0
@@ -340,8 +348,11 @@ def dashboard(request: Request, msg: str = ""):
         # ── Period comparisons ──────────────────────────────────────────────
         try:
             yesterday = today - timedelta(days=1)
-            yesterday_s = db.get_sales_summary(
-                start_date=yesterday.isoformat(), end_date=yesterday.isoformat()
+            yest_str = yesterday.isoformat()
+            yesterday_s = _rank_cached(
+                f"sales_sum:{_rk_db}:{yest_str}:{yest_str}",
+                lambda: db.get_sales_summary(start_date=yest_str, end_date=yest_str),
+                ttl=_HIST_TTL,
             ) or (0, 0, 0, 0)
             ctx["today_vs_yesterday"] = _growth(today_s[2], yesterday_s[2])
         except Exception:
@@ -350,8 +361,11 @@ def dashboard(request: Request, msg: str = ""):
         try:
             prev_end   = today.replace(day=1) - timedelta(days=1)
             prev_start = prev_end.replace(day=1)
-            prev_m_s   = db.get_sales_summary(
-                start_date=prev_start.isoformat(), end_date=prev_end.isoformat()
+            _ps, _pe = prev_start.isoformat(), prev_end.isoformat()
+            prev_m_s = _rank_cached(
+                f"sales_sum:{_rk_db}:{_ps}:{_pe}",
+                lambda: db.get_sales_summary(start_date=_ps, end_date=_pe),
+                ttl=_HIST_TTL,
             ) or (0, 0, 0, 0)
             ctx["month_vs_prev"] = _growth(month_s[2], prev_m_s[2])
         except Exception:
@@ -372,12 +386,11 @@ def dashboard(request: Request, msg: str = ""):
         ctx["chart_dates"] = dates
 
         ctx["recent_sales"] = db.get_recent_sales(limit=10) or []
-        _rk = org_db or "default"
         ctx["shop_ranking"] = (_rank_cached(
-            f"shop:{_rk}:{month_str}", db.get_shop_ranking,
+            f"shop:{_rk_db}:{month_str}", db.get_shop_ranking,
             start_date=month_str, end_date=today_str) or [])[:5]
         ctx["seller_ranking"] = (_rank_cached(
-            f"seller:{_rk}:{month_str}", db.get_sales_ranking,
+            f"seller:{_rk_db}:{month_str}", db.get_sales_ranking,
             start_date=month_str, end_date=today_str) or [])[:5]
         ctx["product_count"] = db.get_product_count()
 

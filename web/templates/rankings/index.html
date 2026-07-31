@@ -284,7 +284,7 @@
 · {{ ranking|length }} позиций
 {% endblock %}
 
-{% block extra_head %}<script src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>{% endblock %}
+{% block extra_head %}<script defer src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>{% endblock %}
 {% block extra_js %}
 <script nonce="{{ csp_nonce(request) }}">
 /* ── City filter persistence for shops tab ── */
@@ -413,7 +413,7 @@ function _rnkApply() {
 </script>
 {% if ranking|length >= 2 %}
 <script nonce="{{ csp_nonce(request) }}">
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     const top10 = {{ ranking[:10] | tojson }};
     if (!top10.length) return;
 
@@ -497,7 +497,7 @@ function _rnkApply() {
         chart.update('none');
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-})();
+});
 </script>
 {% endif %}
 {% endblock %}

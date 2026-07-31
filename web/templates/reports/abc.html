@@ -7,7 +7,7 @@
 <span class="font-medium text-slate-700 text-sm">ABC-анализ</span>
 {% endblock %}
 
-{% block extra_head %}<script src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>{% endblock %}
+{% block extra_head %}<script defer src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>{% endblock %}
 
 {% block content %}
 <div class="flex items-center justify-between mb-6">
@@ -246,7 +246,7 @@ function _abcApply() {
 </script>
 
 <script nonce="{{ csp_nonce(request) }}">
-(function(){
+document.addEventListener('DOMContentLoaded', function(){
     const isDark = () => document.documentElement.classList.contains('dark');
     const ctx = document.getElementById('abcChart');
     if (!ctx) return;
@@ -287,7 +287,7 @@ function _abcApply() {
         chart.update('none');
     });
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-})();
+});
 </script>
 
 {% else %}

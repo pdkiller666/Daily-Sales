@@ -7,7 +7,7 @@
 <span class="font-medium text-slate-700 text-sm">Дашборд</span>
 {% endblock %}
 
-{% block extra_head %}<script src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>{% endblock %}
+{% block extra_head %}<script defer src="/static/vendor/chart.umd.min.js?v=faf9d188bd"></script>{% endblock %}
 {% block extra_css %}
 <style>
 @keyframes ds-card-in{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
@@ -629,7 +629,7 @@
 <script nonce="{{ csp_nonce(request) }}">
 window.dsApkSeen=function(ver){var b=document.getElementById('apk-update-banner');if(b)b.remove();try{localStorage.setItem('ds_apk_seen_v',ver==null?'':String(ver));}catch(e){}};
 window.dsApkBannerHide=function(){var b=document.getElementById('apk-banner');if(b)b.remove();try{localStorage.setItem('ds_apk_banner','1');}catch(e){}};
-(function(){
+document.addEventListener('DOMContentLoaded', function(){
     const labelsAll = {{ chart_labels | tojson }};
     const dataAll   = {{ chart_data   | tojson }};
     const datesAll  = {{ chart_dates  | tojson }};
@@ -810,7 +810,7 @@ window.dsApkBannerHide=function(){var b=document.getElementById('apk-banner');if
     if (btnWeek) btnWeek.addEventListener('click', () => applyView(7));
     if (btn30)   btn30.addEventListener('click', () => applyView(30));
     applyView(curRange);
-})();
+});
 </script>
 <script nonce="{{ csp_nonce(request) }}">
 // Auto-refresh dashboard every 60 s (pauses when tab is hidden)
