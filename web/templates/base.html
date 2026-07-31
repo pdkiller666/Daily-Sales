@@ -2695,6 +2695,29 @@ function mainApp() {
         <span id="chat-fab-tab-arrow">‹</span>
     </div>
 </div>
+
+<!-- ══ Chat FAB (desktop, draggable, edge-snap + peek-hide) ══ -->
+<div id="chat-fab-wrap-d" class="hidden lg:flex fixed z-40 select-none"
+     style="bottom:24px;right:24px">
+    <button id="chat-fab-d"
+       class="w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white text-2xl transition-colors relative"
+       style="background:#2563eb"
+       draggable="false" aria-label="Открыть чат">
+        <span id="chat-fab-icon-d">💬</span>
+        <span id="chat-fab-badge-d"
+              class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full items-center justify-center hidden">
+        </span>
+    </button>
+    <!-- Peek tab: visible sliver when FAB is dragged off-screen -->
+    <div id="chat-fab-tab-d"
+         style="display:none;position:absolute;top:50%;transform:translateY(-50%);
+                width:18px;height:42px;background:#2563eb;
+                align-items:center;justify-content:center;
+                color:white;font-size:13px;font-weight:700;
+                cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.30);z-index:1">
+        <span id="chat-fab-tab-arrow-d">‹</span>
+    </div>
+</div>
 <script nonce="{{ csp_nonce(request) }}">
 (function () {
     const wrap    = document.getElementById('chat-fab-wrap');
@@ -2879,6 +2902,8 @@ function mainApp() {
     let topicUnread = 0;   /* server-side unread across all topics */
     let dmUnread    = 0;   /* DM unread count from server */
 
+    const dBadge = document.getElementById('chat-fab-badge-d');
+
     function updateBadge() {
         const total = topicUnread + dmUnread;
         if (total > 0) {
@@ -2891,12 +2916,22 @@ function mainApp() {
                 navBadge.classList.remove('hidden');
                 navBadge.classList.add('inline-flex');
             }
+            /* desktop FAB badge — same counter, one source of truth */
+            if (dBadge) {
+                dBadge.textContent = label;
+                dBadge.classList.remove('hidden');
+                dBadge.classList.add('flex');
+            }
         } else {
             badge.classList.add('hidden');
             badge.classList.remove('flex');
             if (navBadge) {
                 navBadge.classList.add('hidden');
                 navBadge.classList.remove('inline-flex');
+            }
+            if (dBadge) {
+                dBadge.classList.add('hidden');
+                dBadge.classList.remove('flex');
             }
         }
     }
@@ -2949,6 +2984,187 @@ function mainApp() {
         scheduleUnread();
         refreshUnread();   /* immediately on load */
     }
+})();
+</script>
+
+<script nonce="{{ csp_nonce(request) }}">
+/* ══ Chat FAB — DESKTOP (draggable, edge-snap + peek-hide) ══
+   Полный функциональный аналог мобильного FAB.
+   Бейдж обновляется из мобильного updateBadge() — дублирование поллинга не нужно.
+   Позиция хранится в localStorage отдельно: ds_chat_fab_pos_d                  */
+(function () {
+    const wrap     = document.getElementById('chat-fab-wrap-d');
+    const fab      = document.getElementById('chat-fab-d');
+    const iconEl   = document.getElementById('chat-fab-icon-d');
+    const tabEl    = document.getElementById('chat-fab-tab-d');
+    const tabArrow = document.getElementById('chat-fab-tab-arrow-d');
+    if (!wrap || !fab) return;
+
+    const FAB_SIZE = 56;
+    const PEEK_VIS = 18;
+    const PEEK_OFF = -(FAB_SIZE - PEEK_VIS);   /* -38 */
+    const EDGE_GAP = 24;
+    const LS_KEY   = 'ds_chat_fab_pos_d';
+
+    const onChatPage = window.location.pathname.startsWith('/chat');
+
+    /* ── on chat page: show as back button ── */
+    if (onChatPage) {
+        fab.style.background = '#475569';
+        iconEl.textContent = '←';
+        fab.setAttribute('aria-label', 'Вернуться назад');
+        fab.title = 'Закрыть чат';
+    }
+    tabEl.style.background = fab.style.background || '#2563eb';
+
+    /* ── peek helpers ── */
+    let isPeeked = false;
+
+    function _applyPeek(side, btm, animate) {
+        isPeeked = true;
+        wrap.style.transition = animate ? 'left .25s, right .25s, top .2s, bottom .2s' : 'none';
+        wrap.style.top = null; wrap.style.left = null;
+        wrap.style.right = null; wrap.style.bottom = btm + 'px';
+        if (side === 'left') {
+            wrap.style.left = PEEK_OFF + 'px';
+            tabEl.style.right = '0'; tabEl.style.left = 'auto';
+            tabEl.style.borderRadius = '0 8px 8px 0';
+            tabArrow.textContent = '›';
+        } else {
+            wrap.style.right = PEEK_OFF + 'px';
+            tabEl.style.left = '0'; tabEl.style.right = 'auto';
+            tabEl.style.borderRadius = '8px 0 0 8px';
+            tabArrow.textContent = '‹';
+        }
+        tabEl.style.display = 'flex';
+        try { localStorage.setItem(LS_KEY, JSON.stringify({ side, edge: EDGE_GAP, bottom: btm, peeked: true })); } catch(_) {}
+    }
+
+    function exitPeek() {
+        isPeeked = false;
+        tabEl.style.display = 'none';
+        let saved = null;
+        try { saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch(_) {}
+        const side = saved ? saved.side : 'right';
+        const btm  = saved ? saved.bottom : 24;
+        wrap.style.transition = 'left .25s, right .25s, top .2s, bottom .2s';
+        wrap.style.top = null; wrap.style.left = null;
+        wrap.style.right = null; wrap.style.bottom = btm + 'px';
+        if (side === 'left') wrap.style.left = EDGE_GAP + 'px';
+        else                 wrap.style.right = EDGE_GAP + 'px';
+        try {
+            const d = saved || { side, edge: EDGE_GAP, bottom: btm };
+            d.peeked = false;
+            localStorage.setItem(LS_KEY, JSON.stringify(d));
+        } catch(_) {}
+    }
+
+    /* ── restore saved position ── */
+    try {
+        const saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+        if (saved) {
+            wrap.style.right = null; wrap.style.left = null;
+            wrap.style.bottom = saved.bottom + 'px';
+            if (saved.peeked) {
+                _applyPeek(saved.side, saved.bottom, false);
+            } else {
+                if (saved.side === 'left') wrap.style.left  = saved.edge + 'px';
+                else                       wrap.style.right = saved.edge + 'px';
+            }
+        }
+    } catch (_) {}
+
+    /* ── drag ── */
+    let dragging = false, startX, startY, origLeft, origTop, moved = false;
+
+    function pointerDown(e) {
+        if (e.button !== undefined && e.button !== 0) return; /* left-click only */
+        dragging = true; moved = false;
+        const touch = e.touches ? e.touches[0] : e;
+        startX = touch.clientX; startY = touch.clientY;
+        const r = wrap.getBoundingClientRect();
+        origLeft = r.left; origTop = r.top;
+        wrap.style.transition = 'none';
+        wrap.style.right = null; wrap.style.left = origLeft + 'px';
+        wrap.style.bottom = null; wrap.style.top = origTop + 'px';
+        if (isPeeked) tabEl.style.display = 'none';
+        e.preventDefault();
+    }
+
+    function pointerMove(e) {
+        if (!dragging) return;
+        const touch = e.touches ? e.touches[0] : e;
+        const dx = touch.clientX - startX;
+        const dy = touch.clientY - startY;
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+        wrap.style.left = (origLeft + dx) + 'px';
+        wrap.style.top  = (origTop  + dy) + 'px';
+    }
+
+    function pointerUp(e) {
+        if (!dragging) return;
+        dragging = false;
+
+        /* ── Tap (no drag) ── */
+        if (!moved) {
+            if (isPeeked) { exitPeek(); return; }
+            /* restore position styles before navigating */
+            let saved = null;
+            try { saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch(_) {}
+            if (saved) {
+                wrap.style.top = null; wrap.style.left = null;
+                wrap.style.right = null; wrap.style.bottom = saved.bottom + 'px';
+                if (saved.side === 'left') wrap.style.left  = saved.edge + 'px';
+                else                       wrap.style.right = saved.edge + 'px';
+            }
+            if (onChatPage) {
+                const prev = sessionStorage.getItem('ds_chat_prev_url');
+                if (prev && !prev.startsWith('/chat')) { window.location.href = prev; }
+                else if (window.history.length > 1)    { window.history.back(); }
+                else                                    { window.location.href = '/dashboard'; }
+            } else {
+                try { sessionStorage.setItem('ds_chat_prev_url', window.location.pathname + window.location.search); } catch(_) {}
+                window.location.href = '/chat';
+            }
+            return;
+        }
+
+        /* ── Snap / Peek on drag-end ── */
+        wrap.style.transition = 'left .25s, right .25s, top .2s, bottom .2s';
+        const r   = wrap.getBoundingClientRect();
+        const mid = r.left + r.width / 2;
+        const vw  = window.innerWidth;
+        const vh  = window.innerHeight;
+        const snapTop = Math.max(EDGE_GAP, Math.min(r.top, vh - r.height - EDGE_GAP));
+        const btm     = Math.max(EDGE_GAP, vh - snapTop - r.height);
+        const side    = mid < vw / 2 ? 'left' : 'right';
+
+        wrap.style.top = null; wrap.style.left = null;
+        wrap.style.right = null; wrap.style.bottom = btm + 'px';
+
+        /* Dragged past the edge → peek mode */
+        if (side === 'left'  && r.left  < 0) { _applyPeek('left',  btm, true); return; }
+        if (side === 'right' && r.right > vw) { _applyPeek('right', btm, true); return; }
+
+        /* Normal snap */
+        isPeeked = false;
+        tabEl.style.display = 'none';
+        if (side === 'left') wrap.style.left  = EDGE_GAP + 'px';
+        else                 wrap.style.right = EDGE_GAP + 'px';
+        try { localStorage.setItem(LS_KEY, JSON.stringify({ side, edge: EDGE_GAP, bottom: btm, peeked: false })); } catch(_) {}
+    }
+
+    wrap.addEventListener('mousedown',  pointerDown, { passive: false });
+    window.addEventListener('mousemove', pointerMove);
+    window.addEventListener('mouseup',   pointerUp);
+    wrap.addEventListener('touchstart',  pointerDown, { passive: false });
+    window.addEventListener('touchmove', pointerMove, { passive: true });
+    window.addEventListener('touchend',  pointerUp);
+
+    /* Cursor hint: pointer on hover, grab while dragging */
+    wrap.style.cursor = 'pointer';
+    wrap.addEventListener('mousedown', () => { wrap.style.cursor = 'grabbing'; });
+    window.addEventListener('mouseup',  () => { wrap.style.cursor = 'pointer'; });
 })();
 </script>
 {% endif %}
