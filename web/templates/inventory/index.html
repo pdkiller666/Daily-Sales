@@ -167,13 +167,27 @@
 </div>
 {% endif %}
 
+{% set _pid = filter_product_id %}
+{% set _pid_qs = ('&product_id=' ~ _pid) if _pid else '' %}
+
+<!-- Product filter banner (shown when opened from a product card) -->
+{% if _pid and filter_product_name %}
+<div class="mb-4 flex items-center gap-3 px-4 py-2.5 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-xl text-sm">
+    <span class="text-blue-600 dark:text-blue-300 font-medium">🔍 Фильтр: {{ filter_product_name }}</span>
+    <a href="/inventory?shop={{ selected_shop|urlencode }}"
+       class="ml-auto text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 text-xs underline">
+        ✕ Показать все товары
+    </a>
+</div>
+{% endif %}
+
 <!-- Shop selector + Search -->
 <div class="flex flex-col gap-3 mb-5">
     {% if shops %}
     {% if is_admin %}
     <div class="flex flex-wrap gap-2">
         {% for s in shops %}
-        <a href="/inventory?shop={{ s|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}"
+        <a href="/inventory?shop={{ s|urlencode }}{% if _pid %}{{ _pid_qs }}{% elif q %}&q={{ q|urlencode }}{% endif %}"
            class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
                   {{ 'bg-blue-600 text-white border-blue-600' if s == selected_shop else 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-blue-300 hover:text-blue-600' }}">
             🏪 {{ s }}
@@ -186,7 +200,8 @@
     </div>
     {% endif %}
     {% endif %}
-    <!-- Search by product name -->
+    <!-- Search by product name (hidden when filtering by product_id) -->
+    {% if not _pid %}
     <form method="get" action="/inventory" class="flex gap-2 items-center">
         <input type="hidden" name="shop" value="{{ selected_shop }}">
         {% if selected_category %}<input type="hidden" name="category" value="{{ selected_category }}">{% endif %}
@@ -220,11 +235,12 @@
         {% endfor %}
     </div>
     {% endif %}
+    {% endif %}{# end if not _pid #}
 </div>
 
 <!-- Stats bar (clickable filters) -->
 {% if total_items or selected_status %}
-{% set _inv_base = "/inventory?shop=" ~ (selected_shop|urlencode) ~ ("&q=" ~ (q|urlencode) if q else "") ~ ("&category=" ~ (selected_category|urlencode) if selected_category else "") %}
+{% set _inv_base = "/inventory?shop=" ~ (selected_shop|urlencode) ~ ("&product_id=" ~ _pid if _pid else ("&q=" ~ (q|urlencode) if q else "")) ~ ("&category=" ~ (selected_category|urlencode) if selected_category else "") %}
 <div class="grid grid-cols-3 gap-4 mb-5">
     <a href="{{ _inv_base }}"
        data-action="dsSetLs" data-arg="inv_status_{{ user.sub }}" data-arg2=""

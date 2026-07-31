@@ -12,7 +12,8 @@ router = APIRouter()
 
 
 @router.get("/inventory")
-def inventory_page(request: Request, shop: str = "", q: str = "", category: str = "", status: str = ""):
+def inventory_page(request: Request, shop: str = "", q: str = "", category: str = "",
+                   status: str = "", product_id: int = 0):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -33,6 +34,9 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
         "inventory": [], "total_items": 0,
         "out_of_stock": 0, "low_stock": 0, "error": None,
         "csrf_token": get_csrf_token(request),
+        # product_id filter (from product detail page)
+        "filter_product_id": product_id,
+        "filter_product_name": "",
     }
 
     try:
@@ -52,7 +56,11 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
                 shops = [s for s in allowed if s]
             user_editable_shops = shops
 
-        if not shop or shop not in shops:
+        # If shop explicitly passed in URL and is valid — use it;
+        # otherwise fall back to first available shop.
+        if shop and shop in shops:
+            pass  # keep requested shop
+        else:
             shop = shops[0] if shops else ""
 
         ctx["shops"] = shops
@@ -76,8 +84,21 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
 
         inventory = sorted(raw, key=_sort_key)
 
-        # Filter by search query (name, category or article[10])
-        if q:
+        # Filter by exact product_id (takes priority, replaces text search)
+        if product_id:
+            inventory = [r for r in inventory if r[1] == product_id]
+            if inventory:
+                ctx["filter_product_name"] = inventory[0][6] or ""
+            elif not inventory:
+                # Product not in this shop yet — try to get name anyway
+                try:
+                    p = db.get_product(product_id)
+                    if p:
+                        ctx["filter_product_name"] = p[1]
+                except Exception:
+                    pass
+        elif q:
+            # Filter by search query (name, category or article[10])
             ql = q.lower()
             inventory = [r for r in inventory if ql in (r[6] or "").lower() or ql in (r[7] or "").lower() or ql in (r[10] if len(r) > 10 and r[10] else "").lower()]
 

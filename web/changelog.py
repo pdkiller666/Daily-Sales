@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.448.0"
+CURRENT_VERSION = "1.449.0"
 
 ENTRIES = [
+    {
+        "version": "1.449.0",
+        "date": "31 июля 2026",
+        "items": [
+            "Implement inventory management features and update documentation",
+        ],
+    },
     {
         "version": "1.448.0",
         "date": "28 июля 2026",

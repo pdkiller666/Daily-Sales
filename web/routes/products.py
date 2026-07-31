@@ -2661,6 +2661,8 @@ def product_detail(request: Request, product_id: int, year: int = 0, month: int 
         "is_scoped": bool(year and month),
         "prev_year": prev_year, "prev_month": prev_month,
         "next_year": next_year, "next_month": next_month,
+        # First shop the user can access — used to pre-fill the inventory filter link
+        "user_shop": "",
     }
 
     try:
@@ -2673,6 +2675,17 @@ def product_detail(request: Request, product_id: int, year: int = 0, month: int 
         product = db.get_product(product_id)
         if not product:
             return RedirectResponse(url="/products", status_code=302)
+
+        # Determine the user's primary shop for inventory deep-link
+        try:
+            is_admin_role = user.get("role") in ("owner", "admin", "super_admin")
+            if not is_admin_role:
+                from web.routes.sales import _get_user_allowed_shops
+                _user_shops = _get_user_allowed_shops(telegram_id, db)
+                ctx["user_shop"] = _user_shops[0] if _user_shops else ""
+            # admins: leave user_shop="" so inventory page shows all shops without pre-filtering
+        except Exception:
+            pass
 
         # products: id[0] name[1] category[2] price[3] created_at[4] photo_file_id[5] description[6]
         ctx["product"] = product
