@@ -696,6 +696,19 @@ async def products_create(
             for u in saved_urls:
                 _delete_product_photo(u)
             return _re_render("Не удалось создать товар. Попробуйте ещё раз.")
+        # Инициализируем нулевые остатки для всех существующих магазинов,
+        # чтобы товар сразу появился на странице /inventory без перехода в бот.
+        try:
+            for _shop in (db.get_all_shops() or []):
+                try:
+                    db.add_inventory(_shop, new_id, 0,
+                                     user_id=telegram_id,
+                                     change_type='initial',
+                                     change_reason='Товар добавлен через веб-интерфейс')
+                except Exception:
+                    pass
+        except Exception as _inv_ex:
+            logging.warning("products_create: не удалось инициализировать остатки: %s", _inv_ex)
         for url in saved_urls:
             try:
                 db.add_product_photo(new_id, url, source='web')

@@ -29,6 +29,55 @@
 <!-- Toast уведомление (Google Sheets статус) -->
 <div id="inv-toast" style="opacity:0;" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg transition-all duration-300 bg-emerald-600 text-white pointer-events-none"></div>
 
+{% if can_edit %}
+<!-- Add-product-to-inventory modal -->
+<div id="inv-add-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm"
+     data-backdrop-action="closeInvAdd">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700">
+            <h3 class="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                ➕ Добавить товар на склад
+            </h3>
+            <button data-action="closeInvAdd"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-lg">✕</button>
+        </div>
+        <div class="p-5">
+            <div class="mb-3">
+                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Товар</label>
+                <input id="inv-add-search" type="text" placeholder="Начните вводить название…" autocomplete="off"
+                       class="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 dark:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <div id="inv-add-list" class="mt-1 max-h-44 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 hidden"></div>
+            </div>
+            <input id="inv-add-pid" type="hidden" value="">
+            <div id="inv-add-selected" class="hidden mb-3 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-700/60 rounded-lg px-3 py-2"></div>
+            <div class="mb-3">
+                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Начальное количество (шт.)</label>
+                <input id="inv-add-qty" type="number" min="0" step="1" value="0"
+                       class="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 dark:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="mb-5">
+                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Причина <span class="text-slate-300">(необязательно)</span></label>
+                <input id="inv-add-reason" type="text" maxlength="120"
+                       class="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 dark:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       placeholder="Поступление, инвентаризация…">
+            </div>
+            <div id="inv-add-error" class="hidden mb-3 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2"></div>
+            <div class="flex gap-2">
+                <button id="inv-add-submit" data-action="submitInvAdd"
+                        class="flex-1 bg-blue-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-500 transition-colors">
+                    Добавить
+                </button>
+                <button data-action="closeInvAdd"
+                        class="py-2.5 px-4 border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 rounded-xl text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                    Отмена
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Edit modal -->
 {% if can_edit %}
 <div id="inv-edit-modal"
@@ -98,10 +147,18 @@
         <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Остатки</h1>
         <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Складские остатки по магазинам</p>
     </div>
-    <a href="/inventory/export.xlsx{% if selected_shop %}?shop={{ selected_shop|urlencode }}{% endif %}"
-       class="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors">
-        📥 Excel
-    </a>
+    <div class="flex items-center gap-2">
+        {% if can_edit and selected_shop %}
+        <button data-action="openInvAddProduct" data-shop="{{ selected_shop|e }}" data-csrf="{{ csrf_token }}"
+                class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+            ➕ Добавить товар
+        </button>
+        {% endif %}
+        <a href="/inventory/export.xlsx{% if selected_shop %}?shop={{ selected_shop|urlencode }}{% endif %}"
+           class="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors">
+            📥 Excel
+        </a>
+    </div>
 </div>
 
 {% if error %}
@@ -370,7 +427,7 @@ function closeInvHistory() {
     document.body.style.overflow = '';
 }
 document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') { closeInvHistory(); closeInvEdit(); }
+    if (e.key === 'Escape') { closeInvHistory(); closeInvEdit(); closeInvAdd(); }
 });
 </script>
 
@@ -507,6 +564,162 @@ function submitInvEdit() {
     .catch(function() {
         btn.disabled = false;
         btn.textContent = 'Применить';
+        errEl.textContent = 'Ошибка соединения. Попробуйте снова.';
+        errEl.classList.remove('hidden');
+    });
+}
+
+/* ── Add-product-to-inventory modal ── */
+var _invAddState = {shop: '', csrf: '', products: [], filtered: []};
+
+function openInvAddProduct(el) {
+    _invAddState.shop = el.dataset.shop || '';
+    _invAddState.csrf = el.dataset.csrf || '';
+    _invAddState.products = [];
+    _invAddState.filtered = [];
+    // Reset fields
+    document.getElementById('inv-add-search').value = '';
+    document.getElementById('inv-add-pid').value = '';
+    document.getElementById('inv-add-qty').value = '0';
+    document.getElementById('inv-add-reason').value = '';
+    document.getElementById('inv-add-selected').classList.add('hidden');
+    document.getElementById('inv-add-selected').textContent = '';
+    document.getElementById('inv-add-list').classList.add('hidden');
+    document.getElementById('inv-add-list').innerHTML = '';
+    document.getElementById('inv-add-error').classList.add('hidden');
+    var submitBtn = document.getElementById('inv-add-submit');
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Добавить';
+    // Open modal
+    var modal = document.getElementById('inv-add-modal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+    // Load missing products from server
+    fetch('/inventory/missing-products?shop=' + encodeURIComponent(_invAddState.shop))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.success) {
+                _invAddState.products = d.products || [];
+                _invAddState.filtered = _invAddState.products.slice();
+                _invAddRenderList(_invAddState.filtered);
+            }
+        })
+        .catch(function() {});
+    setTimeout(function() { document.getElementById('inv-add-search').focus(); }, 100);
+}
+
+function closeInvAdd() {
+    var modal = document.getElementById('inv-add-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    document.body.style.overflow = '';
+}
+
+function _invAddRenderList(items) {
+    var list = document.getElementById('inv-add-list');
+    if (!items || !items.length) {
+        list.innerHTML = '<div class="px-3 py-3 text-xs text-slate-400">Все товары уже добавлены в этот магазин</div>';
+        list.classList.remove('hidden');
+        return;
+    }
+    list.innerHTML = items.map(function(p) {
+        var cat = p.category ? ' <span class="text-slate-400">· ' + p.category + '</span>' : '';
+        return '<div class="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/30 border-b border-slate-100 dark:border-slate-700 last:border-0"'
+            + ' data-action="invAddPickProduct" data-id="' + p.id + '" data-name="' + p.name.replace(/"/g, '&quot;') + '" data-cat="' + (p.category || '').replace(/"/g, '&quot;') + '">'
+            + '<span class="font-medium text-slate-800 dark:text-slate-100">' + p.name + '</span>' + cat
+            + '</div>';
+    }).join('');
+    list.classList.remove('hidden');
+}
+
+function invAddPickProduct(el) {
+    var pid = el.dataset.id, name = el.dataset.name, cat = el.dataset.cat;
+    document.getElementById('inv-add-pid').value = pid;
+    document.getElementById('inv-add-search').value = name;
+    var sel = document.getElementById('inv-add-selected');
+    sel.textContent = '✅ ' + name + (cat ? ' · ' + cat : '');
+    sel.classList.remove('hidden');
+    document.getElementById('inv-add-list').classList.add('hidden');
+    document.getElementById('inv-add-qty').focus();
+}
+
+// Search filter
+(function() {
+    var searchEl = document.getElementById('inv-add-search');
+    if (!searchEl) return;
+    searchEl.addEventListener('input', function() {
+        var q = this.value.trim().toLowerCase();
+        document.getElementById('inv-add-pid').value = '';
+        document.getElementById('inv-add-selected').classList.add('hidden');
+        if (!q) {
+            _invAddRenderList(_invAddState.products);
+            return;
+        }
+        _invAddState.filtered = _invAddState.products.filter(function(p) {
+            return p.name.toLowerCase().indexOf(q) !== -1 || (p.category && p.category.toLowerCase().indexOf(q) !== -1);
+        });
+        _invAddRenderList(_invAddState.filtered);
+    });
+    searchEl.addEventListener('focus', function() {
+        if (_invAddState.products.length) {
+            _invAddRenderList(_invAddState.products);
+        }
+    });
+})();
+
+function submitInvAdd() {
+    var pid = parseInt(document.getElementById('inv-add-pid').value, 10);
+    var qty = parseInt(document.getElementById('inv-add-qty').value, 10);
+    var reason = document.getElementById('inv-add-reason').value.trim();
+    var errEl = document.getElementById('inv-add-error');
+    errEl.classList.add('hidden');
+
+    if (!pid || isNaN(pid)) {
+        errEl.textContent = 'Выберите товар из списка';
+        errEl.classList.remove('hidden');
+        return;
+    }
+    if (isNaN(qty) || qty < 0) {
+        errEl.textContent = 'Введите корректное количество (≥ 0)';
+        errEl.classList.remove('hidden');
+        return;
+    }
+
+    var btn = document.getElementById('inv-add-submit');
+    btn.disabled = true;
+    btn.textContent = 'Сохраняю…';
+
+    var body = new URLSearchParams({
+        shop_name: _invAddState.shop,
+        product_id: pid,
+        mode: 'set',
+        value: qty,
+        reason: reason || 'Добавлен через веб-интерфейс',
+        csrf_token: _invAddState.csrf
+    });
+    fetch('/inventory/adjust', {
+        method: 'POST',
+        body: body,
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            closeInvAdd();
+            // Перезагружаем страницу, чтобы новая строка появилась в таблице
+            window.location.reload();
+        } else {
+            btn.disabled = false;
+            btn.textContent = 'Добавить';
+            errEl.textContent = 'Ошибка: ' + (d.error || 'неизвестная');
+            errEl.classList.remove('hidden');
+        }
+    })
+    .catch(function() {
+        btn.disabled = false;
+        btn.textContent = 'Добавить';
         errEl.textContent = 'Ошибка соединения. Попробуйте снова.';
         errEl.classList.remove('hidden');
     });

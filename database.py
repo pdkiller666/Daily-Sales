@@ -9840,18 +9840,31 @@ class Database:
             return None
 
     def get_all_product_motivations(self):
-        """Получение всех комиссий по товарам с ФИО администратора"""
+        """Получение всех комиссий по товарам с ФИО администратора.
+        Приоритет: месячная ставка из motivation_schedule (текущий месяц) → глобальное правило из product_motivation_rules.
+        Товары, у которых есть только месячная ставка (без глобального правила), также включаются."""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute('''
-                SELECT p.id, p.name, pc.motivation_type, pc.motivation_value, 
-                       u.first_name, u.last_name, pc.created_at
+                SELECT p.id, p.name,
+                       COALESCE(ms.motivation_type,  pc.motivation_type)  AS motivation_type,
+                       COALESCE(ms.motivation_value, pc.motivation_value) AS motivation_value,
+                       COALESCE(u2.first_name, u.first_name) AS first_name,
+                       COALESCE(u2.last_name,  u.last_name)  AS last_name,
+                       COALESCE(ms.created_at, pc.created_at) AS created_at
                 FROM products p
                 LEFT JOIN product_motivation_rules pc
-                       ON p.id = pc.product_id AND pc.scope_type = 'global' AND pc.scope_value = ''
-                LEFT JOIN users u ON pc.created_by = u.id
+                       ON p.id = pc.product_id
+                      AND pc.scope_type = 'global' AND pc.scope_value = ''
+                LEFT JOIN motivation_schedule ms
+                       ON p.id = ms.product_id
+                      AND ms.year  = CAST(strftime('%Y', 'now') AS INTEGER)
+                      AND ms.month = CAST(strftime('%m', 'now') AS INTEGER)
+                LEFT JOIN users u  ON pc.created_by = u.id
+                LEFT JOIN users u2 ON ms.created_by = u2.id
+                WHERE pc.product_id IS NOT NULL OR ms.product_id IS NOT NULL
                 ORDER BY p.name
             ''')
 

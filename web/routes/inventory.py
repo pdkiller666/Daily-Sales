@@ -384,6 +384,57 @@ def inventory_adjust(
         return JSONResponse({"success": False, "error": "Внутренняя ошибка сервера"})
 
 
+@router.get("/inventory/missing-products")
+def inventory_missing_products(request: Request, shop: str = ""):
+    """JSON: товары, которых ещё нет в inventory для данного магазина."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"success": False, "error": "Unauthorized"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"success": False, "error": "Forbidden"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    if not org_db:
+        return JSONResponse({"success": False, "error": "No org"}, status_code=400)
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            cur = conn.cursor()
+            if shop:
+                cur.execute('''
+                    SELECT p.id, p.name,
+                           COALESCE(p.category, '') AS category,
+                           COALESCE(p.price, 0)    AS price
+                    FROM products p
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM inventory i
+                        WHERE i.product_id = p.id AND i.shop_name = ?
+                    )
+                    ORDER BY p.name
+                ''', (shop,))
+            else:
+                cur.execute(
+                    "SELECT id, name, COALESCE(category,''), COALESCE(price,0)"
+                    " FROM products ORDER BY name"
+                )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+        products = [
+            {"id": r[0], "name": r[1], "category": r[2], "price": float(r[3])}
+            for r in rows
+        ]
+        return JSONResponse({"success": True, "products": products})
+    except Exception as e:
+        logger.error(f"inventory_missing_products error: {e}")
+        return JSONResponse({"success": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
 @router.get("/inventory/history")
 def inventory_history(request: Request, shop: str = "", product_id: int = 0):
     """Возвращает HTML-фрагмент с историей изменений остатков для HTMX."""
