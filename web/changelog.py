@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.450.0"
+CURRENT_VERSION = "1.451.0"
 
 ENTRIES = [
+    {
+        "version": "1.451.0",
+        "date": "31 июля 2026",
+        "items": [
+            "Update agent handoff documentation and add base web template",
+        ],
+    },
     {
         "version": "1.450.0",
         "date": "31 июля 2026",

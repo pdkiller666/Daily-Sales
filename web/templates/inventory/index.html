@@ -844,6 +844,11 @@ function _invApply() {
     var LS_K = 'inv_shop_' + _u;
 
     var urlParams = new URLSearchParams(window.location.search);
+
+    /* When opening from a product card (?product_id=), skip all restore/save:
+       the product_id filter takes priority and must not be overwritten. */
+    if (urlParams.has('product_id')) return;
+
     var hasShop   = urlParams.has('shop');
 
     if (!hasShop) {
@@ -868,6 +873,7 @@ function _invApply() {
     var LS_K = 'inv_q_' + _u;
 
     var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('product_id')) return;
     var hasQ      = urlParams.has('q');
 
     if (!hasQ) {
@@ -900,6 +906,7 @@ function _invApply() {
     var LS_K = 'inv_category_' + _u;
 
     var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('product_id')) return;
     var hasCat    = urlParams.has('category');
 
     if (!hasCat) {
@@ -930,6 +937,7 @@ function _invApply() {
     var LS_K = 'inv_status_' + _u;
 
     var urlParams  = new URLSearchParams(window.location.search);
+    if (urlParams.has('product_id')) return;
     var hasStatus  = urlParams.has('status');
 
     if (!hasStatus) {
