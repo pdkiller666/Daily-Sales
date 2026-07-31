@@ -57,9 +57,22 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
             user_editable_shops = shops
 
         # If shop explicitly passed in URL and is valid — use it;
+        # if product_id filter is active — auto-pick the shop with the best
+        # stock for that product (highest qty > 0, else any shop that has it);
         # otherwise fall back to first available shop.
         if shop and shop in shops:
             pass  # keep requested shop
+        elif product_id and shops:
+            # Fetch inventory for all shops to find where this product lives
+            all_prod_inv = db.get_all_inventory(shop_name=None) or []
+            prod_rows = [r for r in all_prod_inv
+                         if r[1] == product_id and r[2] in shops]
+            if prod_rows:
+                # Prefer shop with max quantity; ties broken alphabetically
+                best = max(prod_rows, key=lambda r: (int(r[3] or 0), r[2]))
+                shop = best[2]
+            else:
+                shop = shops[0]
         else:
             shop = shops[0] if shops else ""
 
